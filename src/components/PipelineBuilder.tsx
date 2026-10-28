@@ -32,7 +32,7 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
           const csvLines = [keys.join(',')];
           data.data.forEach((row: any) => {
             const line = keys.map(k => {
-              let val = row[k];
+              const val = row[k];
               if (val === null || val === undefined) return '';
               const str = String(val);
               if (str.includes(',') || str.includes('"') || str.includes('\n')) {

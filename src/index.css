@@ -611,3 +611,35 @@ h1, h2, h3, h4 {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ============================================================================
+   ENTRANCE ANIMATIONS
+   These classes were referenced across the components but never defined, so
+   result panels and toasts appeared with no transition at all.
+   ========================================================================= */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes bounce-once {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.25); }
+  70% { transform: scale(0.95); }
+}
+.animate-fade-in { animation: fade-in 0.45s ease-out both; }
+.animate-toast-in { animation: toast-in 0.3s ease-out both; }
+.animate-bounce-once { animation: bounce-once 0.7s ease-out 1; }
+
+/* Respect the OS "reduce motion" setting: stop looping/decorative motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -787,7 +787,7 @@ Try asking me items like:
                       const midX = window.innerWidth / 2;
                       const paddingX = 16;
                       const buttonSize = 56;
-                      let snapX = mx.get() < midX ? paddingX : window.innerWidth - buttonSize - paddingX;
+                      const snapX = mx.get() < midX ? paddingX : window.innerWidth - buttonSize - paddingX;
                       animate(mx, snapX, { type: 'spring', stiffness: 400, damping: 30 });
                     }, 50);
                   }}
@@ -836,7 +836,7 @@ Try asking me items like:
                         >
                           <div className="whitespace-pre-wrap font-sans">
                             {m.content.split('\n').map((line, idx) => {
-                              let formatted = line;
+                              const formatted = line;
                               
                               // Translate markdowns bold text **abc** inside scaled thread
                               const boldRegex = /\*\*(.*?)\*\*/g;
@@ -1069,7 +1069,7 @@ function runSandboxedDatasetJs(jsCode: string, dataset: any): Promise<any> {
 function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) {
   const msgLower = userMsg.toLowerCase();
   let reply = "";
-  let commands: any[] = [];
+  const commands: any[] = [];
 
   const colNames = ds && Array.isArray(ds.columns) ? ds.columns.map((c: any) => c.name) : [];
   const colNamesList = colNames.join(', ');
@@ -1079,7 +1079,7 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
   if (msgLower.includes('select') || msgLower.includes('update') || msgLower.includes('delete') || msgLower.includes('insert') || msgLower.includes('alter') || msgLower.includes('multiply') || msgLower.includes('double') || msgLower.includes('calculate')) {
     let isQueryProcessed = false;
     let jsCode = "";
-    let sqlQuery = userMsg;
+    const sqlQuery = userMsg;
     let explanation = "";
 
     // 1. SELECT query parsing (e.g., SELECT * FROM dataset WHERE Age > 30)
@@ -1114,7 +1114,7 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
       const matchSet = msgLower.match(/set\s+(\w+)\s*=\s*([^where]+)/i);
       if (matchSet) {
         const colToUpdate = colNames.find((c: string) => c.toLowerCase() === matchSet[1].toLowerCase()) || matchSet[1];
-        let expr = matchSet[2].trim();
+        const expr = matchSet[2].trim();
         
         let whereCol: string | null = null;
         let whereOp = "===";
@@ -1213,7 +1213,7 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
 
     if (!isQueryProcessed) {
       // Fallback custom mutator for general commands e.g. "double MonthlyCharges" or "multiply tenure by 10"
-      let foundCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase()));
+      const foundCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase()));
       if (foundCol) {
         let scale = 1;
         if (msgLower.includes('double')) scale = 2;

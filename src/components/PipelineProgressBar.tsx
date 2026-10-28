@@ -347,7 +347,7 @@ export default function PipelineProgressBar({ activeTab, setActiveTab }: Pipelin
 
           {/* Toast Notification for Mobile */}
           {toastMessage && isMobile && (
-              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800/95 backdrop-blur-md border border-slate-700 text-white px-5 py-2.5 rounded-full text-xs shadow-2xl z-[200] animate-in fade-in slide-in-from-bottom-6 whitespace-nowrap font-medium flex items-center gap-2">
+              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800/95 backdrop-blur-md border border-slate-700 text-white px-5 py-2.5 rounded-full text-xs shadow-2xl z-[200] animate-toast-in whitespace-nowrap font-medium flex items-center gap-2">
                   <Lock className="w-3.5 h-3.5 text-rose-400" />
                   {toastMessage}
               </div>

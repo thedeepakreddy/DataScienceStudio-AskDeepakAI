@@ -10,8 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "lint:eslint": "eslint .",
-    "reorder": "node move_dev.js"
+    "lint:eslint": "eslint ."
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

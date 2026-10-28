@@ -51,6 +51,7 @@ import {
   BrainCircuit
 } from 'lucide-react';
 import { Dataset } from '../types';
+import { isIdentifierColumn } from '../utils/csvParser';
 
 import { DashboardProvider } from './DashboardContext';
 import IntelligentDashboardLayer from './IntelligentDashboardLayer';
@@ -662,7 +663,7 @@ if __name__ == "__main__":
   }, [geoColumns, isGeographicallyEnriched]);
 
   // Find Slicer targets & Multi-Filter Options
-  const categoricalCols = dataset.columns.filter(c => c.type === 'categorical' || c.type === 'boolean');
+  const categoricalCols = dataset.columns.filter(c => (c.type === 'categorical' || c.type === 'boolean') && !isIdentifierColumn(c, dataset.rowCount));
   const numericCols = dataset.columns.filter(c => c.type === 'numeric');
 
   // Master lists of Slicers in active use

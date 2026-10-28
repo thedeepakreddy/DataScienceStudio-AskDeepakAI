@@ -14,6 +14,23 @@ import SmartAreaChart from './SmartAreaChart';
 import SmartDataTable from './SmartDataTable';
 import FiltersPanel from './FiltersPanel';
 import SlicersPanel from './SlicersPanel';
+import { isIdentifierColumn } from '../utils/csvParser';
+
+const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+/** Plain-language observations computed from the rows currently on screen - used when no AI narrative is available. */
+function buildLocalInsights(rows: any[], metrics: { name: string; average: number; count: number }[]): string[] {
+  const insights = [`${rows.length.toLocaleString()} records are in the current view.`];
+  for (const m of metrics.filter(m => m.count > 0).slice(0, 2)) {
+    let min = Infinity, max = -Infinity;
+    for (const r of rows) {
+      const v = Number(r[m.name]);
+      if (!isNaN(v)) { if (v < min) min = v; if (v > max) max = v; }
+    }
+    insights.push(`${m.name} averages ${fmt(m.average)}, ranging from ${fmt(min)} to ${fmt(max)}.`);
+  }
+  return insights;
+}
 
 const COMPONENT_LIST = [
   'KPI Cards', 'Line Chart', 'Bar Chart', 'Pie Chart', 'Scatter Plot', 
@@ -42,6 +59,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
   const [configError, setConfigError] = useState<string | null>(null);
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [copiedInsights, setCopiedInsights] = useState(false);
+  const [insightsAreAi, setInsightsAreAi] = useState(true);
   const [customProblem, setCustomProblem] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -122,21 +140,27 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
     const aiRec = config?.recommendedComponents?.find((c: any) => c.type === type);
     if (aiRec && aiRec.columnsToUse && aiRec.columnsToUse.length > 0) return aiRec.columnsToUse;
 
-    const nums = dataset.columns.filter((c:any) => c.type === 'numeric').map((c:any) => c.name);
-    const cats = dataset.columns.filter((c:any) => c.type === 'categorical' || c.type === 'boolean').map((c:any) => c.name);
-    const all = dataset.columns.map((c:any) => c.name);
+    // Identifier columns (CustomerID, ...) make meaningless axes, so defaults skip them.
+    const usable = dataset.columns.filter((c:any) => !isIdentifierColumn(c, dataset.rowCount));
+    const pool = usable.length > 0 ? usable : dataset.columns;
+    const nums = pool.filter((c:any) => c.type === 'numeric').map((c:any) => c.name);
+    // Readable breakdowns first: categories with a handful of distinct values beat 40-bar charts.
+    const catCols = pool.filter((c:any) => c.type === 'categorical' || c.type === 'boolean');
+    const cats = [...catCols.filter((c:any) => c.distinctCount >= 2 && c.distinctCount <= 12), ...catCols.filter((c:any) => c.distinctCount < 2 || c.distinctCount > 12)].map((c:any) => c.name);
+    const all = pool.map((c:any) => c.name);
+    const timeAxis = pool.find((c:any) => c.type === 'datetime')?.name || all[0] || 'Unknown';
 
     const safeN = (i: number) => nums[i] || all[i] || 'Unknown';
     const safeC = (i: number) => cats[i] || all[i] || 'Unknown';
     
     switch(type) {
-      case 'Line Chart': return [all[0] || 'Unknown', safeN(0)];
+      case 'Line Chart': return [timeAxis, safeN(0)];
       case 'Bar Chart': return [safeC(0), safeN(0)];
       case 'Pie Chart': return [safeC(0)];
       case 'Scatter Plot': return [safeN(0), safeN(1) || safeN(0), safeC(0)];
       case 'Histogram': return [safeN(0)];
       case 'Box Plot': return [safeN(0), safeC(0)];
-      case 'Area Chart': return [all[0] || 'Unknown', safeN(0)];
+      case 'Area Chart': return [timeAxis, safeN(0)];
       default: return [];
     }
   };
@@ -195,11 +219,18 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
         body: JSON.stringify({ dataStateSummary: summary })
       });
       const data = await response.json();
-      if (data && data.insights) {
+      if (data && Array.isArray(data.insights) && data.insights.length > 0) {
         setInsightBannerData(data.insights);
+        setInsightsAreAi(true);
+      } else {
+        // No AI narrative available (no API key, or the call returned nothing): describe the real numbers instead.
+        setInsightBannerData(buildLocalInsights(filteredData, summary.metrics || []));
+        setInsightsAreAi(false);
       }
     } catch (e) {
       console.error(e);
+      setInsightBannerData(buildLocalInsights(filteredData, []));
+      setInsightsAreAi(false);
     } finally {
       setLoadingInsights(false);
     }
@@ -257,7 +288,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
               <Sparkles className="w-5 h-5 text-indigo-400" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-indigo-300 mb-2">AI Business Insights (Current Dashboard View)</h3>
+              <h3 className="text-sm font-bold text-indigo-300 mb-2">{insightsAreAi ? 'AI Business Insights' : 'Key Insights'} (Current Dashboard View)</h3>
               <ul className="space-y-2">
                 {insightBannerData.map((item, i) => (
                   <li key={i} className="text-xs text-slate-300 flex items-start gap-2">

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useDashboardContext } from './DashboardContext';
 import { Filter, X } from 'lucide-react';
+import { isIdentifierColumn } from '../utils/csvParser';
 
 interface FiltersPanelProps {
   dataset: any;
@@ -10,7 +11,9 @@ export default function FiltersPanel({ dataset }: FiltersPanelProps) {
   const { categoryFilters, setCategoryFilters, setDateRanges, dateRanges } = useDashboardContext();
 
   const categoricalColumns = useMemo(() => {
-    return dataset.columns.filter((c: any) => c.type === 'categorical' || c.type === 'boolean').map((c: any) => c.name);
+    return dataset.columns
+      .filter((c: any) => (c.type === 'categorical' || c.type === 'boolean') && !isIdentifierColumn(c, dataset.rowCount))
+      .map((c: any) => c.name);
   }, [dataset]);
 
   const dateColumns = useMemo(() => {
@@ -20,7 +23,7 @@ export default function FiltersPanel({ dataset }: FiltersPanelProps) {
   const uniqueValues = useMemo(() => {
     const vals: Record<string, string[]> = {};
     categoricalColumns.forEach((col: string) => {
-      const unique = Array.from(new Set(dataset.rows.map((r: any) => String(r[col] || 'Unknown'))));
+      const unique = Array.from(new Set(dataset.rows.map((r: any) => (r[col] === undefined || r[col] === null ? 'Unknown' : String(r[col])))));
       vals[col] = unique as string[];
     });
     return vals;

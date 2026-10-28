@@ -5,6 +5,35 @@
 
 import { Dataset, DatasetColumn } from '../types';
 
+// Date.parse is far too lenient on its own: V8's legacy parser reads an ID such
+// as "C-10251" as the year 10251. Require the string to look like a date first.
+const DATE_SHAPES = [
+  /^\d{4}-\d{1,2}-\d{1,2}([T ]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/, // 2024-01-31, 2024-01-31T10:00:00Z
+  /^\d{4}\/\d{1,2}\/\d{1,2}$/, // 2024/01/31
+  /^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/, // 1/31/2024, 31-01-2024
+  /^(\d{1,2} )?[A-Za-z]{3,9}\.? (\d{1,2},? )?\d{4}$/, // Jan 31 2024, 31 January 2024, March 2024
+];
+
+export function isDateString(v: unknown): boolean {
+  const str = String(v).trim();
+  return str.length > 5 && DATE_SHAPES.some(re => re.test(str)) && !isNaN(Date.parse(str));
+}
+
+// "customer_id", "ID", "id_code", "CustomerID"/"CustomerId" (camelCase) - but not "Paid".
+const ID_NAME_PATTERNS = [/(^|[\s_-])(id|uuid|guid)$/i, /^id[\s_-]/i, /[a-z](ID|Id|UUID|GUID)$/];
+
+/**
+ * True for columns that identify a row rather than describe it (CustomerID,
+ * order_id, a unique free-text column). Fed to a model they just memorise the
+ * training rows, so they should not be pre-selected as features.
+ */
+export function isIdentifierColumn(col: DatasetColumn, rowCount: number): boolean {
+  const filled = rowCount - col.missingCount;
+  const nameIsId = col.type !== 'boolean' && ID_NAME_PATTERNS.some(re => re.test(col.name));
+  const uniqueText = col.type === 'categorical' && filled >= 10 && col.distinctCount === filled;
+  return nameIsId || uniqueText;
+}
+
 export function parseCSV(text: string, filename: string): Dataset {
   const lines: string[] = [];
   let currentWord = '';
@@ -95,26 +124,20 @@ export function parseCSV(text: string, filename: string): Dataset {
     let booleanCount = 0;
     let dateCount = 0;
 
-    const parsedValues = values.map(v => {
+    values.forEach(v => {
       const trimmed = String(v).trim().toLowerCase();
       // Boolean check
       if (trimmed === 'true' || trimmed === 'false' || trimmed === 'yes' || trimmed === 'no') {
         booleanCount++;
-        return trimmed === 'true' || trimmed === 'yes';
+        return;
       }
       // Number check
       const num = Number(v);
       if (!isNaN(num) && v !== '') {
         numberCount++;
-        return num;
+        return;
       }
-      // Date check
-      const d = Date.parse(v);
-      if (!isNaN(d) && String(v).length > 5 && isNaN(Number(v))) {
-        dateCount++;
-        return new Date(d);
-      }
-      return v;
+      if (isDateString(v)) dateCount++;
     });
 
     let detectedType: 'numeric' | 'categorical' | 'boolean' | 'datetime' = 'categorical';
@@ -138,8 +161,7 @@ export function parseCSV(text: string, filename: string): Dataset {
         const trm = String(val).trim().toLowerCase();
         r[name] = trm === 'true' || trm === 'yes' || trm === '1';
       } else if (detectedType === 'datetime') {
-        const d = Date.parse(val);
-        r[name] = isNaN(d) ? val : new Date(d).toISOString();
+        r[name] = isDateString(val) ? new Date(Date.parse(val)).toISOString() : val;
       } else {
         r[name] = String(val);
       }

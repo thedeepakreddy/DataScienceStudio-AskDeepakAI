@@ -148,7 +148,7 @@ export function runKMeans(
   }
 
   // Centroids initialization (Deterministic spaced sampling to avoid empty clusters)
-  let centroids: number[][] = [];
+  const centroids: number[][] = [];
   for (let i = 0; i < k; i++) {
     const targetIdx = Math.min(
       Math.floor((rows.length / k) * i + (rows.length / (k * 2))),
@@ -157,7 +157,7 @@ export function runKMeans(
     centroids.push([...dataStore[targetIdx]]);
   }
 
-  let clusterAssignments = Array(rows.length).fill(-1);
+  const clusterAssignments = Array(rows.length).fill(-1);
   let iteration = 0;
   let assignmentsChanged = true;
 
@@ -274,7 +274,7 @@ export function runPCAReduction(
   const getTopEigenvector = (matrix: number[][], numIterations = 30): number[] => {
     let vec = Array(colCount).fill(0).map(() => Math.random() - 0.5);
     for (let iter = 0; iter < numIterations; iter++) {
-      let nextVec = Array(colCount).fill(0);
+      const nextVec = Array(colCount).fill(0);
       for (let r = 0; r < colCount; r++) {
         for (let c = 0; c < colCount; c++) {
           nextVec[r] += matrix[r][c] * vec[c];
