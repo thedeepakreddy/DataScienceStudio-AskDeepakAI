@@ -44,6 +44,7 @@ import {
   LineChart as RechartsLineChart
 } from 'recharts';
 import { Dataset, MLResult } from '../types';
+import { isIdentifierColumn } from '../utils/csvParser';
 import {
   evaluateTargetSuitability,
   auditModelLeakage,
@@ -124,6 +125,10 @@ export default function MLPipeline({
   const datasetColumnsStr = dataset.columns.map(c => c.name).join(',');
 
   useEffect(() => {
+    // ID columns (CustomerID, order_id, ...) only let a model memorise rows, so they are not pre-selected.
+    const usableFeatureNames = new Set(
+      dataset.columns.filter(c => !isIdentifierColumn(c, dataset.rowCount)).map(c => c.name)
+    );
     if (aiSuggestedTarget) {
       setTarget(aiSuggestedTarget);
     }
@@ -131,11 +136,11 @@ export default function MLPipeline({
       setModelType(aiSuggestedType as any);
     }
     if (aiSuggestedFeatures && aiSuggestedFeatures.length > 0) {
-      setSelectedFeatures(aiSuggestedFeatures.filter(f => dataset.columns.some(col => col.name === f)));
+      setSelectedFeatures(aiSuggestedFeatures.filter(f => usableFeatureNames.has(f)));
     } else {
-      // Default to picking numeric columns excluding target
+      // Default to the first few non-identifier columns, excluding the target
       const t = aiSuggestedTarget || dataset.columns[dataset.columns.length - 1]?.name;
-      const initial = dataset.columns.map(c => c.name).filter(n => n !== t).slice(0, 5);
+      const initial = dataset.columns.map(c => c.name).filter(n => n !== t && usableFeatureNames.has(n)).slice(0, 5);
       setSelectedFeatures(initial);
     }
   }, [aiSuggestedTarget, aiSuggestedType, aiSuggestedFeaturesStr, datasetColumnsStr]);
@@ -641,7 +646,7 @@ export default function MLPipeline({
                   <select
                     value={clusterK}
                     onChange={(e) => setClusterK(Number(e.target.value))}
-                    className="w-full bg-[#111625] border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 font-mono cursor-pointer animate-pulse-once"
+                    className="w-full bg-[#111625] border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 font-mono cursor-pointer"
                   >
                     <option value={2}>2 Clusters</option>
                     <option value={3}>3 Clusters</option>
@@ -1053,12 +1058,12 @@ export default function MLPipeline({
                             return (
                               <tr key={i} className="hover:bg-slate-900/20">
                                 <td className="py-2.5 text-slate-500 font-semibold">#{pred.id}</td>
-                                <td className="py-2.5 font-bold text-slate-300">{pred.actual}</td>
+                                <td className="py-2.5 font-bold text-slate-300">{String(pred.actual)}</td>
                                 <td className="py-2.5 font-black text-white">
                                   {mlResult.modelType === 'classification' ? (
-                                    <span className={isCorrect ? 'text-emerald-400' : 'text-rose-400'}>{pred.predicted}</span>
+                                    <span className={isCorrect ? 'text-emerald-400' : 'text-rose-400'}>{String(pred.predicted)}</span>
                                   ) : (
-                                    pred.predicted
+                                    String(pred.predicted)
                                   )}
                                 </td>
                                 <td className="py-2.5 text-right font-bold text-indigo-300">

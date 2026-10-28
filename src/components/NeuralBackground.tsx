@@ -77,7 +77,8 @@ export default function NeuralBackground() {
     if (!ctx) return;
 
     // Set precise high-DPI scaling relative to exact viewport dimensions
-    const dpr = window.devicePixelRatio || 1;
+    // Capped: this canvas is full-viewport, so a 2-3x backing store multiplies the per-frame cost.
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     canvas.width = windowSize.width * dpr;
     canvas.height = windowSize.height * dpr;
     ctx.scale(dpr, dpr);
@@ -141,7 +142,7 @@ export default function NeuralBackground() {
     }
 
     // Active bioluminescent electrical pulses flowing down into the center
-    let signals: Signal[] = [];
+    const signals: Signal[] = [];
 
     const spawnSignal = () => {
       if (traces.length === 0) return;
@@ -170,7 +171,19 @@ export default function NeuralBackground() {
     let frameCount = 0;
     let chipEnergy = 0.5; // Pulsing scale representing total aggregated data life charge
 
-    const render = () => {
+    // The backdrop sits behind many blurred glass panels, so every repaint also
+    // forces those blurs to be recomputed. 30fps looks the same for a slow
+    // ambient animation and roughly halves that cost; hidden tabs skip painting.
+    const FRAME_INTERVAL_MS = 1000 / 30;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    let lastPaint = 0;
+
+    const render = (now: number = 0) => {
+      if (!reducedMotion && (document.hidden || now - lastPaint < FRAME_INTERVAL_MS)) {
+        animationFrameId = requestAnimationFrame(render);
+        return;
+      }
+      lastPaint = now;
       frameCount++;
       ctx.clearRect(0, 0, windowSize.width, windowSize.height);
 
@@ -302,20 +315,20 @@ export default function NeuralBackground() {
       const midY = cy + hoverOffset;
       const botY = cy + pillH + pillGap + hoverOffset;
 
-      let topX = cx - pillW / 2;
-      let topW = pillW;
+      const topX = cx - pillW / 2;
+      const topW = pillW;
       let topMaskX = pillW * 0.58; // original resting right position of dark blue slice
-      let topMaskW = pillW * 0.38;
+      const topMaskW = pillW * 0.38;
 
       let midX = cx - pillW / 2;
-      let midW = pillW;
+      const midW = pillW;
       let midKnobX = pillW * 0.28; // original custom switch offset
 
       let botX = cx - pillW / 2;
       let botW = pillW;
       let botDotX = cx - pillW / 2;
       let botDotActive = false;
-      let botDotRadius = pillH / 2;
+      const botDotRadius = pillH / 2;
 
       // Apply coordinates changes for the active stage
       if (stage === 0) {
@@ -493,7 +506,7 @@ export default function NeuralBackground() {
 
       // 5. Background diagnostic overlays removed as requested
 
-      animationFrameId = requestAnimationFrame(render);
+      if (!reducedMotion) animationFrameId = requestAnimationFrame(render);
     };
 
     render();
@@ -511,7 +524,7 @@ export default function NeuralBackground() {
     >
       <canvas
         ref={canvasRef}
-        className="block w-full h-full opacity-[0.45]"
+        className="block w-full h-full opacity-[0.22]"
       />
     </div>
   );

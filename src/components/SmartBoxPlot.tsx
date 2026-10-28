@@ -12,7 +12,7 @@ export default function SmartBoxPlot({ column, groupColumn }: SmartBoxPlotProps)
   const plotData = useMemo(() => {
     if (!filteredData || filteredData.length === 0) return [];
 
-    let groups: Record<string, number[]> = {};
+    const groups: Record<string, number[]> = {};
     if (groupColumn) {
       filteredData.forEach(row => {
         let key = row[groupColumn];

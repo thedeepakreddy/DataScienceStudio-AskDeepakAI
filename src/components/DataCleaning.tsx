@@ -392,7 +392,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
     }
 
     let updatedRows = [...dataset.rows];
-    let createdColsMeta: DatasetColumn[] = [];
+    const createdColsMeta: DatasetColumn[] = [];
 
     if (feTransform === 'onehot') {
       // One-Hot Encoding

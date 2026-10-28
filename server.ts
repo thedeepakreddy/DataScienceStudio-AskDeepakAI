@@ -254,7 +254,7 @@ async function callMlService(path: string, options: { method?: string; body?: an
       return parsed;
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        throw new Error(`ML compute service timed out after ${ML_SERVICE_TIMEOUT_MS / 1000}s at ${ML_SERVICE_URL}.`);
+        throw new Error(`ML compute service timed out after ${ML_SERVICE_TIMEOUT_MS / 1000}s at ${ML_SERVICE_URL}.`, { cause: err });
       }
       const msg = String(err?.message || err);
       // Node's fetch (undici) wraps connection-level failures in a generic
@@ -274,12 +274,14 @@ async function callMlService(path: string, options: { method?: string; body?: an
           continue;
         }
         throw new Error(
-          `The ML compute service's connection was interrupted while processing this request, most likely because it ran out of memory and restarted during a large training job. If this keeps happening on the same dataset, try switching off "Auto" and training a single algorithm instead of all 5, or training on fewer rows.`
+          `The ML compute service's connection was interrupted while processing this request, most likely because it ran out of memory and restarted during a large training job. If this keeps happening on the same dataset, try switching off "Auto" and training a single algorithm instead of all 5, or training on fewer rows.`,
+          { cause: err }
         );
       }
       if (/ECONNREFUSED|fetch failed|ENOTFOUND/i.test(msg)) {
         throw new Error(
-          `ML compute service is unreachable at ${ML_SERVICE_URL}. Start it with: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000`
+          `ML compute service is unreachable at ${ML_SERVICE_URL}. Start it with: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000`,
+          { cause: err }
         );
       }
       throw err;
@@ -765,13 +767,13 @@ app.post('/api/chat-bot', async (req, res) => {
   const getFallbackResponse = () => {
     const msgLower = userMsg.toLowerCase();
     let reply = "";
-    let commands: any[] = [];
+    const commands: any[] = [];
 
     // Prioritized SQL Command parser fallback
     if (msgLower.includes('select') || msgLower.includes('update') || msgLower.includes('delete') || msgLower.includes('insert') || msgLower.includes('alter') || msgLower.includes('multiply') || msgLower.includes('double') || msgLower.includes('calculate')) {
       let isQueryProcessed = false;
       let jsCode = "";
-      let sqlQuery = userMsg;
+      const sqlQuery = userMsg;
       let explanation = "";
 
       // 1. SELECT query parsing (e.g., SELECT * FROM dataset WHERE Age > 30)
@@ -811,7 +813,7 @@ app.post('/api/chat-bot', async (req, res) => {
         const matchSet = msgLower.match(/set\s+(\w+)\s*=\s*(.+?)(?:\s+where\b|$)/i);
         if (matchSet) {
           const colToUpdate = colNames.find(c => c.toLowerCase() === matchSet[1].toLowerCase()) || matchSet[1];
-          let expr = matchSet[2].trim();
+          const expr = matchSet[2].trim();
           
           let whereCol: string | null = null;
           let whereOp = "===";
@@ -910,7 +912,7 @@ app.post('/api/chat-bot', async (req, res) => {
 
       if (!isQueryProcessed) {
         // Fallback custom mutator for general commands e.g. "double MonthlyCharges" or "multiply tenure by 10"
-        let foundCol = colNames.find(c => msgLower.includes(c.toLowerCase()));
+        const foundCol = colNames.find(c => msgLower.includes(c.toLowerCase()));
         if (foundCol) {
           let scale = 1;
           if (msgLower.includes('double')) scale = 2;
@@ -1361,7 +1363,7 @@ app.post('/api/hypothesis-lab/interpret', async (req, res) => {
 
   if (!hasKey) {
     const r = result || {};
-    return res.json({ interpretation: `Real test result: ${r.testName || 'statistical test'} on ${r.sampleSize ?? 'the'} rows produced a p-value of ${r.pValue ?? 'N/A'}, so the null hypothesis is ${r.rejectNull ? 'rejected' : 'not rejected'} at the 0.05 significance level. Configure GEMINI_API_KEY for an AI-written plain-English interpretation of this same real result.` });
+    return res.json({ interpretation: `Real test result: ${r.testName || 'statistical test'} on ${r.sampleSize ?? 'the'} rows produced a p-value of ${r.pValue ?? 'N/A'}, so the null hypothesis is ${r.rejectNull ? 'rejected' : 'not rejected'} at the 0.05 significance level. Enable the AI assistant for a plain-English write-up of this same result.` });
   }
 
   try {
@@ -1913,7 +1915,7 @@ Return strict JSON:
 
 import { Client } from 'pg';
 
-let savedDbConfig: any = null;
+const savedDbConfig: any = null;
 
 app.post('/api/db-connections', async (req, res) => {
   const { provider, connectionString, schedule } = req.body;
@@ -1964,7 +1966,7 @@ app.post('/api/db-connections', async (req, res) => {
 
     } catch (err: any) {
       // try to end client if it's connected
-      try { await client.end(); } catch (e) {}
+      try { await client.end(); } catch { /* connection already closed */ }
 
       let errorMsg = err.message || String(err);
 
@@ -2179,7 +2181,7 @@ ${cvLine}
 #### Top Predictive Features
 ${topFeatures.length > 0 ? topFeatures.map((f, i) => `${i + 1}. ${f}`).join('\n') : 'No feature importances were returned for this model.'}
 
-_These numbers come directly from a scikit-learn/XGBoost model trained and evaluated on a held-out test split. Configure GEMINI_API_KEY for an AI-written business narrative of these same results._`;
+_These numbers come directly from a scikit-learn/XGBoost model trained and evaluated on a held-out test split. Enable the AI assistant for a written business narrative of these same results._`;
 
   return {
     markdownReport,
@@ -2225,7 +2227,7 @@ function buildEdaTemplateNarrative(edaResult: any) {
     `${highMissing.length} column(s) exceed 20% missing values. ` +
     `${highSkew.length} numeric column(s) show skew beyond ±1. ` +
     `${withOutliers.length} numeric column(s) have IQR-flagged outliers. ` +
-    `Configure GEMINI_API_KEY for an AI-written narrative of these same real numbers.`;
+    `Enable the AI assistant for a written narrative of these same real numbers.`;
 
   const dataQualityFlags = [
     ...highMissing.map((m: any) => ({
@@ -2321,7 +2323,7 @@ function buildModelExplainerFallback(featureImportance: any, metrics: any) {
       : 'the metrics shown';
 
   return {
-    overallSummary: `Configure GEMINI_API_KEY for an AI-written explanation. In the meantime: this model reached ${metricLine}, and its real, measured feature-importance weights are listed below in ranked order.`,
+    overallSummary: `AI-written explanation is currently unavailable, so here are the measured results: this model reached ${metricLine}, and its real, measured feature-importance weights are listed below in ranked order.`,
     topFeatures: ranked.map((f: any) => ({
       featureName: f.feature,
       explanation: `"${f.feature}" carries a real measured importance score of ${f.score} in the trained model — the highest-weighted features drive most of its predictions.`,
