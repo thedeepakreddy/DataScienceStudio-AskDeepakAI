@@ -81,3 +81,14 @@ def test_train_shap_importance_present_for_champion(client, classification_rows)
     assert shap_importance is not None and len(shap_importance) > 0
     for item in shap_importance:
         assert "feature" in item and "score" in item and item["score"] >= 0
+
+
+def test_train_continuous_target_is_not_treated_as_classification(client, regression_rows):
+    # A caller (or UI default) asking for classification on a continuous target
+    # used to fail every model with "Unknown label type: continuous".
+    resp = client.post("/train", json={
+        "data": regression_rows, "target": "target", "task_type": "classification",
+        "models": ["linear", "random_forest"],
+    })
+    assert resp.status_code == 200
+    assert resp.json()["task"] == "regression"

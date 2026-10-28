@@ -244,7 +244,7 @@ async function callMlService(path: string, options: { method?: string; body?: an
           continue;
         }
         const detail = parsed?.detail || parsed?.error || (parsed ? JSON.stringify(parsed) : null);
-        if (detail) throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        if (detail) throw Object.assign(new Error(typeof detail === 'string' ? detail : JSON.stringify(detail)), { httpStatus: response.status });
         throw new Error(
           GATEWAY_RETRY_STATUSES.has(response.status)
             ? `The ML compute service is waking up from an idle sleep (its free-tier host spins it down after inactivity) and still hasn't responded after ~${Math.round(GATEWAY_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0) / 1000)}s of retries. It should be warm now - please try again.`
@@ -532,9 +532,12 @@ app.post('/api/run-ml-prediction', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[AskDeepakAI ML] Real training call failed:', err);
-    return res.status(503).json({
+    // A 4xx/5xx *from* the service means it is running and rejected this data - show its message,
+    // and only suggest starting the service when it could not be reached at all.
+    const serviceRejected = typeof err.httpStatus === 'number';
+    return res.status(serviceRejected ? 422 : 503).json({
       error: err.message || 'The ML compute service is unavailable, so no model was trained.',
-      hint: 'Start the Python service: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000'
+      ...(serviceRejected ? {} : { hint: 'Start the Python service: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000' })
     });
   }
 
@@ -672,9 +675,12 @@ app.post('/api/eda', async (req, res) => {
     edaResult = await callMlService('/eda', { body: { data: rows } });
   } catch (err: any) {
     console.error('[AskDeepakAI EDA] Real EDA computation failed:', err);
-    return res.status(503).json({
+    // A 4xx/5xx *from* the service means it is running and rejected this data - show its message,
+    // and only suggest starting the service when it could not be reached at all.
+    const serviceRejected = typeof err.httpStatus === 'number';
+    return res.status(serviceRejected ? 422 : 503).json({
       error: err.message || 'The EDA compute service is unavailable, so no analysis was run.',
-      hint: 'Start the Python service: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000'
+      ...(serviceRejected ? {} : { hint: 'Start the Python service: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000' })
     });
   }
 

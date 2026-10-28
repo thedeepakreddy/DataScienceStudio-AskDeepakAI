@@ -398,6 +398,18 @@ def to_native(value):
     return value
 
 
+def finite_or_none(value):
+    """Recursively replace NaN/inf floats with None so the response is valid JSON
+    (extreme inputs can overflow variance/skew/correlation to inf)."""
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: finite_or_none(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [finite_or_none(v) for v in value]
+    return value
+
+
 def apply_column_transform(series: pd.Series, method: str) -> pd.Series:
     """Real, deterministic column transforms for the agentic loop. Shifts
     only when the data's actual range requires it to stay in-domain, so a
@@ -598,8 +610,13 @@ def train_model(request: TrainRequest):
     # Determine task type
     numeric_target = pd.api.types.is_numeric_dtype(y_raw)
     distinct = y_raw.nunique()
+    # Many distinct, non-integer numeric values = a continuous target; sklearn classifiers reject
+    # those outright, so it is regression no matter what task the caller asked for.
+    continuous_target = bool(
+        numeric_target and distinct > 15 and not (y_raw.dropna() % 1 == 0).all()
+    )
     if request.task_type:
-        task = request.task_type
+        task = "regression" if (request.task_type == "classification" and continuous_target) else request.task_type
     else:
         task = "regression" if (numeric_target and distinct > 15) else "classification"
 
@@ -931,7 +948,7 @@ def run_eda(request: EdaRequest):
             ],
         })
 
-    return {
+    return finite_or_none({
         "rowCount": int(len(df)),
         "columnCount": int(len(df.columns)),
         "numericSummaries": numeric_summaries,
@@ -939,7 +956,7 @@ def run_eda(request: EdaRequest):
         "correlation": correlation,
         "missingReport": missing_report,
         "categoricalSummaries": categorical_summaries,
-    }
+    })
 
 
 @app.post("/predict")

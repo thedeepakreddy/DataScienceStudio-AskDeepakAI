@@ -73,12 +73,16 @@ interface MLPipelineProps {
   loadingML: boolean;
 }
 
+// Continuous numeric targets must be regression: sklearn classifiers reject them outright.
+const inferModelType = (col?: { type: string; distinctCount: number }): 'classification' | 'regression' =>
+  col && (col.type === 'categorical' || col.type === 'boolean' || col.distinctCount < 10) ? 'classification' : 'regression';
+
 const REAL_ALGORITHM_OPTIONS = ['auto', 'linear', 'random_forest', 'xgboost', 'mlp'];
 
 export default function MLPipeline({
   dataset,
   aiSuggestedTarget = '',
-  aiSuggestedType = 'classification',
+  aiSuggestedType,
   aiSuggestedFeatures = [],
   onTriggerPrediction,
   mlResult,
@@ -87,7 +91,9 @@ export default function MLPipeline({
   const { expertMode } = usePipelineContext();
   const [target, setTarget] = useState(aiSuggestedTarget || dataset.columns[dataset.columns.length - 1]?.name || '');
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
-  const [modelType, setModelType] = useState<'classification' | 'regression' | 'timeseries'>('classification');
+  const [modelType, setModelType] = useState<'classification' | 'regression' | 'timeseries'>(() =>
+    inferModelType(dataset.columns.find(c => c.name === (aiSuggestedTarget || dataset.columns[dataset.columns.length - 1]?.name)))
+  );
 
   // Real model selector — trimmed to algorithms this app can genuinely train
   // (scikit-learn Linear/Logistic Regression, Random Forest, XGBoost, MLP).
@@ -132,9 +138,10 @@ export default function MLPipeline({
     if (aiSuggestedTarget) {
       setTarget(aiSuggestedTarget);
     }
-    if (aiSuggestedType) {
-      setModelType(aiSuggestedType as any);
-    }
+    // Only trust the advisor's type if it matches the target's data; otherwise follow the data.
+    const targetName = aiSuggestedTarget || dataset.columns[dataset.columns.length - 1]?.name;
+    const inferredType = inferModelType(dataset.columns.find(c => c.name === targetName));
+    setModelType(aiSuggestedType === 'timeseries' ? 'timeseries' : inferredType);
     if (aiSuggestedFeatures && aiSuggestedFeatures.length > 0) {
       setSelectedFeatures(aiSuggestedFeatures.filter(f => usableFeatureNames.has(f)));
     } else {
