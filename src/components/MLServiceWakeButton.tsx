@@ -96,10 +96,10 @@ export default function MLServiceWakeButton() {
   };
 
   const view = {
-    idle:   { Icon: Power,        label: 'Wake ML Service', cls: 'border-[#3bc8c8]/20 bg-[#3bc8c8]/5 hover:bg-[#3bc8c8]/15 hover:border-[#3bc8c8]/40 text-[#3bc8c8]' },
-    waking: { Icon: Loader2,      label: `Waking… ${elapsed}s`, cls: 'border-amber-400/30 bg-amber-400/10 text-amber-300' },
-    online: { Icon: CheckCircle2, label: 'ML Service On', cls: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' },
-    error:  { Icon: AlertTriangle,label: 'Wake Failed', cls: 'border-rose-400/30 bg-rose-400/10 text-rose-300' },
+    idle:   { Icon: Power,         label: 'Wake ML Engine',      cls: 'bg-fill hover:bg-fill-strong text-label' },
+    waking: { Icon: Loader2,       label: `Waking… ${elapsed}s`, cls: 'bg-orange/12 text-orange' },
+    online: { Icon: CheckCircle2,  label: 'ML Engine On',        cls: 'bg-green/12 text-green' },
+    error:  { Icon: AlertTriangle, label: 'Wake Failed',         cls: 'bg-red/12 text-red' },
   }[state];
 
   const { Icon } = view;
@@ -110,16 +110,17 @@ export default function MLServiceWakeButton() {
       onClick={onClick}
       aria-pressed={state === 'online'}
       aria-busy={state === 'waking'}
+      aria-label={view.label}
       title={
         detail ||
         (state === 'idle'
           ? 'Spin up the free-tier ML compute service in the background before training.'
           : 'Click to stop keeping the ML service warm.')
       }
-      className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all duration-300 text-xs font-semibold select-none cursor-pointer font-display ${view.cls}`}
+      className={`btn btn-sm ${view.cls}`}
     >
       <Icon className={`w-3.5 h-3.5 shrink-0 ${state === 'waking' ? 'animate-spin' : ''}`} />
-      <span className="tracking-wide whitespace-nowrap">{view.label}</span>
+      <span className="hidden md:inline">{view.label}</span>
       <span className="sr-only" aria-live="polite">{detail}</span>
     </button>
   );

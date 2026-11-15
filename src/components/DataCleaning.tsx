@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Trash2, RefreshCw, Layers, CheckCircle, Flame, Plus, AlertCircle, Sparkles, Database, FileText, Settings2, BrainCircuit } from 'lucide-react';
+import { Trash2, RotateCcw, CheckCircle, Plus, Minus } from 'lucide-react';
 import { Dataset, CleaningOperation, DatasetColumn } from '../types';
 import DeepQualityAudit from './DeepQualityAudit';
 import { usePipelineContext } from '../contexts/PipelineContext';
@@ -558,497 +558,431 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
     triggerSuccess('Dataset completely restored to original raw state.');
   };
 
-  return (
-    <div className="space-y-8" id="cleaning_module">
-      {/* Dynamic Glass Container */}
-      <div className="bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        {/* Glow Background Elements */}
-        <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl pointer-events-none" />
+  const columnOptions = (withType = false) =>
+    dataset.columns.map(c => (
+      <option key={c.name} value={c.name}>
+        {c.name}{withType ? ` (${c.type})` : ''}
+      </option>
+    ));
 
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-800 z-10 relative">
+  return (
+    <div className="space-y-12" id="cleaning_module">
+      {/* Confirmation — a brief, unobtrusive toast. */}
+      {successMsg && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-raised shadow-xl px-4 py-2.5 text-sm font-medium text-label animate-toast-in"
+        >
+          <CheckCircle className="w-4 h-4 text-green shrink-0" />
+          {successMsg}
+        </div>
+      )}
+
+      <section aria-labelledby="tools-heading">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <span className="text-[10px] font-bold text-indigo-400 tracking-widest font-mono uppercase">DATA PREPARATION</span>
-            <h2 className="text-xl font-extrabold text-white tracking-tight mt-1">2. Cleanse & Prepare Dataset</h2>
-            <p className="text-xs text-slate-450 mt-1 max-w-xl font-sans">
-              Fill empty values with smart averages, remove unused columns, and review spreadsheet rows in real-time.
-            </p>
+            <h2 id="tools-heading" className="section-title">Fix and reshape</h2>
+            <p className="mt-1 text-sm text-label-2">Every change applies instantly and shows up in the preview below.</p>
           </div>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 shrink-0">
-            <span className="bg-[#131B2E]/90 text-indigo-400 text-[10px] font-mono font-bold px-3 py-1 rounded-full border border-indigo-500/30 uppercase tracking-wide flex items-center gap-1.5 shadow-md">
-              <BrainCircuit className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-              ML Pipeline Stage: ACTIVE
-            </span>
-            <button
-              onClick={resetAll}
-              className="text-xs font-mono font-bold text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-500/25 px-4 py-2 rounded-xl cursor-pointer transition-all duration-300 border border-rose-500/20 shadow-md flex items-center gap-2 shrink-0"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Reset Raw State
-            </button>
-          </div>
+          <button type="button" onClick={resetAll} className="btn btn-secondary" disabled={operations.length === 0}>
+            <RotateCcw className="w-4 h-4" /> Reset to Original
+          </button>
         </div>
 
-        {successMsg && (
-          <div className="mb-5 p-3.5 bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 rounded-xl text-xs flex items-center gap-2.5 animate-bounce font-medium shadow-md">
-            <CheckCircle className="w-4 h-4 text-emerald-400 animate-pulse" />
-            <span>{successMsg}</span>
+        {operations.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="Changes applied">
+            <span className="text-xs font-medium text-label-2 mr-1">
+              {operations.length} {operations.length === 1 ? 'change' : 'changes'} applied
+            </span>
+            {operations.map((op) => (
+              <span key={op.id} className="tag bg-green/12 text-green">
+                <CheckCircle className="w-3 h-3" />
+                {describeCleaningOperation(op)}
+              </span>
+            ))}
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10">
-          {/* Missing Value Fill Card */}
-          <div className="border border-slate-800 bg-slate-950/40 rounded-2xl p-5 sm:p-6 space-y-4 hover:border-slate-700 transition-all duration-300 shadow-xl">
-            <h3 className="font-extrabold text-[#748BAA] text-sm flex items-center gap-2 tracking-tight">
-              <Settings2 className="w-4.5 h-4.5 text-indigo-400" /> Smart Missing Data Filler
-            </h3>
-            <div className="space-y-4">
+        <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Fill missing values */}
+          <div className="card p-5 sm:p-6 flex flex-col">
+            <h3 className="card-title">Fill missing values</h3>
+            <p className="mt-1 text-sm text-label-2">Replace empty cells in a column with a sensible value.</p>
+
+            <div className="mt-5 space-y-4 flex-1">
               <div>
-                <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1.5 px-0.5">
-                  Choose Impute Column
-                </label>
+                <label className="field-label" htmlFor="impute-col">Column</label>
                 <select
+                  id="impute-col"
                   value={selectedCol}
                   onChange={(e) => setSelectedCol(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-505 font-mono cursor-pointer"
+                  className="input"
                 >
                   {dataset.columns.map(c => (
-                    <option key={c.name} value={c.name} className="bg-slate-950 text-slate-200">
-                      {c.name} ({(c.type || '').toUpperCase()}) - {c.missingCount} Missing cells
+                    <option key={c.name} value={c.name}>
+                      {c.name} — {c.missingCount === 0 ? 'no missing values' : `${c.missingCount} missing`}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase tracking-widest font-mono text-slate-450 font-bold mb-1.5 px-0.5">
-                  Imputation Strategy
-                </label>
-                <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <span className="field-label">Fill with</span>
+                <div className="grid grid-cols-2 gap-2">
                   {[
-                    { key: 'mean', title: 'Mean Average', desc: 'Numeric fields only' },
-                    { key: 'median', title: 'Median Value', desc: 'Middle-indexed item' },
-                    { key: 'zero', title: "Constant '0'", desc: 'Reset empty to zero' },
-                    { key: 'mode', title: 'Frequent Label', desc: 'Categorical modes' },
+                    { key: 'mean', title: 'Average', desc: 'Mean of the column' },
+                    { key: 'median', title: 'Median', desc: 'Middle value' },
+                    { key: 'zero', title: 'Zero', desc: 'Set empty cells to 0' },
+                    { key: 'mode', title: 'Most common', desc: 'Best for categories' },
                   ].map((strategy) => (
                     <button
                       key={strategy.key}
                       type="button"
+                      aria-pressed={imputeStrategy === strategy.key}
                       onClick={() => setImputeStrategy(strategy.key as any)}
-                      className={`p-3 rounded-xl border text-left transition-all duration-300 cursor-pointer ${
-                        imputeStrategy === strategy.key
-                          ? 'border-indigo-550 bg-indigo-500/10 text-white shadow-md'
-                          : 'border-slate-800 bg-slate-900/40 hover:bg-slate-900/80 text-slate-300 hover:border-slate-700'
-                      }`}
+                      className="option"
                     >
-                      <p className="font-bold">{strategy.title}</p>
-                      <p className="text-[10px] text-slate-500 mt-1 font-normal font-mono">{strategy.desc}</p>
+                      <span className="block text-sm font-medium text-label">{strategy.title}</span>
+                      <span className="block text-xs text-label-2 mt-0.5">{strategy.desc}</span>
                     </button>
                   ))}
                 </div>
               </div>
-
-              <button
-                onClick={handleImputation}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-650/20 transition-all duration-300 mt-4 cursor-pointer border-0"
-              >
-                <Plus className="w-4 h-4" /> Apply Impute Correction
-              </button>
             </div>
+
+            <button type="button" onClick={handleImputation} className="btn btn-primary w-full mt-5">
+              Fill Missing Values
+            </button>
           </div>
 
-          {/* Feature Selector & Drop Redundancies Card */}
-          <div className="border border-slate-800 bg-slate-950/40 rounded-2xl p-5 sm:p-6 space-y-4 hover:border-slate-700 transition-all duration-300 shadow-xl">
-            <h3 className="font-extrabold text-[#748BAA] text-sm flex items-center gap-2 tracking-tight">
-              <Trash2 className="w-4.5 h-4.5 text-rose-500" /> Remove Unused Columns
-            </h3>
-            <p className="text-xs text-slate-400 leading-relaxed font-medium">
-              Drop ID indicators, invariant constants, or static coordinates to collapse dimensionality noise and prevent target value leakage points.
+          {/* Remove columns */}
+          <div className="card p-5 sm:p-6 flex flex-col">
+            <h3 className="card-title">Remove columns</h3>
+            <p className="mt-1 text-sm text-label-2">
+              Drop IDs and anything that won’t help the analysis. IDs can mislead a model.
             </p>
-            <div className="max-h-[200px] overflow-y-auto space-y-2 border border-slate-850 p-3 rounded-xl bg-slate-950/70">
+
+            <ul className="mt-5 -mx-2 flex-1 max-h-[304px] overflow-y-auto divide-y divide-separator">
               {dataset.columns.map(col => {
                 const isId = col.name.toLowerCase().includes('id') || col.name.toLowerCase() === 'index';
                 return (
-                  <div key={col.name} className="flex justify-between items-center text-xs p-2 hover:bg-slate-900/60 rounded-lg group transition-colors">
-                    <span className="font-mono text-slate-300 font-extrabold truncate max-w-[200px] flex items-center gap-2">
-                      {col.name}{' '}
-                      {isId && (
-                        <span className="text-[8px] bg-amber-500/10 text-amber-400 font-sans font-bold border border-amber-500/20 px-1.5 py-0.5 rounded-full uppercase tracking-widest font-mono">
-                          ID Candidate
-                        </span>
-                      )}
+                  <li key={col.name} className="flex items-center justify-between gap-3 px-2 py-2">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm text-label truncate">{col.name}</span>
+                      {isId && <span className="tag bg-orange/12 text-orange">Looks like an ID</span>}
                     </span>
                     <button
                       type="button"
                       onClick={() => handleDropColumn(col.name)}
-                      className="text-rose-400 hover:text-white bg-rose-500/5 hover:bg-rose-500/20 p-2 rounded-xl transition-all duration-300 border border-rose-500/10 cursor-pointer"
-                      title="Drop Column"
+                      className="btn btn-icon w-8 h-8 text-red hover:text-red hover:bg-red/10 shrink-0"
+                      title={`Remove ${col.name}`}
+                      aria-label={`Remove column ${col.name}`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </div>
 
-          {/* Dynamic Column & Row Builder */}
-          <div className="border border-slate-800 bg-slate-950/40 rounded-2xl p-5 sm:p-6 space-y-5 hover:border-slate-700 transition-all duration-300 shadow-xl">
-            <h3 className="font-extrabold text-[#748BAA] text-sm flex items-center gap-2 tracking-tight">
-              <Plus className="w-4.5 h-4.5 text-emerald-400" /> Row & Column Mutator
-            </h3>
-            
-            <div className="p-4 bg-slate-900/50 border border-slate-850 rounded-xl space-y-3.5">
-              <div className="text-[11px] font-mono text-emerald-400 font-bold uppercase tracking-wider">Add New Dimension (Column)</div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
-                <div>
-                  <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Column Name</label>
-                  <input
-                    value={newColName}
-                    onChange={(e) => setNewColName(e.target.value)}
-                    placeholder="e.g. TenureInYears"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Data Type</label>
-                  <select
-                    value={newColType}
-                    onChange={(e) => setNewColType(e.target.value as any)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs focus:outline-none font-mono"
-                  >
-                    <option value="categorical">Categorical</option>
-                    <option value="numeric">Numeric</option>
-                    <option value="boolean">Boolean</option>
-                  </select>
-                </div>
-              </div>
+          {/* Add a column */}
+          <div className="card p-5 sm:p-6 flex flex-col">
+            <h3 className="card-title">Add a column</h3>
+            <p className="mt-1 text-sm text-label-2">Create a new column with the same starting value in every row.</p>
+
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1 content-start">
               <div>
-                <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Default Fallback Value</label>
+                <label className="field-label" htmlFor="new-col-name">Name</label>
                 <input
-                  value={newColDefault}
-                  onChange={(e) => setNewColDefault(e.target.value)}
-                  placeholder="e.g. 0, Unknown, or true"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                  id="new-col-name"
+                  value={newColName}
+                  onChange={(e) => setNewColName(e.target.value)}
+                  placeholder="TenureInYears"
+                  className="input"
                 />
               </div>
-              <button
-                onClick={handleAddColumn}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border-0 shadow-md shadow-emerald-500/10"
-              >
-                <Plus className="w-3.5 h-3.5" /> Inject New Column
-              </button>
+              <div>
+                <label className="field-label" htmlFor="new-col-type">Type</label>
+                <select
+                  id="new-col-type"
+                  value={newColType}
+                  onChange={(e) => setNewColType(e.target.value as any)}
+                  className="input"
+                >
+                  <option value="categorical">Categorical</option>
+                  <option value="numeric">Numeric</option>
+                  <option value="boolean">Boolean</option>
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="field-label" htmlFor="new-col-default">Starting value</label>
+                <input
+                  id="new-col-default"
+                  value={newColDefault}
+                  onChange={(e) => setNewColDefault(e.target.value)}
+                  placeholder="0, Unknown, or true"
+                  className="input"
+                />
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-              {/* Row Management */}
-              <div className="p-4 bg-slate-900/50 border border-slate-850 rounded-xl space-y-3">
-                <div className="text-[11px] font-mono text-emerald-400 font-bold uppercase tracking-wider">Fast Row Addition</div>
-                <p className="text-[10px] text-slate-450 leading-relaxed font-sans">
-                  Quickly append a new initialized entry matching the current column shapes and defaults.
-                </p>
-                <button
-                  onClick={handleAddNewRow}
-                  className="w-full bg-slate-800 hover:bg-slate-705 hover:bg-slate-700 text-slate-250 hover:text-white border border-slate-700 font-bold text-xs py-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
-                >
-                  <Plus className="w-3.5 h-3.5 text-emerald-400" /> Append Blank Row
-                </button>
-              </div>
+            <button type="button" onClick={handleAddColumn} className="btn btn-secondary w-full mt-5">
+              <Plus className="w-4 h-4" /> Add Column
+            </button>
+          </div>
 
-              {/* Delete row by index */}
-              <div className="p-4 bg-slate-900/50 border border-slate-850 rounded-xl space-y-3">
-                <div className="text-[11px] font-mono text-emerald-400 font-bold uppercase tracking-wider">Delete Row By Index</div>
-                <div>
+          {/* Rows */}
+          <div className="card p-5 sm:p-6 flex flex-col">
+            <h3 className="card-title">Add or remove rows</h3>
+            <p className="mt-1 text-sm text-label-2">
+              Append an empty row, or delete one by its number in the preview.
+            </p>
+
+            <div className="mt-5 space-y-4 flex-1">
+              <button type="button" onClick={handleAddNewRow} className="btn btn-secondary w-full">
+                <Plus className="w-4 h-4" /> Add Empty Row
+              </button>
+
+              <form
+                className="flex items-end gap-3 pt-4 border-t border-separator"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const idx = parseInt(deleteIndexInput);
+                  if (!isNaN(idx)) {
+                    handleDeleteRow(idx);
+                    setDeleteIndexInput('');
+                  }
+                }}
+              >
+                <div className="flex-1">
+                  <label className="field-label" htmlFor="delete-row">Row number</label>
                   <input
+                    id="delete-row"
                     type="number"
+                    min={0}
                     value={deleteIndexInput}
                     onChange={(e) => setDeleteIndexInput(e.target.value)}
-                    placeholder="Enter Row ID (e.g. 0)"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-500 font-mono"
+                    placeholder="0"
+                    className="input"
                   />
                 </div>
                 <button
-                  onClick={() => {
-                    const idx = parseInt(deleteIndexInput);
-                    if (!isNaN(idx)) {
-                      handleDeleteRow(idx);
-                      setDeleteIndexInput('');
-                    } else {
-                      alert("Please type a valid integer index");
-                    }
-                  }}
-                  className="w-full bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 font-bold text-xs py-2 rounded-xl transition-all text-rose-300 cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                  type="submit"
+                  disabled={deleteIndexInput === '' || isNaN(parseInt(deleteIndexInput))}
+                  className="btn bg-red/10 text-red hover:bg-red/15 shrink-0"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-450" /> Delete Row ID
+                  <Minus className="w-4 h-4" /> Delete Row
                 </button>
-              </div>
+              </form>
             </div>
           </div>
 
-          {/* Interactive Group By Explorer */}
+          {/* Group and summarize (Expert) */}
           {expertMode && (
-          <div className="border border-slate-800 bg-slate-950/40 rounded-2xl p-5 sm:p-6 space-y-4 hover:border-slate-700 transition-all duration-300 shadow-xl flex flex-col justify-between">
-            <div>
-              <h3 className="font-extrabold text-[#748BAA] text-sm flex items-center gap-2 tracking-tight mb-3">
-                <Layers className="w-4.5 h-4.5 text-[#3bc8c8]" /> Interactive Group By Studio
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed font-sans mb-4">
-                Analyze data distributions by grouping categorical indices and calculating aggregations (averages, counts, aggregates) in real-time.
+            <div className="card p-5 sm:p-6 flex flex-col">
+              <h3 className="card-title">Group and summarize</h3>
+              <p className="mt-1 text-sm text-label-2">
+                Group rows by one column and calculate a count, total or average of another.
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mb-3.5">
-                <div>
-                  <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Group By Column</label>
-                  <select
-                    value={groupByCol}
-                    onChange={(e) => setGroupByCol(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-850 rounded-xl p-2 text-slate-300 font-mono text-xs focus:ring-1 focus:ring-[#3bc8c8] cursor-pointer"
-                  >
-                    {dataset.columns.map(c => (
-                      <option key={c.name} value={c.name} className="bg-slate-950">{c.name}</option>
-                    ))}
-                  </select>
+              <div className="mt-5 space-y-4 flex-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="field-label" htmlFor="group-col">Group by</label>
+                    <select id="group-col" value={groupByCol} onChange={(e) => setGroupByCol(e.target.value)} className="input">
+                      {columnOptions()}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="agg-col">Summarize</label>
+                    <select id="agg-col" value={aggCol} onChange={(e) => setAggCol(e.target.value)} className="input">
+                      {columnOptions(true)}
+                    </select>
+                  </div>
                 </div>
+
                 <div>
-                  <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Aggregate Column</label>
-                  <select
-                    value={aggCol}
-                    onChange={(e) => setAggCol(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-850 rounded-xl p-2 text-slate-300 font-mono text-xs focus:ring-1 focus:ring-[#3bc8c8] cursor-pointer"
-                  >
-                    {dataset.columns.map(c => (
-                      <option key={c.name} value={c.name} className="bg-slate-950">{c.name} ({c.type})</option>
+                  <span className="field-label">Function</span>
+                  <div className="segmented w-full" role="group" aria-label="Aggregation function">
+                    {(['count', 'sum', 'mean', 'min', 'max'] as const).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        aria-pressed={aggFunc === f}
+                        onClick={() => setAggFunc(f)}
+                        className="flex-1 capitalize"
+                      >
+                        {f}
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
+
+                {groupByResult && (
+                  <div className="rounded-xl bg-well max-h-[176px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs border-b border-separator">
+                          <th className="px-3 py-2 text-left">{groupByCol}</th>
+                          <th className="px-3 py-2 text-right">{aggFunc}({aggCol})</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-separator">
+                        {groupByResult.slice(0, 50).map((r, idx) => (
+                          <tr key={idx}>
+                            <td className="px-3 py-1.5 text-label truncate max-w-[180px]">{r.key}</td>
+                            <td className="px-3 py-1.5 text-right font-medium text-label">{r.val}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
-              <div className="mb-4">
-                <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1.5">Aggregation Function</label>
-                <div className="grid grid-cols-5 gap-1.5 text-xs font-mono">
-                  {['count', 'sum', 'mean', 'min', 'max'].map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setAggFunc(f as any)}
-                      className={`py-1.5 px-2 rounded-lg border text-center transition-all capitalize cursor-pointer text-[10px] font-bold ${
-                        aggFunc === f
-                          ? 'border-[#3bc8c8] bg-[#3bc8c8]/10 text-white'
-                          : 'border-slate-850 bg-slate-900/60 text-slate-400 hover:border-slate-755'
-                      }`}
-                    >
-                      {f}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <button
-                onClick={calculateGroupBy}
-                className="w-full bg-[#1b5bd2] hover:bg-blue-600 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border-0 mt-2 mb-3 shadow-md"
-              >
-                <Layers className="w-3.5 h-3.5" /> Group & Calculate Aggregations
+              <button type="button" onClick={calculateGroupBy} className="btn btn-secondary w-full mt-5">
+                Calculate
               </button>
-
-              {/* Group By mini spreadsheet render */}
-              {groupByResult && (
-                <div className="border border-slate-850 bg-slate-950 rounded-xl p-3 mt-1.5 max-h-[150px] overflow-y-auto shadow-inner">
-                  <div className="flex justify-between border-b border-slate-800 pb-1.5 mb-1.5 text-[9px] uppercase font-mono text-slate-450 tracking-wider">
-                    <span>{groupByCol} value</span>
-                    <span>{aggFunc}({aggCol})</span>
-                  </div>
-                  <div className="space-y-1 font-mono text-[10px]">
-                    {groupByResult.slice(0, 50).map((r, idx) => (
-                      <div key={idx} className="flex justify-between hover:bg-slate-900/80 px-1 py-0.5 rounded transition-colors text-slate-300">
-                        <span className="font-semibold truncate max-w-[150px]">{r.key}</span>
-                        <span className="text-cyan-400 font-extrabold">{r.val}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
-          </div>
           )}
 
-          {/* Advanced Feature Engineering Studio */}
+          {/* Feature engineering (Expert) */}
           {expertMode && (
-          <div className="border border-slate-800 bg-slate-950/40 rounded-2xl p-5 sm:p-6 space-y-4 hover:border-slate-700 transition-all duration-300 shadow-xl flex flex-col justify-between">
-            <div>
-              <h3 className="font-extrabold text-[#748BAA] text-sm flex items-center gap-2 tracking-tight mb-3">
-                <Sparkles className="w-4.5 h-4.5 text-teal-400" /> Advanced Feature Engineering Studio
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed font-sans mb-4">
-                Perform mathematical scaling, standard log/power transforms, interaction multiplications, or execute clean One-Hot Dummy encodings to enrich dynamic modeling predictors.
+            <div className="card p-5 sm:p-6 flex flex-col">
+              <h3 className="card-title">Engineer a feature</h3>
+              <p className="mt-1 text-sm text-label-2">
+                Scale, transform or combine columns to give a model stronger signals.
               </p>
 
-              <div className="space-y-3 text-xs">
+              <div className="mt-5 space-y-4 flex-1">
                 <div>
-                  <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Select Engineering Transform</label>
+                  <label className="field-label" htmlFor="fe-transform">Transform</label>
                   <select
+                    id="fe-transform"
                     value={feTransform}
                     onChange={(e) => setFeTransform(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-slate-850 rounded-xl p-2.5 text-slate-300 font-mono text-xs focus:ring-1 focus:ring-teal-400 cursor-pointer"
+                    className="input"
                   >
-                    <option value="log" className="bg-slate-950">Natural Logarithm: ln(x + 1)</option>
-                    <option value="sqrt" className="bg-slate-950">Square Root: sqrt(x)</option>
-                    <option value="square" className="bg-slate-950">Polynomial Power: x^2</option>
-                    <option value="minmax" className="bg-slate-950">MinMax Scaler: Normalize to [0, 1]</option>
-                    <option value="standard" className="bg-slate-950">Standard Scaler: Z-score (mean=0, std=1)</option>
-                    <option value="interaction_mul" className="bg-slate-950">Interaction: Multiply (Col A × Col B)</option>
-                    <option value="interaction_div" className="bg-slate-950">Interaction: Division (Col A ÷ Col B)</option>
-                    <option value="onehot" className="bg-slate-950">One-Hot Encoder: Categorical Dummy Flags</option>
+                    <option value="log">Natural log — ln(x + 1)</option>
+                    <option value="sqrt">Square root — √x</option>
+                    <option value="square">Square — x²</option>
+                    <option value="minmax">Min–max scale to 0–1</option>
+                    <option value="standard">Standardize (z-score)</option>
+                    <option value="interaction_mul">Multiply two columns (A × B)</option>
+                    <option value="interaction_div">Divide two columns (A ÷ B)</option>
+                    <option value="onehot">One-hot encode categories</option>
                   </select>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Primary Column (A)</label>
-                    <select
-                      value={feSourceColA}
-                      onChange={(e) => setFeSourceColA(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-850 rounded-xl p-2.5 text-slate-300 font-mono text-xs focus:ring-1 focus:ring-teal-400 cursor-pointer"
-                    >
-                      {dataset.columns.map(c => (
-                        <option key={c.name} value={c.name} className="bg-slate-950">{c.name} ({c.type})</option>
-                      ))}
+                    <label className="field-label" htmlFor="fe-col-a">Column A</label>
+                    <select id="fe-col-a" value={feSourceColA} onChange={(e) => setFeSourceColA(e.target.value)} className="input">
+                      {columnOptions(true)}
                     </select>
                   </div>
 
                   {(feTransform === 'interaction_mul' || feTransform === 'interaction_div') ? (
                     <div>
-                      <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Secondary Column (B)</label>
-                      <select
-                        value={feSourceColB}
-                        onChange={(e) => setFeSourceColB(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-850 rounded-xl p-2.5 text-slate-300 font-mono text-xs focus:ring-1 focus:ring-teal-400 cursor-pointer"
-                      >
+                      <label className="field-label" htmlFor="fe-col-b">Column B</label>
+                      <select id="fe-col-b" value={feSourceColB} onChange={(e) => setFeSourceColB(e.target.value)} className="input">
                         {dataset.columns.filter(c => c.name !== feSourceColA).map(c => (
-                          <option key={c.name} value={c.name} className="bg-slate-950">{c.name} ({c.type})</option>
+                          <option key={c.name} value={c.name}>{c.name} ({c.type})</option>
                         ))}
                       </select>
                     </div>
                   ) : (
                     <div>
-                      <label className="block text-[10px] uppercase font-mono tracking-widest text-slate-450 font-bold mb-1">Custom Output Label (Optional)</label>
+                      <label className="field-label" htmlFor="fe-name">New column name <span className="font-normal text-label-3">Optional</span></label>
                       <input
+                        id="fe-name"
                         type="text"
                         value={feNewColName}
                         onChange={(e) => setFeNewColName(e.target.value)}
-                        placeholder="Auto-generated if empty"
-                        className="w-full bg-slate-900 border border-slate-850 rounded-xl p-2 text-slate-200 text-xs placeholder-slate-600 focus:ring-1 focus:ring-teal-400 font-mono"
+                        placeholder="Generated automatically"
+                        className="input"
                       />
                     </div>
                   )}
                 </div>
 
                 {feTransform === 'onehot' && (
-                  <p className="text-[10px] text-indigo-400 leading-relaxed italic">
-                    💡 This will break the categorical label values of "{feSourceColA}" into distinct individual binary flag columns (with suffix "_is_val"). Highly recommended for tree structures or linear metrics!
+                  <p className="text-xs text-label-2 leading-relaxed">
+                    Each distinct value in “{feSourceColA}” becomes its own true/false column. Recommended for
+                    tree-based and linear models.
                   </p>
                 )}
-              </div>
-            </div>
 
-            <div>
-              <button
-                onClick={handleApplyFeatureEngineering}
-                className="w-full bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border-0 mt-3 shadow-md shadow-teal-555/15"
-              >
-                <Sparkles className="w-4 h-4 text-white" /> Enact Feature Engineering Transform
+                {feResultDetails && (
+                  <div className="rounded-xl bg-green/10 px-3 py-2.5 animate-fade-in">
+                    <p className="flex items-start gap-2 text-sm font-medium text-label">
+                      <CheckCircle className="w-4 h-4 text-green mt-0.5 shrink-0" />
+                      {feResultDetails.msg}
+                    </p>
+                    <p className="mt-1 pl-6 text-xs text-label-2 leading-relaxed">{feResultDetails.reason}</p>
+                  </div>
+                )}
+              </div>
+
+              <button type="button" onClick={handleApplyFeatureEngineering} className="btn btn-secondary w-full mt-5">
+                Apply Transform
               </button>
             </div>
-            
-            {feResultDetails && (
-              <div className="mt-4 p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-xl animate-fade-in shadow-inner">
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-teal-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-xs font-bold text-slate-200">{feResultDetails.msg}</p>
-                    <p className="text-[10px] text-indigo-300 mt-1.5 leading-relaxed">{feResultDetails.reason}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
           )}
         </div>
+      </section>
 
-        {/* Cleaning Changelog History */}
-        {operations.length > 0 && (
-          <div className="mt-6 border-t border-slate-800 pt-5 relative z-10">
-            <h4 className="text-[10px] font-extrabold text-slate-450 uppercase tracking-widest mb-3 font-mono">Applied Processing Log Checklist</h4>
-            <div className="flex flex-wrap gap-2.5 text-[10px] font-mono">
-              {operations.map((op, i) => (
-                <div key={op.id} className="bg-emerald-505/10 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shadow-sm">
-                  <span className="text-emerald-500">Step {i+1}:</span>
-                  <span className="text-slate-300 font-medium">{describeCleaningOperation(op)}</span>
-                </div>
-              ))}
-            </div>
+      {/* Preview */}
+      <section aria-labelledby="preview-heading">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="preview-heading" className="section-title">Preview</h2>
+            <p className="mt-1 text-sm text-label-2">
+              First 10 of {dataset.rows.length.toLocaleString()} rows · {dataset.columns.length} columns
+            </p>
           </div>
-        )}
-      </div>
-
-      {/* Real-Time Preview Container */}
-      <div className="bg-slate-900/40 rounded-2xl border border-slate-800 p-6 shadow-xl animate-fade-in">
-        <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <Database className="w-5 h-5 text-emerald-400" />
-            <h3 className="font-extrabold text-white text-base">Data Preview (First 10 rows)</h3>
-          </div>
-          <span className="text-[10px] bg-slate-900 border border-slate-800 py-1 px-2.5 rounded-full font-bold font-mono text-slate-450 tracking-wider">
-            Total Row Count: <span className="text-emerald-400 font-extrabold">{dataset.rows.length}</span>
-          </span>
         </div>
-        <p className="text-xs text-slate-400 mb-4 font-medium">
-          Live workspace rows rendering after processing operations are compiled. Press the Trash bin icon next to any row to delete it.
-        </p>
 
-        <div className="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950/40 shadow-inner">
-          <table className="w-full text-left border-collapse text-xs">
+        <div className="card mt-5 overflow-x-auto">
+          <table className="w-full text-left text-sm">
             <thead>
-              <tr className="bg-slate-900/60 border-b border-slate-800 font-semibold font-mono text-slate-400">
-                <th className="p-3.5 w-12 text-center text-[10px]">#</th>
+              <tr className="border-b border-separator text-xs">
+                <th className="px-4 py-3 w-12 text-right">#</th>
                 {dataset.columns.map(c => (
-                  <th key={c.name} className="p-3.5 min-w-[130px] uppercase tracking-wider text-[10px]">
-                    {c.name}
-                  </th>
+                  <th key={c.name} className="px-4 py-3 min-w-[120px] whitespace-nowrap">{c.name}</th>
                 ))}
-                <th className="p-3.5 w-20 text-center text-[10px] uppercase tracking-wider">Actions</th>
+                <th className="px-4 py-3 w-12" aria-label="Actions" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80 font-mono text-[11px] text-slate-300">
+            <tbody className="divide-y divide-separator text-label">
               {dataset.rows.slice(0, 10).map((row, i) => (
-                <tr key={i} className="hover:bg-slate-900/30 transition-colors">
-                  <td className="p-3.5 text-center text-slate-500 font-bold bg-slate-900/20">{i}</td>
+                <tr key={i} className="group">
+                  <td className="px-4 py-2.5 text-right text-label-3">{i}</td>
                   {dataset.columns.map(c => {
                     const cellVal = row[c.name];
                     const isNull = cellVal === null || cellVal === undefined || cellVal === '';
                     return (
-                      <td key={c.name} className="p-3.5 max-w-[180px] truncate">
+                      <td key={c.name} className="px-4 py-2.5 max-w-[200px] truncate">
                         {isNull ? (
-                          <span className="text-rose-400 font-bold bg-rose-500/15 py-0.5 px-2 rounded-full border border-rose-500/25 text-[10px] tracking-wide">
-                            N/A
-                          </span>
+                          <span className="tag bg-red/12 text-red">Missing</span>
                         ) : typeof cellVal === 'boolean' ? (
-                          <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] border uppercase ${cellVal ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' : 'bg-rose-505/10 bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
-                            {String(cellVal).toUpperCase()}
-                          </span>
+                          <span className={cellVal ? 'text-green' : 'text-label-2'}>{cellVal ? 'True' : 'False'}</span>
                         ) : (
                           String(cellVal)
                         )}
                       </td>
                     );
                   })}
-                  <td className="p-3.5 text-center">
+                  <td className="px-2 py-1 text-right">
                     <button
                       type="button"
                       onClick={() => handleDeleteRow(i)}
-                      className="text-rose-400 hover:text-white bg-rose-500/5 hover:bg-rose-500/20 p-1.5 rounded-xl border border-rose-500/10 cursor-pointer"
-                      title="Delete Row"
+                      className="btn btn-icon w-8 h-8 text-label-3 hover:text-red hover:bg-red/10"
+                      title={`Delete row ${i}`}
+                      aria-label={`Delete row ${i}`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </td>
                 </tr>
@@ -1056,9 +990,8 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      {/* Deep Quality Audit Module */}
       <DeepQualityAudit dataset={dataset} />
     </div>
   );

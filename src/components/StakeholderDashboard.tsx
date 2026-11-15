@@ -1009,7 +1009,7 @@ if __name__ == "__main__":
     mapDataPoints.slice(0, 150).forEach(pt => {
       const marker = L.marker([pt.lat, pt.lon], {
         icon: L.divIcon({
-          html: `<div class="w-3.5 h-3.5 rounded-full bg-rose-500 border border-white animate-pulse shadow-md shadow-rose-500/50 flex items-center justify-center"><div class="w-1.5 h-1.5 rounded-full bg-white"></div></div>`,
+          html: `<div class="w-3.5 h-3.5 rounded-full bg-red border border-white animate-pulse shadow-sm flex items-center justify-center"><div class="w-1.5 h-1.5 rounded-full bg-white"></div></div>`,
           className: 'custom-leaflet-marker',
           iconSize: [14, 14],
           iconAnchor: [7, 7]
@@ -1018,10 +1018,10 @@ if __name__ == "__main__":
 
       // Interactive popup with custom layout styles
       marker.bindPopup(`
-        <div class="p-2 font-mono text-[11px] text-slate-200">
-          <strong class="text-emerald-405 block text-xs uppercase font-sans tracking-wide mb-1" style="color:#3bc8c8">${pt.country}</strong>
-          <div>Lat/Lon: <span class="text-white">${pt.lat.toFixed(3)}°, ${pt.lon.toFixed(3)}°</span></div>
-          <div class="mt-1">Value/Score: <strong class="text-teal-400">$${pt.metricUnit.toLocaleString()}</strong></div>
+        <div class="p-2 tabular-nums text-xs text-label">
+          <strong class="text-green block text-xs mb-1" style="color:var(--chart-6)">${pt.country}</strong>
+          <div>Lat/Lon: <span class="text-label">${pt.lat.toFixed(3)}°, ${pt.lon.toFixed(3)}°</span></div>
+          <div class="mt-1">Value/Score: <strong class="text-teal">$${pt.metricUnit.toLocaleString()}</strong></div>
         </div>
       `, {
         closeButton: false,
@@ -1093,58 +1093,47 @@ if __name__ == "__main__":
   return (
     <div className="space-y-4" id="dashboard_module_upgraded">
       
-      {/* 🚀 Consistent ML Pipeline stage header */}
-      <div className="flex flex-row justify-between items-center gap-3 bg-slate-900/40 backdrop-blur-md rounded-xl border border-slate-800/80 p-3 shadow-lg relative overflow-hidden">
-        <div className="flex items-center gap-2.5 truncate">
-          <h2 className="text-xs font-bold text-white tracking-tight truncate">5. Business Intelligence & Geospatial Analytics Dashboard</h2>
-        </div>
-        <span className="bg-[#131B2E]/90 text-indigo-400 text-[9px] font-mono font-bold px-2.5 py-0.5 rounded-full border border-indigo-500/30 uppercase tracking-wide flex items-center gap-1 shrink-0 shadow-sm">
-          <BrainCircuit className="w-3 h-3 text-indigo-405 text-indigo-400 animate-pulse" />
-          ML Pipeline: ACTIVE
-        </span>
-      </div>
-      
       {/* 3. PERFORMANCE & VALUE COHORT KPI CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 relative z-10" id="dashboard_kpi_cards">
         
         {/* KPI 1: Cohort size */}
-        <div className="bg-slate-900/60 border border-slate-800/80 p-3 rounded-xl shadow-md flex items-center justify-between hover:border-slate-700 transition-all duration-300">
+        <div className="bg-surface border border-separator p-3 rounded-xl shadow-sm flex items-center justify-between hover:border-separator-strong transition-all duration-300">
           <div className="space-y-0.5 block truncate">
-            <p className="text-[9px] font-bold text-slate-450 uppercase tracking-widest font-mono">Isolated Dataset Size</p>
-            <p className="text-lg font-black text-white font-mono leading-none">{filteredRows.length.toLocaleString()}</p>
-            <p className="text-[8.5px] text-slate-500 mt-1 font-bold font-mono">
+            <p className="text-[11px] font-medium text-label-2 tabular-nums">Isolated Dataset Size</p>
+            <p className="text-lg font-semibold text-label tabular-nums leading-none">{filteredRows.length.toLocaleString()}</p>
+            <p className="text-[11px] text-label-3 mt-1 font-semibold tabular-nums">
               Count of filtered rows active
             </p>
           </div>
-          <div className="w-8 h-8 bg-indigo-500/10 border border-indigo-500/25 rounded-lg flex items-center justify-center text-indigo-400 shrink-0 shadow">
+          <div className="w-8 h-8 bg-blue/10 border border-blue/25 rounded-lg flex items-center justify-center text-blue shrink-0 shadow">
             <Users className="w-4 h-4" />
           </div>
         </div>
 
         {/* KPI 2: Total Sum selected col */}
-        <div className="bg-slate-900/60 border border-slate-800/80 p-3 rounded-xl shadow-md flex flex-col justify-between hover:border-slate-700 transition-all duration-300">
+        <div className="bg-surface border border-separator p-3 rounded-xl shadow-sm flex flex-col justify-between hover:border-separator-strong transition-all duration-300">
           <div className="flex items-start justify-between gap-2">
             <div className="space-y-0.5 block truncate">
-              <p className="text-[9px] font-bold text-slate-450 uppercase tracking-widest font-mono flex items-center gap-1">
+              <p className="text-[11px] font-medium text-label-2 tabular-nums flex items-center gap-1">
                 Sum Metric Value
               </p>
               
-              <p className="text-lg font-black text-white font-mono leading-none truncate" title={`$${cumulativeValue.toLocaleString()}`}>
+              <p className="text-lg font-semibold text-label tabular-nums leading-none truncate" title={`$${cumulativeValue.toLocaleString()}`}>
                 ${cumulativeValue.toLocaleString()}
               </p>
             </div>
             
-            <div className="w-8 h-8 bg-emerald-500/10 border border-emerald-500/25 rounded-lg flex items-center justify-center text-emerald-400 shrink-0 shadow">
+            <div className="w-8 h-8 bg-green/10 border border-green/25 rounded-lg flex items-center justify-center text-green shrink-0 shadow">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           
-          <div className="mt-1 flex items-center justify-between gap-1 border-t border-slate-850/60 pt-1 text-[8.5px]">
-            <span className="font-mono text-slate-500">Lens Column:</span>
+          <div className="mt-1 flex items-center justify-between gap-1 border-t border-separator pt-1 text-[11px]">
+            <span className="tabular-nums text-label-3">Lens Column:</span>
             <select
               value={selectedKpiSumCol}
               onChange={(e) => setSelectedKpiSumCol(e.target.value)}
-              className="bg-[#0b0f19] border border-slate-800 rounded px-1.5 py-0.5 text-[8.5px] font-mono text-indigo-400 cursor-pointer font-bold focus:outline-none"
+              className="bg-surface border border-separator rounded px-1.5 py-0.5 text-[11px] tabular-nums text-blue cursor-pointer font-semibold focus:outline-none"
             >
               {numericCols.map(c => (
                 <option key={c.name} value={c.name} className="text-xs">
@@ -1156,29 +1145,29 @@ if __name__ == "__main__":
         </div>
 
         {/* KPI 3: Center Ratio selected col */}
-        <div className="bg-slate-900/60 border border-slate-800/80 p-3 rounded-xl shadow-md flex flex-col justify-between hover:border-slate-700 transition-all duration-300">
+        <div className="bg-surface border border-separator p-3 rounded-xl shadow-sm flex flex-col justify-between hover:border-separator-strong transition-all duration-300">
           <div className="flex items-start justify-between gap-2">
             <div className="space-y-0.5 block truncate">
-              <p className="text-[9px] font-bold text-slate-450 uppercase tracking-widest font-mono">
+              <p className="text-[11px] font-medium text-label-2 tabular-nums">
                 Average Value
               </p>
               
-              <p className="text-lg font-black text-white font-mono leading-none truncate" title={averageRatio.toString()}>
+              <p className="text-lg font-semibold text-label tabular-nums leading-none truncate" title={averageRatio.toString()}>
                 {averageRatio}
               </p>
             </div>
             
-            <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/25 rounded-lg flex items-center justify-center text-amber-400 shrink-0 shadow">
+            <div className="w-8 h-8 bg-orange/10 border border-orange/25 rounded-lg flex items-center justify-center text-orange shrink-0 shadow">
               <BarChart3 className="w-4 h-4" />
             </div>
           </div>
 
-          <div className="mt-1 flex items-center justify-between gap-1 border-t border-slate-850/60 pt-1 text-[8.5px]">
-            <span className="font-mono text-slate-500">Center Metric:</span>
+          <div className="mt-1 flex items-center justify-between gap-1 border-t border-separator pt-1 text-[11px]">
+            <span className="tabular-nums text-label-3">Center Metric:</span>
             <select
               value={selectedKpiAvgCol}
               onChange={(e) => setSelectedKpiAvgCol(e.target.value)}
-              className="bg-[#0b0f19] border border-slate-800 rounded px-1.5 py-0.5 text-[8.5px] font-mono text-indigo-400 cursor-pointer font-bold focus:outline-none"
+              className="bg-surface border border-separator rounded px-1.5 py-0.5 text-[11px] tabular-nums text-blue cursor-pointer font-semibold focus:outline-none"
             >
               {numericCols.map(c => (
                 <option key={c.name} value={c.name} className="text-xs">
@@ -1190,17 +1179,17 @@ if __name__ == "__main__":
         </div>
 
         {/* KPI 4: Peak Value */}
-        <div className="bg-slate-900/60 border border-slate-800/80 p-3 rounded-xl shadow-md flex items-center justify-between hover:border-slate-700 transition-all duration-300">
+        <div className="bg-surface border border-separator p-3 rounded-xl shadow-sm flex items-center justify-between hover:border-separator-strong transition-all duration-300">
           <div className="space-y-0.5 block truncate">
-            <p className="text-[9px] font-bold text-slate-450 uppercase tracking-widest font-mono">Extreme Ceiling Peak</p>
-            <p className="text-lg font-black text-white font-mono leading-none truncate" title={`$${maxValue.toLocaleString()}`}>
+            <p className="text-[11px] font-medium text-label-2 tabular-nums">Extreme Ceiling Peak</p>
+            <p className="text-lg font-semibold text-label tabular-nums leading-none truncate" title={`$${maxValue.toLocaleString()}`}>
               ${maxValue.toLocaleString()}
             </p>
-            <p className="text-[8.5px] text-indigo-400 font-bold font-mono">
+            <p className="text-[11px] text-blue font-semibold tabular-nums">
               Max of active sum metrics
             </p>
           </div>
-          <div className="w-8 h-8 bg-teal-500/10 border border-teal-500/25 rounded-lg flex items-center justify-center text-teal-400 shrink-0 shadow">
+          <div className="w-8 h-8 bg-teal/10 border border-teal/25 rounded-lg flex items-center justify-center text-teal shrink-0 shadow">
             <Sparkles className="w-4 h-4" />
           </div>
         </div>
@@ -1208,18 +1197,16 @@ if __name__ == "__main__":
       </div>
 
       {/* 2. ADVANCED CONTROL DECK: MULTI-SLICERS & METRICS SLIDES */}
-      <div className="bg-slate-900/60 p-3 sm:p-3 rounded-2xl border border-slate-800 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="bg-surface p-3 sm:p-3 rounded-2xl border border-separator shadow-sm relative overflow-hidden">
 
-        <div className="flex justify-between items-center gap-3 mb-3 pb-2 border-b border-slate-800/80 relative z-10">
+        <div className="flex justify-between items-center gap-3 mb-3 pb-2 border-b border-separator relative z-10">
           <div className="flex items-center gap-1.5 flex-row">
-            <SlidersHorizontal className="w-4 h-4 text-indigo-400" />
-            <span className="text-[8px] font-mono font-bold text-indigo-400 tracking-wider bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">FILTERS & SLICERS</span>
-            <h2 className="text-xs font-bold text-white tracking-tight">Interactive Slicers & Range Scales</h2>
+            <SlidersHorizontal className="w-4 h-4 text-blue" />
+                        <h2 className="text-sm font-semibold text-label tracking-tight">Filters</h2>
           </div>
           <button
             onClick={handleResetFilters}
-            className="text-[9px] font-mono font-bold text-indigo-400 hover:text-white bg-indigo-500/10 hover:bg-indigo-500/25 px-2 py-1 rounded transition-all cursor-pointer border border-indigo-500/20 shadow"
+            className="text-[11px] tabular-nums font-semibold text-blue hover:text-label bg-blue/10 hover:bg-blue/25 px-2 py-1 rounded transition-all cursor-pointer border border-blue/20 shadow"
           >
             <RefreshCw className="w-2.5 h-2.5" /> Clear All
           </button>
@@ -1229,43 +1216,43 @@ if __name__ == "__main__":
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 relative z-10">
           
           {/* Slicer Column A: Active Categorical Multi-Slicer */}
-          <div className="space-y-1.5 bg-[#0d1322]/50 p-2.5 rounded-xl border border-slate-850">
-            <div className="flex justify-between items-center text-[9px] text-slate-400 uppercase tracking-wider font-mono font-bold px-0.5">
+          <div className="space-y-1.5 bg-surface p-2.5 rounded-xl border border-separator">
+            <div className="flex justify-between items-center text-[11px] text-label-2 tabular-nums font-medium px-0.5">
               <span>Primary Category Slicer</span>
               <select
                 value={activeSlicerColumn}
                 onChange={(e) => setActiveSlicerColumn(e.target.value)}
-                className="bg-transparent border-0 font-extrabold font-mono text-indigo-400 focus:ring-0 p-0 text-[10px] shrink-0 cursor-pointer"
+                className="bg-transparent border-0 font-semibold tabular-nums text-blue focus:ring-0 p-0 text-[11px] shrink-0 cursor-pointer"
               >
                 {categoricalCols.map(c => (
-                  <option key={c.name} value={c.name} className="bg-slate-950 text-slate-200">
+                  <option key={c.name} value={c.name} className="bg-well text-label">
                     {c.name}
                   </option>
                 ))}
                 {isGeographicallyEnriched && (
                   <>
-                    <option value="_simulated_country" className="bg-slate-950 text-slate-200">_simulated_country</option>
-                    <option value="_simulated_region" className="bg-slate-950 text-slate-200">_simulated_region</option>
+                    <option value="_simulated_country" className="bg-well text-label">_simulated_country</option>
+                    <option value="_simulated_region" className="bg-well text-label">_simulated_region</option>
                   </>
                 )}
               </select>
             </div>
             
-            <p className="text-[9.5px] text-slate-500 font-mono leading-none">
+            <p className="text-[11px] text-label-3 tabular-nums leading-none">
               Slices rows by selection:
             </p>
 
-            <div className="flex flex-wrap gap-1 max-h-[80px] overflow-y-auto p-1.5 border border-slate-850 bg-slate-950/40 rounded-lg scrollbar-thin">
+            <div className="flex flex-wrap gap-1 max-h-[80px] overflow-y-auto p-1.5 border border-separator bg-well rounded-lg scrollbar-thin">
               {activeSlicerCategories.map(cat => {
                 const isSelected = selectedSlices[activeSlicerColumn]?.includes(cat);
                 return (
                   <button
                     key={cat}
                     onClick={() => handleToggleSlice(activeSlicerColumn, cat)}
-                    className={`text-[8.5px] font-mono font-bold px-2 py-1 rounded transition-all border shrink-0 cursor-pointer ${
+                    className={`text-[11px] tabular-nums font-semibold px-2 py-1 rounded transition-all border shrink-0 cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-505 shadow-sm'
-                        : 'bg-slate-900/60 hover:bg-slate-900 border-slate-850 text-slate-405 hover:text-slate-200'
+                        ? 'bg-blue hover:bg-blue text-white border-blue shadow-sm'
+                        : 'bg-surface hover:bg-surface border-separator text-label-2 hover:text-label'
                     }`}
                   >
                     {cat}
@@ -1273,18 +1260,18 @@ if __name__ == "__main__":
                 );
               })}
               {activeSlicerCategories.length === 0 && (
-                <span className="text-[9px] text-slate-550 font-mono italic p-0.5">None.</span>
+                <span className="text-[11px] text-label-3 tabular-nums italic p-0.5">None.</span>
               )}
             </div>
           </div>
 
           {/* Slicer Column B: Active Quantitative Range Sliders */}
-          <div className="space-y-1.5 bg-[#0d1322]/50 p-2.5 rounded-xl border border-slate-850 col-span-1">
-            <div className="flex justify-between items-center text-[9px] text-slate-400 uppercase tracking-wider font-mono font-bold px-0.5">
+          <div className="space-y-1.5 bg-surface p-2.5 rounded-xl border border-separator col-span-1">
+            <div className="flex justify-between items-center text-[11px] text-label-2 tabular-nums font-medium px-0.5">
               <span>Quantitative Limits</span>
               
               <div className="flex items-center gap-1">
-                <span className="text-[8.5px] text-slate-505 font-mono">Pin Parameter:</span>
+                <span className="text-[11px] text-label-3 tabular-nums">Pin Parameter:</span>
                 <select
                   onChange={(e) => {
                     if (e.target.value) {
@@ -1292,7 +1279,7 @@ if __name__ == "__main__":
                       e.target.value = ''; // Reset select value after adding
                     }
                   }}
-                  className="bg-[#121c32] border border-slate-800 rounded px-1 px-1.5 py-0.5 text-[8.5px] font-mono text-indigo-400 cursor-pointer focus:outline-none"
+                  className="bg-surface border border-separator rounded px-1 px-1.5 py-0.5 text-[11px] tabular-nums text-blue cursor-pointer focus:outline-none"
                   defaultValue=""
                 >
                   <option value="" disabled>+ Add Column</option>
@@ -1308,21 +1295,21 @@ if __name__ == "__main__":
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[80px] overflow-y-auto scrollbar-thin pr-1">
               {numericFilters.map((filter) => {
                 return (
-                  <div key={filter.columnName} className="p-1.5 bg-slate-950/50 rounded-lg border border-slate-850 relative">
+                  <div key={filter.columnName} className="p-1.5 bg-well rounded-lg border border-separator relative">
                     <button
                       onClick={() => handleRemoveNumericFilter(filter.columnName)}
-                      className="absolute top-1 right-1 p-0.5 text-slate-505 hover:text-rose-400 bg-slate-900 border border-slate-800 cursor-pointer hover:bg-rose-500/10 transition-colors rounded"
+                      className="absolute top-1 right-1 p-0.5 text-label-3 hover:text-red bg-surface border border-separator cursor-pointer hover:bg-red/10 transition-colors rounded"
                       title="Remove Filter"
                     >
                       <Trash2 className="w-2.5 h-2.5" />
                     </button>
 
-                    <div className="text-[9px] font-bold text-slate-200 truncate pr-5 font-mono">
+                    <div className="text-[11px] font-semibold text-label truncate pr-5 tabular-nums">
                       {filter.columnName}
                     </div>
 
-                    <div className="flex justify-between text-[8px] text-slate-500 font-mono my-0.5">
-                      <span>Cutoff: <strong className="text-indigo-405">{filter.currentMax}</strong></span>
+                    <div className="flex justify-between text-[11px] text-label-3 tabular-nums my-0.5">
+                      <span>Cutoff: <strong className="text-blue">{filter.currentMax}</strong></span>
                     </div>
 
                     <input
@@ -1331,14 +1318,14 @@ if __name__ == "__main__":
                       max={filter.max}
                       value={filter.currentMax}
                       onChange={(e) => handleUpdateSlider(filter.columnName, Number(e.target.value))}
-                      className="w-full h-1 bg-slate-850 rounded appearance-none cursor-pointer accent-indigo-400"
+                      className="w-full h-1 bg-fill rounded appearance-none cursor-pointer accent-blue"
                     />
                   </div>
                 );
               })}
 
               {numericFilters.length === 0 && (
-                <div className="col-span-2 py-3 text-center text-slate-550 font-mono text-[9.5px] italic">
+                <div className="col-span-2 py-3 text-center text-label-3 tabular-nums text-[11px] italic">
                   Select a variable to create cutoff range slider.
                 </div>
               )}
@@ -1346,16 +1333,16 @@ if __name__ == "__main__":
           </div>
 
           {/* Slicer Column C: Interactive Row Volumetry Slicer Slide */}
-          <div className="space-y-1.5 bg-[#0d1322]/50 p-2.5 rounded-xl border border-slate-850 col-span-1">
-            <div className="flex justify-between items-center text-[9px] text-slate-400 uppercase tracking-wider font-mono font-bold px-0.5">
+          <div className="space-y-1.5 bg-surface p-2.5 rounded-xl border border-separator col-span-1">
+            <div className="flex justify-between items-center text-[11px] text-label-2 tabular-nums font-medium px-0.5">
               <span>Interactive Row Sampling</span>
-              <span className="text-[8.5px] font-mono text-[#3bc880] text-emerald-400 font-bold uppercase">SLIDER</span>
+              <span className="text-[11px] tabular-nums text-green font-medium">SLIDER</span>
             </div>
 
-            <div className="p-1.5 bg-slate-950/50 rounded-lg border border-slate-850 space-y-1">
-              <div className="flex justify-between text-[8.5px] font-mono">
-                <span className="text-slate-500">Slice:</span>
-                <span className="text-emerald-400 font-bold">{rowSlicePercentage}%</span>
+            <div className="p-1.5 bg-well rounded-lg border border-separator space-y-1">
+              <div className="flex justify-between text-[11px] tabular-nums">
+                <span className="text-label-3">Slice:</span>
+                <span className="text-green font-semibold">{rowSlicePercentage}%</span>
               </div>
 
               <input
@@ -1365,31 +1352,31 @@ if __name__ == "__main__":
                 step="5"
                 value={rowSlicePercentage}
                 onChange={(e) => setRowSlicePercentage(Number(e.target.value))}
-                className="w-full h-1 bg-slate-855 bg-slate-850 rounded appearance-none cursor-pointer accent-indigo-400"
+                className="w-full h-1 bg-fill rounded appearance-none cursor-pointer accent-blue"
               />
             </div>
 
-            <div className="bg-[#1b5bd2]/5 p-1 px-2 rounded-lg border border-[#3bc8c8]/10 text-[9px] text-slate-450 font-mono flex justify-between items-center">
-              <span className="text-emerald-400 text-[8px] font-bold uppercase">Rows Active:</span>
-              <strong className="text-slate-300">{filteredRows.length} rows</strong>
+            <div className="bg-blue/5 p-1 px-2 rounded-lg border border-blue/10 text-[11px] text-label-2 tabular-nums flex justify-between items-center">
+              <span className="text-green text-[11px] font-medium">Rows Active:</span>
+              <strong className="text-label">{filteredRows.length} rows</strong>
             </div>
           </div>
         </div>
 
         {/* Dynamic Applied Active Filters Status Badges */}
-        <div className="mt-5 pt-4 border-t border-slate-850 flex flex-wrap items-center justify-between gap-4 relative z-10">
+        <div className="mt-5 pt-4 border-t border-separator flex flex-wrap items-center justify-between gap-4 relative z-10">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[9px] font-mono font-bold text-slate-500">Active Tags:</span>
+            <span className="text-[11px] tabular-nums font-semibold text-label-3">Active Tags:</span>
             {Object.entries(selectedSlices).map(([col, vals]) => {
               const valArray = vals as string[];
               if (valArray.length === 0) return null;
               return (
-                <div key={col} className="bg-indigo-500/10 border border-indigo-550/20 text-indigo-300 font-mono text-[9px] py-1 px-2.5 rounded-lg flex items-center gap-1.5">
+                <div key={col} className="bg-blue/10 border border-blue/20 text-blue tabular-nums text-[11px] py-1 px-2.5 rounded-lg flex items-center gap-1.5">
                   <span>{col}:</span>
-                  <strong className="text-white">{valArray.join(', ')}</strong>
+                  <strong className="text-label">{valArray.join(', ')}</strong>
                   <button
                     onClick={() => setSelectedSlices(prev => ({ ...prev, [col]: [] }))}
-                    className="hover:text-rose-400 ml-1 cursor-pointer font-bold"
+                    className="hover:text-red ml-1 cursor-pointer font-semibold"
                   >
                     ×
                   </button>
@@ -1398,66 +1385,65 @@ if __name__ == "__main__":
             })}
             
             {Object.keys(selectedSlices).every(col => selectedSlices[col]?.length === 0) && (
-              <span className="text-[10px] text-slate-500 font-mono italic">No category restrictions in play. Row index set to open.</span>
+              <span className="text-[11px] text-label-3 tabular-nums italic">No category restrictions in play. Row index set to open.</span>
             )}
           </div>
 
-          <div className="text-[11px] font-mono text-slate-450 bg-[#0f1526] py-1.5 px-3 rounded-xl border border-slate-850 flex items-center gap-1.5 shrink-0 select-none">
-            <Filter className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Retaining: <strong className="text-white">{filteredRows.length.toLocaleString()}</strong> / <strong>{enrichedRows.length.toLocaleString()}</strong> rows ({((filteredRows.length / (enrichedRows.length || 1)) * 100).toFixed(0)}% index)</span>
+          <div className="text-xs tabular-nums text-label-2 bg-surface py-1.5 px-3 rounded-xl border border-separator flex items-center gap-1.5 shrink-0 select-none">
+            <Filter className="w-3.5 h-3.5 text-blue" />
+            <span>Retaining: <strong className="text-label">{filteredRows.length.toLocaleString()}</strong> / <strong>{enrichedRows.length.toLocaleString()}</strong> rows ({((filteredRows.length / (enrichedRows.length || 1)) * 100).toFixed(0)}% index)</span>
           </div>
         </div>
       </div>
 
       {/* 1. TOP DOCK: HEADER & INTERACTIVE MAP VIEWPORT */}
-      <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-4 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-[300px] h-[250px] bg-indigo-500/5 rounded-full blur-2xl pointer-events-none" />
+      <div className="bg-surface border border-separator rounded-2xl p-4 shadow-sm relative overflow-hidden">
         
         <div className="flex flex-col lg:flex-row gap-4 items-stretch justify-between relative z-10">
           
           {/* Metadata & Map Toggles */}
           <div className="lg:w-4/12 space-y-3 flex flex-col justify-between">
             <div className="space-y-1">
-              <span className="text-[9px] font-mono font-bold text-teal-400 bg-teal-500/10 border border-teal-500/20 px-2 py-0.5 rounded uppercase tracking-wider inline-block">
+              <span className="text-[11px] tabular-nums font-medium text-teal bg-teal/10 border border-teal/20 px-2 py-0.5 rounded inline-block">
                 GEOGRAPHIC MAPS & INSIGHTS
               </span>
-              <h3 className="text-sm font-bold text-white tracking-tight font-sans">
-                Global Performance Map
+              <h3 className="text-sm font-semibold text-label tracking-tight">
+                Map
               </h3>
-              <p className="text-[10px] text-slate-400 leading-snug font-sans">
+              <p className="text-[11px] text-label-2 leading-snug">
                 Interactive mapping bubbles scale with customer volume and KPI values across continents, keeping expansion balanced.
               </p>
             </div>
  
             {/* Geographical Check Indicator and simulation actions */}
-            <div className="p-3 rounded-xl bg-slate-950/50 border border-slate-850/80 space-y-2">
+            <div className="p-3 rounded-xl bg-well border border-separator space-y-2">
               <div className="flex items-center gap-1.5">
-                <Globe className="w-4 h-4 text-indigo-400" />
-                <span className="text-[11px] font-bold text-white font-sans">Location Fields Detected:</span>
+                <Globe className="w-4 h-4 text-blue" />
+                <span className="text-xs font-semibold text-label">Location Fields Detected:</span>
               </div>
               
-              <ul className="text-[9.5px] space-y-1 text-slate-300 font-mono">
+              <ul className="text-[11px] space-y-1 text-label tabular-nums">
                 <li className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${geoColumns.hasLatLon || isGeographicallyEnriched ? 'bg-emerald-400 shadow shadow-emerald-400' : 'bg-slate-600'}`} />
-                  GPS coordinates: <strong className="text-white">{geoColumns.hasLatLon ? 'NATIVE' : isGeographicallyEnriched ? 'GEO-ENRICHED' : 'FALSE'}</strong>
+                  <span className={`w-1.5 h-1.5 rounded-full ${geoColumns.hasLatLon || isGeographicallyEnriched ? 'bg-green shadow' : 'bg-label-3'}`} />
+                  GPS coordinates: <strong className="text-label">{geoColumns.hasLatLon ? 'NATIVE' : isGeographicallyEnriched ? 'GEO-ENRICHED' : 'FALSE'}</strong>
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${geoColumns.hasCountry || isGeographicallyEnriched ? 'bg-emerald-400 shadow shadow-emerald-400' : 'bg-slate-600'}`} />
-                  Country columns: <strong className="text-white">{geoColumns.hasCountry ? `FOUND (${geoColumns.countryColName})` : isGeographicallyEnriched ? 'AUTO-LINKED' : 'NOT DETECTED'}</strong>
+                  <span className={`w-1.5 h-1.5 rounded-full ${geoColumns.hasCountry || isGeographicallyEnriched ? 'bg-green shadow' : 'bg-label-3'}`} />
+                  Country columns: <strong className="text-label">{geoColumns.hasCountry ? `FOUND (${geoColumns.countryColName})` : isGeographicallyEnriched ? 'AUTO-LINKED' : 'NOT DETECTED'}</strong>
                 </li>
               </ul>
 
               {!geoColumns.hasLatLon && !geoColumns.hasCountry && !isGeographicallyEnriched && (
-                <div className="pt-1.5 border-t border-slate-800">
-                  <div className="flex items-start gap-1.5 mb-1.5 p-1 bg-amber-500/5 rounded border border-amber-500/10">
-                    <Info className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" />
-                    <span className="text-[8.5px] text-[#cca055] font-sans leading-tight">
+                <div className="pt-1.5 border-t border-separator">
+                  <div className="flex items-start gap-1.5 mb-1.5 p-1 bg-orange/5 rounded border border-orange/10">
+                    <Info className="w-3 h-3 text-orange shrink-0 mt-0.5" />
+                    <span className="text-[11px] text-orange leading-tight">
                       No country or GPS headers detected. Enrich dataset to display coordinates mapping.
                     </span>
                   </div>
                   <button
                     onClick={handleSimulateGeoAttributes}
-                    className="w-full py-1.5 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] font-mono transition-all uppercase cursor-pointer tracking-wider flex items-center justify-center gap-1 shadow-sm"
+                    className="w-full py-1.5 px-2.5 rounded-lg bg-blue hover:bg-blue text-white font-medium text-[11px] tabular-nums transition-all cursor-pointer flex items-center justify-center gap-1 shadow-sm"
                   >
                     <Plus className="w-3 h-3" /> Geographically Enrich
                   </button>
@@ -1465,7 +1451,7 @@ if __name__ == "__main__":
               )}
 
               {(geoColumns.hasLatLon || isGeographicallyEnriched) && (
-                <div className="text-[9px] text-emerald-400 font-mono font-bold flex items-center gap-1 bg-emerald-500/10 py-1 px-2 rounded border border-emerald-500/20">
+                <div className="text-[11px] text-green tabular-nums font-semibold flex items-center gap-1 bg-green/10 py-1 px-2 rounded border border-green/20">
                   <CheckCircle className="w-3 h-3" /> {isGeographicallyEnriched ? 'Automated Coordinate Geocoder' : 'Native Coordinates Auto-Linked'} ({mapDataPoints.length} mapped)
                 </div>
               )}
@@ -1473,23 +1459,23 @@ if __name__ == "__main__":
           </div>
 
           {/* Style executive SVG World Map Projection */}
-          <div className="lg:w-8/12 bg-[#080d1a] border border-slate-800 rounded-xl p-3 relative overflow-hidden min-h-[200px] flex flex-col justify-between">
+          <div className="lg:w-8/12 bg-surface border border-separator rounded-xl p-3 relative overflow-hidden min-h-[200px] flex flex-col justify-between">
             {/* Header / Active Filter Info badge */}
-            <div className="absolute top-2.5 left-2.5 bg-[#0c1428]/95 border border-slate-800 rounded-lg p-1.5 text-xs text-slate-350 font-sans backdrop-blur cursor-default select-none z-10 space-y-0.5">
-              <p className="font-bold text-[8.5px] uppercase font-mono tracking-widest text-[#5bc1c1]">Geo Analytics Engine</p>
-              <div className="text-[9.5px] text-white flex items-center gap-1">
-                <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block animate-pulse" />
-                Aggregated Rows Mapped: <strong className="text-emerald-400">{filteredRows.length.toLocaleString()} ({((filteredRows.length / (enrichedRows.length || 1)) * 100).toFixed(0)}%)</strong>
+            <div className="absolute top-2.5 left-2.5 bg-surface border border-separator rounded-lg p-1.5 text-xs text-label backdrop-blur cursor-default select-none z-10 space-y-0.5">
+              <p className="font-medium text-[11px] tabular-nums text-blue">Geo Analytics Engine</p>
+              <div className="text-[11px] text-label flex items-center gap-1">
+                <span className="w-2 h-2 bg-green rounded-full inline-block animate-pulse" />
+                Aggregated Rows Mapped: <strong className="text-green">{filteredRows.length.toLocaleString()} ({((filteredRows.length / (enrichedRows.length || 1)) * 100).toFixed(0)}%)</strong>
               </div>
             </div>
 
             {selectedMapCountry && (
-              <div className="absolute top-2.5 right-2.5 bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 rounded-lg px-2 py-1 text-[10px] font-mono font-bold flex items-center gap-1.5 backdrop-blur select-none z-10 shadow">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Active: <strong className="text-white">{selectedMapCountry.toUpperCase()}</strong>
+              <div className="absolute top-2.5 right-2.5 bg-green/15 border border-green/40 text-green rounded-lg px-2 py-1 text-[11px] tabular-nums font-semibold flex items-center gap-1.5 backdrop-blur select-none z-10 shadow">
+                <span className="w-1.5 h-1.5 rounded-full bg-green animate-pulse" />
+                Active: <strong className="text-label">{selectedMapCountry.toUpperCase()}</strong>
                 <button 
                   onClick={() => setSelectedMapCountry(null)}
-                  className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-1.5 py-0.5 rounded text-[8px] uppercase font-mono transition-colors border-0 cursor-pointer ml-1"
+                  className="bg-green hover:bg-green text-white font-medium px-1.5 py-0.5 rounded text-[11px] tabular-nums transition-colors border-0 cursor-pointer ml-1"
                 >
                   Clear
                 </button>
@@ -1497,15 +1483,15 @@ if __name__ == "__main__":
             )}
 
             {/* Elegant Map Box Container: scaled to be more compact as requested */}
-            <div className="flex-1 min-h-[220px] lg:min-h-[260px] w-full flex items-center justify-center relative bg-[#070b16] rounded-lg border border-slate-850 p-0 mt-4 overflow-hidden z-0">
+            <div className="flex-1 min-h-[220px] lg:min-h-[260px] w-full flex items-center justify-center relative bg-surface rounded-lg border border-separator p-0 mt-4 overflow-hidden z-0">
               <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" id="stakeholder_leaflet_map_view" />
 
               {/* No coordinates present overlay */}
               {mapDataPoints.length === 0 && !isGeographicallyEnriched && (
-                <div className="absolute inset-x-0 inset-y-0 bg-[#090e19]/95 flex flex-col items-center justify-center p-6 text-center z-[1000] transition-opacity">
-                  <Globe className="w-10 h-10 text-slate-600 mb-2 animate-pulse" />
-                  <p className="text-white text-xs font-bold font-sans">Geospatial Overlay Offline</p>
-                  <p className="text-[10px] text-slate-455 mt-1 max-w-sm font-sans leading-relaxed">
+                <div className="absolute inset-x-0 inset-y-0 bg-surface flex flex-col items-center justify-center p-6 text-center z-[1000] transition-opacity">
+                  <Globe className="w-10 h-10 text-label-3 mb-2 animate-pulse" />
+                  <p className="text-label text-xs font-semibold">Geospatial Overlay Offline</p>
+                  <p className="text-[11px] text-label-2 mt-1 max-w-sm leading-relaxed">
                     Awaiting coordinate initialization. Upload coordinates or country columns to automatically map interactive coordinates in real-time.
                   </p>
                 </div>
@@ -1513,25 +1499,25 @@ if __name__ == "__main__":
             </div>
 
             {/* Focused data point detail banner */}
-            <div className="min-h-[38px] bg-slate-950/40 border border-slate-850 rounded-xl p-2 px-3 flex items-center justify-between text-[11px] text-slate-400 font-mono mt-3">
+            <div className="min-h-[38px] bg-well border border-separator rounded-xl p-2 px-3 flex items-center justify-between text-xs text-label-2 tabular-nums mt-3">
               {focusedPoint ? (
                 <>
                   <div className="flex items-center gap-2 truncate">
-                    <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Point Identified: <strong className="text-white">{focusedPoint.country}</strong> ({focusedPoint.lat.toFixed(1)}°, {focusedPoint.lon.toFixed(1)}°)</span>
+                    <MapPin className="w-3.5 h-3.5 text-green" />
+                    <span>Point Identified: <strong className="text-label">{focusedPoint.country}</strong> ({focusedPoint.lat.toFixed(1)}°, {focusedPoint.lon.toFixed(1)}°)</span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    <span>Valuation: <strong className="text-teal-400">${focusedPoint.metricUnit}</strong></span>
+                    <span>Valuation: <strong className="text-teal">${focusedPoint.metricUnit}</strong></span>
                     <button
                       onClick={() => setFocusedPoint(null)}
-                      className="text-[9px] text-slate-550 hover:text-slate-350 cursor-pointer"
+                      className="text-[11px] text-label-3 hover:text-label cursor-pointer"
                     >
                       Clear
                     </button>
                   </div>
                 </>
               ) : (
-                <div className="flex items-center gap-2 text-slate-500 text-[10px] italic">
+                <div className="flex items-center gap-2 text-label-3 text-[11px] italic">
                   <Info className="w-3.5 h-3.5" />
                   <span>Interactive map is responsive. Click any emerald coordinate pin to drill down into active row telemetry logs.</span>
                 </div>
@@ -1546,24 +1532,24 @@ if __name__ == "__main__":
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 relative z-10" id="dashboard_visuals_grid">
         
         {/* CHART B: CROSS-METRICS COVARIATE SCATTER MODEL RELATIONSHIP */}
-        <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 shadow-xl flex flex-col justify-between h-full hover:border-slate-700 transition-colors col-span-1 lg:col-span-1">
+        <div className="bg-surface p-3 rounded-xl border border-separator shadow-sm flex flex-col justify-between h-full hover:border-separator-strong transition-colors col-span-1 lg:col-span-1">
           <div>
-            <div className="flex items-center justify-between gap-1.5 border-b border-slate-800 pb-2 mb-2">
-              <h3 className="font-extrabold text-white text-xs flex items-center gap-1 font-sans">
-                <LineChart className="w-3.5 h-3.5 text-indigo-400" /> Point-by-Point Metric Comparison
+            <div className="flex items-center justify-between gap-1.5 border-b border-separator pb-2 mb-2">
+              <h3 className="font-semibold text-label text-xs flex items-center gap-1">
+                <LineChart className="w-3.5 h-3.5 text-blue" /> Compare two metrics
               </h3>
-              <span className="px-1.5 py-0.5 rounded text-[8px] font-bold font-mono tracking-wider bg-indigo-500/10 text-indigo-405 border border-indigo-500/20 uppercase">
+              <span className="px-1.5 py-0.5 rounded text-[11px] font-medium tabular-nums bg-blue/10 text-blue border border-blue/20">
                 Correlation
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 mb-2 font-mono text-[9px] text-slate-550">
+            <div className="grid grid-cols-2 gap-2 mb-2 tabular-nums text-[11px] text-label-3">
               <div>
                 <span>Axis X:</span>
                 <select
                   value={scatterX}
                   onChange={(e) => setScatterX(e.target.value)}
-                  className="w-full bg-[#111625] border border-slate-800 rounded p-0.5 text-[9.5px] text-slate-300 font-mono mt-0.5 focus:ring-0 focus:outline-none font-bold"
+                  className="w-full bg-surface border border-separator rounded p-0.5 text-[11px] text-label tabular-nums mt-0.5 focus:ring-0 focus:outline-none font-semibold"
                 >
                   {numericCols.map(c => (
                     <option key={c.name} value={c.name}>{c.name}</option>
@@ -1576,7 +1562,7 @@ if __name__ == "__main__":
                 <select
                   value={scatterY}
                   onChange={(e) => setScatterY(e.target.value)}
-                  className="w-full bg-[#111625] border border-slate-800 rounded p-0.5 text-[9.5px] text-slate-300 font-mono mt-0.5 focus:ring-0 focus:outline-none font-bold"
+                  className="w-full bg-surface border border-separator rounded p-0.5 text-[11px] text-label tabular-nums mt-0.5 focus:ring-0 focus:outline-none font-semibold"
                 >
                   {numericCols.map(c => (
                     <option key={c.name} value={c.name}>{c.name}</option>
@@ -1590,44 +1576,43 @@ if __name__ == "__main__":
             {scatterChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 5, right: 10, left: -25, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis type="number" dataKey="x" name={scatterX} stroke="#64748b" fontSize={8.5} tickLine={false} />
-                  <YAxis type="number" dataKey="y" name={scatterY} stroke="#64748b" fontSize={8.5} tickLine={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                  <XAxis type="number" dataKey="x" name={scatterX} stroke="var(--chart-axis)" fontSize={8.5} tickLine={false} />
+                  <YAxis type="number" dataKey="y" name={scatterY} stroke="var(--chart-axis)" fontSize={8.5} tickLine={false} />
                   <ZAxis type="number" range={[15, 30]} />
                   <Tooltip
                     cursor={{ strokeDasharray: '3 3' }}
-                    contentStyle={{ fontSize: '10px', background: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(8px)', borderColor: '#334155', color: '#fff', borderRadius: '12px' }}
                     formatter={(value) => [value, '']}
                   />
-                  <Scatter name="Telemetry Nodes" data={scatterChartData} fill="#10b981" />
+                  <Scatter name="Telemetry Nodes" data={scatterChartData} fill="var(--chart-2)" />
                 </ScatterChart>
               </ResponsiveContainer>
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-slate-550 text-[11px] font-mono italic">
+              <div className="absolute inset-0 flex items-center justify-center text-label-3 text-xs tabular-nums italic">
                 Awaiting sample rows.
               </div>
             )}
           </div>
 
-          <div className="border-t border-slate-850 pt-1.5 mt-2 text-[9px] text-slate-455 leading-normal font-sans">
+          <div className="border-t border-separator pt-1.5 mt-2 text-[11px] text-label-2 leading-normal">
             Simulates linear scatter relationship across active rows.
           </div>
         </div>
 
         {/* CHART C: LONGITUDINAL TREND PROGRESSION WITH BRUSH */}
-        <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 shadow-xl flex flex-col justify-between h-full hover:border-slate-750 transition-colors col-span-1 lg:col-span-1">
+        <div className="bg-surface p-3 rounded-xl border border-separator shadow-sm flex flex-col justify-between h-full hover:border-separator-strong transition-colors col-span-1 lg:col-span-1">
           <div>
-            <div className="flex items-center justify-between gap-1.5 border-b border-slate-800 pb-2 mb-2">
-              <h3 className="font-extrabold text-white text-xs flex items-center gap-1 font-sans">
-                <TrendingUp className="w-3.5 h-3.5 text-indigo-400" /> Performance Trends Over Time
+            <div className="flex items-center justify-between gap-1.5 border-b border-separator pb-2 mb-2">
+              <h3 className="font-semibold text-label text-xs flex items-center gap-1">
+                <TrendingUp className="w-3.5 h-3.5 text-blue" /> Trend
               </h3>
-              <span className="text-[8.5px] font-mono text-slate-500 font-bold shrink-0">
+              <span className="text-[11px] tabular-nums text-label-3 font-semibold shrink-0">
                 {dateCol ? `Linked: ${dateCol}` : 'Linked: Index'}
               </span>
             </div>
 
-            <p className="text-[9.5px] text-slate-400 font-sans leading-tight mb-2">
-              Chronological trends for <strong className="text-white">"{selectedKpiSumCol}"</strong>.
+            <p className="text-[11px] text-label-2 leading-tight mb-2">
+              Chronological trends for <strong className="text-label">"{selectedKpiSumCol}"</strong>.
             </p>
           </div>
 
@@ -1637,73 +1622,72 @@ if __name__ == "__main__":
                 <AreaChart data={areaTimeSeriesData} margin={{ top: 5, right: 10, left: -25, bottom: 5 }}>
                   <defs>
                     <linearGradient id="gradientKpiGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.0} />
+                      <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis dataKey="name" stroke="#64748b" fontSize={9} tickLine={false} />
-                  <YAxis stroke="#64748b" fontSize={9} tickLine={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                  <XAxis dataKey="name" stroke="var(--chart-axis)" fontSize={9} tickLine={false} />
+                  <YAxis stroke="var(--chart-axis)" fontSize={9} tickLine={false} />
                   <Tooltip
-                    contentStyle={{ fontSize: '11px', background: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(8px)', borderColor: '#334155', color: '#fff', borderRadius: '12px' }}
                   />
-                  <Area type="monotone" dataKey="metric" stroke="#6366f1" strokeWidth={2.5} fillOpacity={1} fill="url(#gradientKpiGrad)" />
+                  <Area type="monotone" dataKey="metric" stroke="var(--chart-1)" strokeWidth={2.5} fillOpacity={1} fill="url(#gradientKpiGrad)" />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-slate-550 text-[11px] font-mono italic">
+              <div className="absolute inset-0 flex items-center justify-center text-label-3 text-xs tabular-nums italic">
                 Awaiting chronological datasets.
               </div>
             )}
           </div>
 
-          <div className="border-t border-slate-850 pt-1.5 mt-2 text-[9px] text-slate-455 leading-normal font-sans">
+          <div className="border-t border-separator pt-1.5 mt-2 text-[11px] text-label-2 leading-normal">
             Captures fluctuations and sequential moving patterns.
           </div>
         </div>
 
         {/* CHART A: DEMOGRAPHICS SEGMENTATION ANALYSIS */}
-        <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 shadow-xl flex flex-col justify-between h-full hover:border-slate-700 transition-colors">
+        <div className="bg-surface p-3 rounded-xl border border-separator shadow-sm flex flex-col justify-between h-full hover:border-separator-strong transition-colors">
           <div>
-            <div className="flex items-center justify-between gap-1.5 border-b border-slate-800 pb-2 mb-2">
-              <h3 className="font-extrabold text-white text-xs flex items-center gap-1 font-sans">
-                <BarChart3 className="w-3.5 h-3.5 text-indigo-400" /> Demographic Segment Breakdown
+            <div className="flex items-center justify-between gap-1.5 border-b border-separator pb-2 mb-2">
+              <h3 className="font-semibold text-label text-xs flex items-center gap-1">
+                <BarChart3 className="w-3.5 h-3.5 text-blue" /> Breakdown by segment
               </h3>
               
-              <div className="flex gap-1 bg-[#0b0f19] border border-slate-800 p-0.5 rounded-lg">
+              <div className="flex gap-1 bg-surface border border-separator p-0.5 rounded-lg">
                 <button
                   type="button"
                   onClick={() => setChartType('bar')}
-                  className={`px-2 py-1 rounded text-[9px] font-bold font-mono cursor-pointer ${chartType === 'bar' ? 'bg-indigo-650 text-white shadow' : 'text-slate-550 text-slate-400 hover:text-white'}`}
+                  className={`px-2 py-1 rounded text-[11px] font-semibold tabular-nums cursor-pointer ${chartType === 'bar' ? 'bg-blue text-white shadow' : 'text-label-3 text-label-2 hover:text-label'}`}
                 >
                   BAR
                 </button>
                 <button
                   type="button"
                   onClick={() => setChartType('pie')}
-                  className={`px-2 py-1 rounded text-[9px] font-bold font-mono cursor-pointer ${chartType === 'pie' ? 'bg-indigo-650 text-white shadow' : 'text-slate-550 text-slate-400 hover:text-white'}`}
+                  className={`px-2 py-1 rounded text-[11px] font-semibold tabular-nums cursor-pointer ${chartType === 'pie' ? 'bg-blue text-white shadow' : 'text-label-3 text-label-2 hover:text-label'}`}
                 >
                   PIE
                 </button>
               </div>
             </div>
 
-            <div className="flex justify-between items-center text-[10px] text-slate-500 font-mono mb-4 px-0.5">
+            <div className="flex justify-between items-center text-[11px] text-label-3 tabular-nums mb-4 px-0.5">
               <span>Segmented By Column:</span>
               <select
                 value={segmentDisplayCol}
                 onChange={(e) => setSegmentDisplayCol(e.target.value)}
-                className="bg-transparent border-0 font-extrabold font-mono text-indigo-400 focus:ring-0 p-0 text-xs shrink-0 cursor-pointer focus:outline-none"
+                className="bg-transparent border-0 font-semibold tabular-nums text-blue focus:ring-0 p-0 text-xs shrink-0 cursor-pointer focus:outline-none"
               >
                 {categoricalCols.map(c => (
-                  <option key={c.name} value={c.name} className="bg-slate-950 text-slate-200">
+                  <option key={c.name} value={c.name} className="bg-well text-label">
                     {c.name}
                   </option>
                 ))}
                 {isGeographicallyEnriched && (
                   <>
-                    <option value="_simulated_country" className="bg-slate-950 text-slate-200">_simulated_country</option>
-                    <option value="_simulated_region" className="bg-slate-950 text-slate-200">_simulated_region</option>
+                    <option value="_simulated_country" className="bg-well text-label">_simulated_country</option>
+                    <option value="_simulated_region" className="bg-well text-label">_simulated_region</option>
                   </>
                 )}
               </select>
@@ -1715,15 +1699,14 @@ if __name__ == "__main__":
               <ResponsiveContainer width="100%" height="100%">
                 {chartType === 'bar' ? (
                   <BarChart data={segmentChartData} margin={{ top: 5, right: 10, left: -25, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                    <XAxis dataKey="name" stroke="#64748b" fontSize={9} tickLine={false} />
-                    <YAxis stroke="#64748b" fontSize={9} tickLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
+                    <XAxis dataKey="name" stroke="var(--chart-axis)" fontSize={9} tickLine={false} />
+                    <YAxis stroke="var(--chart-axis)" fontSize={9} tickLine={false} />
                     <Tooltip
-                      contentStyle={{ fontSize: '11px', background: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(8px)', borderColor: '#334155', color: '#fff', borderRadius: '12px' }}
                     />
-                    <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="count" fill="var(--chart-1)" radius={[4, 4, 0, 0]}>
                       {segmentChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#6366f1' : '#a855f7'} />
+                        <Cell key={`cell-${index}`} fill={index % 2 === 0 ? 'var(--chart-1)' : 'var(--chart-4)'} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -1739,23 +1722,22 @@ if __name__ == "__main__":
                       dataKey="count"
                     >
                       {segmentChartData.map((entry, index) => (
-                        <Cell key={`cell-pie-${index}`} fill={['#6366f1', '#a855f7', '#10b981', '#3bc8c8', '#f59e0b', '#ec4899'][index % 6]} />
+                        <Cell key={`cell-pie-${index}`} fill={['var(--chart-1)', 'var(--chart-4)', 'var(--chart-2)', 'var(--chart-6)', 'var(--chart-3)', 'var(--chart-5)'][index % 6]} />
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ fontSize: '11px', background: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(8px)', borderColor: '#334155', color: '#fff', borderRadius: '12px' }}
                     />
                   </PieChart>
                 )}
               </ResponsiveContainer>
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-slate-550 text-[11px] font-mono italic">
+              <div className="absolute inset-0 flex items-center justify-center text-label-3 text-xs tabular-nums italic">
                 No active records. Expand control filters above.
               </div>
             )}
           </div>
 
-          <div className="border-t border-slate-850 pt-1.5 mt-2 text-[9px] text-slate-450 leading-normal font-sans">
+          <div className="border-t border-separator pt-1.5 mt-2 text-[11px] text-label-2 leading-normal">
             Ranks row proportion matching <strong>{filteredRows.length}</strong> active rows.
           </div>
         </div>
@@ -1764,50 +1746,48 @@ if __name__ == "__main__":
 
 
       {/* ================= PYTHON LAB & EXPORTER WORKSPACE ================= */}
-      <div className="bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-2xl relative overflow-hidden" id="python_sandbox_dock">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-505/5 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="bg-surface rounded-2xl border border-separator p-6 sm:p-8 shadow-sm relative overflow-hidden" id="python_sandbox_dock">
 
-        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-5 border-b border-slate-800 pb-5 mb-5">
+        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-5 border-b border-separator pb-5 mb-5">
           <div>
-            <span className="text-[10px] font-mono font-bold text-[#3bc8c8] bg-[#3bc8c8]/10 border border-[#3bc8c8]/25 px-2.5 py-1 rounded-xl uppercase tracking-widest inline-block select-none mb-1.5">
+            <span className="text-[11px] tabular-nums font-medium text-blue bg-blue/10 border border-blue/25 px-2.5 py-1 rounded-xl inline-block select-none mb-1.5">
               LOCAL DEVELOPMENT RUNSPACE
             </span>
-            <h2 className="text-lg font-extrabold text-white tracking-tight flex items-center gap-2 font-sans">
-              <Code className="w-5 h-5 text-[#3bc8c8]" /> Python Jupyter & Script Sandbox
+            <h2 className="text-lg font-semibold text-label tracking-tight flex items-center gap-2">
+              <Code className="w-5 h-5 text-blue" /> Python export
             </h2>
-            <p className="text-xs text-slate-400 mt-1 max-w-2xl font-sans">
+            <p className="text-xs text-label-2 mt-1 max-w-2xl">
               Replicate secure browser model experiments locally. Download complete auto-tuned classifier pipelines, imputation modules, and seaborn diagnostic graphing templates.
             </p>
           </div>
 
-          <div className="flex bg-[#0b0f19] border border-slate-800 p-1 rounded-xl shrink-0">
+          <div className="flex bg-surface border border-separator p-1 rounded-xl shrink-0">
             <button
                onClick={() => setSandboxTab('script')}
-               className={`text-xs py-1.5 px-3 rounded-lg font-mono font-bold font-sans transition-all cursor-pointer ${
+               className={`text-xs py-1.5 px-3 rounded-lg tabular-nums font-semibold transition-all cursor-pointer ${
                  sandboxTab === 'script'
-                   ? 'bg-[#1b5bd2]'
-                   : 'text-slate-400 hover:text-white'
+                   ? 'bg-blue'
+                   : 'text-label-2 hover:text-label'
                }`}
             >
               Pipeline Code
             </button>
             <button
                onClick={() => setSandboxTab('visuals')}
-               className={`text-xs py-1.5 px-3 rounded-lg font-mono font-bold font-sans transition-all cursor-pointer ${
+               className={`text-xs py-1.5 px-3 rounded-lg tabular-nums font-semibold transition-all cursor-pointer ${
                  sandboxTab === 'visuals'
-                   ? 'bg-[#1b5bd2]'
-                   : 'text-slate-400 hover:text-white'
+                   ? 'bg-blue'
+                   : 'text-label-2 hover:text-label'
                }`}
             >
               Visuals
             </button>
             <button
               onClick={() => setSandboxTab('guide')}
-              className={`text-xs py-1.5 px-3 rounded-lg font-mono font-bold font-sans transition-all cursor-pointer ${
+              className={`text-xs py-1.5 px-3 rounded-lg tabular-nums font-semibold transition-all cursor-pointer ${
                 sandboxTab === 'guide'
-                  ? 'bg-[#1b5bd2] text-white'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-blue text-white'
+                  : 'text-label-2 hover:text-label'
               }`}
             >
               Requirements & Setup
@@ -1818,189 +1798,188 @@ if __name__ == "__main__":
         <div className="relative z-10">
           {sandboxTab === 'script' ? (
             <div className="space-y-4">
-              <div className="flex justify-between items-center bg-[#070b13] border border-slate-800/80 px-4 py-2.5 rounded-xl text-xs">
-                <span className="font-mono text-emerald-400 text-[11px] font-bold flex items-center gap-1.5">
-                  <Play className="w-3.5 h-3.5 fill-emerald-500 text-emerald-400" /> data_science_workflow.py
+              <div className="flex justify-between items-center bg-surface border border-separator px-4 py-2.5 rounded-xl text-xs">
+                <span className="tabular-nums text-green text-xs font-semibold flex items-center gap-1.5">
+                  <Play className="w-3.5 h-3.5 fill-green text-green" /> data_science_workflow.py
                 </span>
 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleCopyCode}
-                    className="text-slate-300 hover:text-white hover:bg-slate-800/50 border border-slate-800 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer text-[10px] font-mono"
+                    className="text-label hover:text-label hover:bg-fill border border-separator px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer text-[11px] tabular-nums"
                   >
                     {copied ? (
                       <>
-                        <Check className="w-3.5 h-3.5 text-emerald-405" /> Code Copied!
+                        <Check className="w-3.5 h-3.5 text-green" /> Code Copied!
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3.5 h-3.5 text-slate-400" /> Copy Script
+                        <Copy className="w-3.5 h-3.5 text-label-2" /> Copy Script
                       </>
                     )}
                   </button>
                   <button
                     onClick={handleDownloadPython}
-                    className="bg-[#1b5bd2]/20 hover:bg-[#1b5bd2]/45 border border-[#1b5bd2]/40 text-blue-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer text-[10px] font-mono"
+                    className="bg-blue/20 hover:bg-blue/45 border border-blue/40 text-blue px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer text-[11px] tabular-nums"
                   >
-                    <Download className="w-3.5 h-3.5 text-blue-300" /> Download .py
+                    <Download className="w-3.5 h-3.5 text-blue" /> Download .py
                   </button>
                 </div>
               </div>
 
-              <pre className="bg-[#0b0f19]/90 p-5 rounded-xl border border-slate-850/80 max-h-[380px] overflow-auto text-[11px] font-mono leading-relaxed text-slate-350 select-text scrollbar-thin scrollbar-thumb-slate-800">
+              <pre className="bg-surface p-5 rounded-xl border border-separator max-h-[380px] overflow-auto text-xs tabular-nums leading-relaxed text-label select-text scrollbar-thin scrollbar-thumb-slate-800">
                 {generatePythonWorkflow()}
               </pre>
             </div>
           ) : sandboxTab === 'visuals' ? (
             <div className="space-y-6">
               {/* Alert/Callout banner explaining the Local Experiments */}
-              <div className="p-5 rounded-2xl bg-[#0b0f19]/60 border border-slate-500/10 text-slate-350 flex items-start gap-3.5 relative overflow-hidden backdrop-blur-md">
-                <div className="p-2.5 rounded-xl bg-[#3bc8c8]/10 text-[#3bc8c8] shrink-0">
-                  <BrainCircuit className="w-5 h-5 text-[#3bc8c8]" />
+              <div className="p-5 rounded-2xl bg-surface border border-separator-strong text-label flex items-start gap-3.5 relative overflow-hidden">
+                <div className="p-2.5 rounded-xl bg-blue/10 text-blue shrink-0">
+                  <BrainCircuit className="w-5 h-5 text-blue" />
                 </div>
                 <div className="space-y-1">
-                  <h4 className="text-xs font-bold text-[#3bc8c8] uppercase tracking-wider font-mono">Interactive Local Workspace Outputs</h4>
-                  <p className="text-[11.5px] leading-relaxed text-slate-300">
+                  <h4 className="text-xs font-medium text-blue tabular-nums">Run it locally</h4>
+                  <p className="text-xs leading-relaxed text-label">
                     Replicate secure browser model experiments locally. Download complete auto-tuned classifier pipelines, imputation modules, and seaborn diagnostic graphing templates.
                   </p>
                 </div>
-                <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/5 rounded-full blur-2xl pointer-events-none" />
               </div>
 
               {/* Grid of professional diagnostic graphics */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
                 {/* Graphics 1: Classifier Pipeline (ROC Curve) */}
-                <div className="bg-[#0b0f19]/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-800 pb-2.5">
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wide font-mono flex items-center gap-1.5">
+                <div className="bg-surface border border-separator rounded-2xl p-5 space-y-4">
+                  <div className="flex justify-between items-center border-b border-separator pb-2.5">
+                    <h4 className="text-xs font-medium text-label tabular-nums flex items-center gap-1.5">
                       Classifier ROC Curve
                     </h4>
-                    <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                    <span className="text-[11px] tabular-nums text-green bg-green/10 px-1.5 py-0.5 rounded border border-green/20">
                       AUC: {mlResult?.metrics?.rocAuc !== undefined && mlResult?.metrics?.rocAuc !== null ? mlResult.metrics.rocAuc.toFixed(2) : 'N/A'}
                     </span>
                   </div>
                   
-                  <div className="h-[200px] w-full flex items-center justify-center bg-slate-950/40 rounded-xl relative py-2 border border-slate-850">
+                  <div className="h-[200px] w-full flex items-center justify-center bg-well rounded-xl relative py-2 border border-separator">
                     <svg className="w-full h-full max-h-[180px]" viewBox="0 0 200 150">
-                      <line x1="30" y1="20" x2="180" y2="20" stroke="rgba(148, 163, 184, 0.08)" strokeDasharray="2,2" />
-                      <line x1="30" y1="60" x2="180" y2="60" stroke="rgba(148, 163, 184, 0.08)" strokeDasharray="2,2" />
-                      <line x1="30" y1="100" x2="180" y2="100" stroke="rgba(148, 163, 184, 0.08)" strokeDasharray="2,2" />
-                      <line x1="75" y1="20" x2="75" y2="130" stroke="rgba(148, 163, 184, 0.08)" strokeDasharray="2,2" />
-                      <line x1="120" y1="20" x2="120" y2="130" stroke="rgba(148, 163, 184, 0.08)" strokeDasharray="2,2" />
-                      <line x1="165" y1="20" x2="165" y2="130" stroke="rgba(148, 163, 184, 0.08)" strokeDasharray="2,2" />
+                      <line x1="30" y1="20" x2="180" y2="20" stroke="var(--chart-grid)" strokeDasharray="2,2" />
+                      <line x1="30" y1="60" x2="180" y2="60" stroke="var(--chart-grid)" strokeDasharray="2,2" />
+                      <line x1="30" y1="100" x2="180" y2="100" stroke="var(--chart-grid)" strokeDasharray="2,2" />
+                      <line x1="75" y1="20" x2="75" y2="130" stroke="var(--chart-grid)" strokeDasharray="2,2" />
+                      <line x1="120" y1="20" x2="120" y2="130" stroke="var(--chart-grid)" strokeDasharray="2,2" />
+                      <line x1="165" y1="20" x2="165" y2="130" stroke="var(--chart-grid)" strokeDasharray="2,2" />
                       
-                      <line x1="30" y1="130" x2="180" y2="20" stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" strokeDasharray="3,3" />
+                      <line x1="30" y1="130" x2="180" y2="20" stroke="var(--chart-grid)" strokeWidth="1" strokeDasharray="3,3" />
                       
-                      <path d="M 30 130 Q 35 60 70 40 T 180 20" fill="none" stroke="#3bc8c8" strokeWidth="2.5" strokeLinecap="round" />
+                      <path d="M 30 130 Q 35 60 70 40 T 180 20" fill="none" stroke="var(--chart-6)" strokeWidth="2.5" strokeLinecap="round" />
                       
-                      <circle cx="70" cy="40" r="3.5" fill="#ef7222" />
+                      <circle cx="70" cy="40" r="3.5" fill="var(--chart-3)" />
                       
-                      <line x1="30" y1="130" x2="180" y2="130" stroke="#475569" strokeWidth="1.5" />
-                      <line x1="30" y1="20" x2="30" y2="130" stroke="#475569" strokeWidth="1.5" />
+                      <line x1="30" y1="130" x2="180" y2="130" stroke="var(--separator-strong)" strokeWidth="1.5" />
+                      <line x1="30" y1="20" x2="30" y2="130" stroke="var(--separator-strong)" strokeWidth="1.5" />
                       
-                      <text x="105" y="145" fill="rgba(148, 163, 184, 0.6)" fontSize="7" textAnchor="middle" fontFamily="monospace">FPR (1 - Specificity)</text>
-                      <text x="10" y="75" fill="rgba(148, 163, 184, 0.6)" fontSize="7" textAnchor="middle" fontFamily="monospace" transform="rotate(-90,10,75)">TPR (Sensitivity)</text>
+                      <text x="105" y="145" fill="var(--chart-axis)" fontSize="7" textAnchor="middle">FPR (1 - Specificity)</text>
+                      <text x="10" y="75" fill="var(--chart-axis)" fontSize="7" textAnchor="middle" transform="rotate(-90,10,75)">TPR (Sensitivity)</text>
                       
-                      <text x="28" y="138" fill="rgba(148, 163, 184, 0.4)" fontSize="6" textAnchor="end">0.0</text>
-                      <text x="180" y="138" fill="rgba(148, 163, 184, 0.4)" fontSize="6" textAnchor="middle">1.0</text>
-                      <text x="24" y="24" fill="rgba(148, 163, 184, 0.4)" fontSize="6" textAnchor="end">1.0</text>
+                      <text x="28" y="138" fill="var(--chart-axis)" fontSize="6" textAnchor="end">0.0</text>
+                      <text x="180" y="138" fill="var(--chart-axis)" fontSize="6" textAnchor="middle">1.0</text>
+                      <text x="24" y="24" fill="var(--chart-axis)" fontSize="6" textAnchor="end">1.0</text>
                     </svg>
                   </div>
-                  <p className="text-[10px] text-slate-400 font-mono leading-relaxed bg-slate-950/30 p-2.5 rounded-lg border border-slate-850/60">
+                  <p className="text-[11px] text-label-2 tabular-nums leading-relaxed bg-well p-2.5 rounded-lg border border-separator">
                     <strong>Classifier Pipeline:</strong> Automatically optimized classifier algorithm achieving maximum separation of prediction thresholds.
                   </p>
                 </div>
 
                 {/* Graphics 2: Imputation Module Impact */}
-                <div className="bg-[#0b0f19]/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-800 pb-2.5">
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wide font-mono flex items-center gap-1.5">
+                <div className="bg-surface border border-separator rounded-2xl p-5 space-y-4">
+                  <div className="flex justify-between items-center border-b border-separator pb-2.5">
+                    <h4 className="text-xs font-medium text-label tabular-nums flex items-center gap-1.5">
                       Imputation Variance
                     </h4>
-                    <span className="text-[9px] font-mono text-teal-400 bg-teal-500/10 px-1.5 py-0.5 rounded border border-teal-500/20">
+                    <span className="text-[11px] tabular-nums text-teal bg-teal/10 px-1.5 py-0.5 rounded border border-teal/20">
                       KNN / Mean Fit
                     </span>
                   </div>
 
-                  <div className="h-[200px] w-full flex items-center justify-center bg-slate-950/40 rounded-xl relative py-2 border border-slate-850">
+                  <div className="h-[200px] w-full flex items-center justify-center bg-well rounded-xl relative py-2 border border-separator">
                     <svg className="w-full h-full max-h-[180px]" viewBox="0 0 200 150">
-                      <line x1="30" y1="125" x2="185" y2="125" stroke="#475569" strokeWidth="1.5" />
-                      <line x1="30" y1="20" x2="30" y2="125" stroke="#475569" strokeWidth="1.5" />
+                      <line x1="30" y1="125" x2="185" y2="125" stroke="var(--separator-strong)" strokeWidth="1.5" />
+                      <line x1="30" y1="20" x2="30" y2="125" stroke="var(--separator-strong)" strokeWidth="1.5" />
 
-                      <path d="M 30 125 Q 60 125 75 80 T 110 35 T 145 125 H 185" fill="none" stroke="rgba(239, 114, 34, 0.45)" strokeWidth="1.8" strokeDasharray="3,2" />
+                      <path d="M 30 125 Q 60 125 75 80 T 110 35 T 145 125 H 185" fill="none" stroke="var(--chart-3)" strokeOpacity="0.6" strokeWidth="1.8" strokeDasharray="3,2" />
                       
-                      <path d="M 30 125 Q 55 125 70 65 T 107 20 T 140 125 H 185" fill="rgba(59, 200, 200, 0.08)" stroke="#1b5bd2" strokeWidth="2.2" />
+                      <path d="M 30 125 Q 55 125 70 65 T 107 20 T 140 125 H 185" fill="var(--chart-1)" fillOpacity="0.1" stroke="var(--chart-1)" strokeWidth="2.2" />
 
-                      <rect x="110" y="25" width="6" height="6" fill="#1b5bd2" rx="1" />
-                      <text x="120" y="30" fill="#cbd5e1" fontSize="6.5" fontFamily="monospace">Imputed (Clean)</text>
+                      <rect x="110" y="25" width="6" height="6" fill="var(--chart-1)" rx="1" />
+                      <text x="120" y="30" fill="var(--chart-axis)" fontSize="6.5">Imputed (Clean)</text>
                       
-                      <line x1="110" y1="39" x2="116" y2="39" stroke="#ef7222" strokeWidth="1.2" strokeDasharray="2,1" />
-                      <text x="120" y="41" fill="#94a3b8" fontSize="6.5" fontFamily="monospace">Original (Raw)</text>
+                      <line x1="110" y1="39" x2="116" y2="39" stroke="var(--chart-3)" strokeWidth="1.2" strokeDasharray="2,1" />
+                      <text x="120" y="41" fill="var(--chart-axis)" fontSize="6.5">Original (Raw)</text>
 
-                      <text x="107" y="142" fill="rgba(148, 163, 184, 0.6)" fontSize="7" textAnchor="middle" fontFamily="monospace">Variable Distribution</text>
-                      <text x="12" y="72" fill="rgba(148, 163, 184, 0.6)" fontSize="7" textAnchor="middle" fontFamily="monospace" transform="rotate(-90,12,72)">Density</text>
+                      <text x="107" y="142" fill="var(--chart-axis)" fontSize="7" textAnchor="middle">Variable Distribution</text>
+                      <text x="12" y="72" fill="var(--chart-axis)" fontSize="7" textAnchor="middle" transform="rotate(-90,12,72)">Density</text>
                     </svg>
                   </div>
-                  <p className="text-[10px] text-slate-400 font-mono leading-relaxed bg-slate-950/30 p-2.5 rounded-lg border border-slate-850/60">
+                  <p className="text-[11px] text-label-2 tabular-nums leading-relaxed bg-well p-2.5 rounded-lg border border-separator">
                     <strong>Imputation Modules:</strong> Mitigates feature skew by aligning continuous and modular variables using optimized statistical estimations.
                   </p>
                 </div>
 
                 {/* Graphics 3: Seaborn Diagnostic Template */}
-                <div className="bg-[#0b0f19]/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-800 pb-2.5">
-                    <h4 className="text-xs font-bold text-white uppercase tracking-wide font-mono flex items-center gap-1.5">
+                <div className="bg-surface border border-separator rounded-2xl p-5 space-y-4">
+                  <div className="flex justify-between items-center border-b border-separator pb-2.5">
+                    <h4 className="text-xs font-medium text-label tabular-nums flex items-center gap-1.5">
                       Seaborn Diagnostics
                     </h4>
-                    <span className="text-[9px] font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 font-mono">
+                    <span className="text-[11px] tabular-nums text-blue bg-blue/10 px-1.5 py-0.5 rounded border border-blue/20">
                       sns.heatmap()
                     </span>
                   </div>
 
-                  <div className="h-[200px] w-full flex items-center justify-center bg-slate-950/40 rounded-xl relative p-3 border border-slate-850">
-                    <div className="grid grid-cols-3 gap-1.5 w-full h-full max-h-[175px] content-center font-mono text-[9px]">
-                      <div className="bg-indigo-900/60 text-white rounded p-1.5 flex flex-col justify-between items-center border border-indigo-500/30">
-                        <span className="text-[7.5px] text-indigo-300 opacity-80">v1 / v1</span>
-                        <span className="font-bold">1.00</span>
+                  <div className="h-[200px] w-full flex items-center justify-center bg-well rounded-xl relative p-3 border border-separator">
+                    <div className="grid grid-cols-3 gap-1.5 w-full h-full max-h-[175px] content-center tabular-nums text-[11px]">
+                      <div className="bg-blue/15 text-label rounded p-1.5 flex flex-col justify-between items-center border border-blue/30">
+                        <span className="text-[11px] text-blue opacity-80">v1 / v1</span>
+                        <span className="font-semibold">1.00</span>
                       </div>
-                      <div className="bg-[#3bc8c8]/30 text-[#3bc8c8] rounded p-1.5 flex flex-col justify-between items-center border border-[#3bc8c8]/20">
-                        <span className="text-[7.5px] opacity-80">v1 / v2</span>
-                        <span className="font-bold">0.68</span>
+                      <div className="bg-blue/30 text-blue rounded p-1.5 flex flex-col justify-between items-center border border-blue/20">
+                        <span className="text-[11px] opacity-80">v1 / v2</span>
+                        <span className="font-semibold">0.68</span>
                       </div>
-                      <div className="bg-rose-950/50 text-rose-400 rounded p-1.5 flex flex-col justify-between items-center border border-rose-500/10">
-                        <span className="text-[7.5px] opacity-80">v1 / v3</span>
-                        <span className="font-bold">-0.24</span>
-                      </div>
-
-                      <div className="bg-[#3bc8c8]/30 text-[#3bc8c8] rounded p-1.5 flex flex-col justify-between items-center border border-[#3bc8c8]/20">
-                        <span className="text-[7.5px] opacity-80">v2 / v1</span>
-                        <span className="font-bold">0.68</span>
-                      </div>
-                      <div className="bg-indigo-900/60 text-white rounded p-1.5 flex flex-col justify-between items-center border border-indigo-500/30">
-                        <span className="text-[7.5px] opacity-80">v2 / v2</span>
-                        <span className="font-bold">1.00</span>
-                      </div>
-                      <div className="bg-slate-900 text-slate-400 rounded p-1.5 flex flex-col justify-between items-center border border-slate-800">
-                        <span className="text-[7.5px] opacity-80">v2 / v3</span>
-                        <span className="font-bold">0.05</span>
+                      <div className="bg-red/15 text-red rounded p-1.5 flex flex-col justify-between items-center border border-red/10">
+                        <span className="text-[11px] opacity-80">v1 / v3</span>
+                        <span className="font-semibold">-0.24</span>
                       </div>
 
-                      <div className="bg-rose-950/50 text-rose-400 rounded p-1.5 flex flex-col justify-between items-center border border-rose-500/10">
-                        <span className="text-[7.5px] opacity-80">v3 / v1</span>
-                        <span className="font-bold">-0.24</span>
+                      <div className="bg-blue/30 text-blue rounded p-1.5 flex flex-col justify-between items-center border border-blue/20">
+                        <span className="text-[11px] opacity-80">v2 / v1</span>
+                        <span className="font-semibold">0.68</span>
                       </div>
-                      <div className="bg-slate-900 text-slate-400 rounded p-1.5 flex flex-col justify-between items-center border border-slate-800">
-                        <span className="text-[7.5px] opacity-80">v3 / v2</span>
-                        <span className="font-bold">0.05</span>
+                      <div className="bg-blue/15 text-label rounded p-1.5 flex flex-col justify-between items-center border border-blue/30">
+                        <span className="text-[11px] opacity-80">v2 / v2</span>
+                        <span className="font-semibold">1.00</span>
                       </div>
-                      <div className="bg-indigo-900/60 text-white rounded p-1.5 flex flex-col justify-between items-center border border-indigo-500/30">
-                        <span className="text-[7.5px] opacity-80">v3 / v3</span>
-                        <span className="font-bold">1.00</span>
+                      <div className="bg-surface text-label-2 rounded p-1.5 flex flex-col justify-between items-center border border-separator">
+                        <span className="text-[11px] opacity-80">v2 / v3</span>
+                        <span className="font-semibold">0.05</span>
+                      </div>
+
+                      <div className="bg-red/15 text-red rounded p-1.5 flex flex-col justify-between items-center border border-red/10">
+                        <span className="text-[11px] opacity-80">v3 / v1</span>
+                        <span className="font-semibold">-0.24</span>
+                      </div>
+                      <div className="bg-surface text-label-2 rounded p-1.5 flex flex-col justify-between items-center border border-separator">
+                        <span className="text-[11px] opacity-80">v3 / v2</span>
+                        <span className="font-semibold">0.05</span>
+                      </div>
+                      <div className="bg-blue/15 text-label rounded p-1.5 flex flex-col justify-between items-center border border-blue/30">
+                        <span className="text-[11px] opacity-80">v3 / v3</span>
+                        <span className="font-semibold">1.00</span>
                       </div>
                     </div>
                   </div>
-                  <p className="text-[10px] text-slate-400 font-mono leading-relaxed bg-slate-950/30 p-2.5 rounded-lg border border-slate-850/60">
+                  <p className="text-[11px] text-label-2 tabular-nums leading-relaxed bg-well p-2.5 rounded-lg border border-separator">
                     <strong>Seaborn Diagnostics:</strong> Beautiful pre-constructed templates to plot cross-feature correlations and feature predictive strengths automatically.
                   </p>
                 </div>
@@ -2009,33 +1988,33 @@ if __name__ == "__main__":
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 leading-relaxed">
-              <div className="bg-[#0b0f19] border border-slate-800/80 rounded-2xl p-5 space-y-3">
-                <h4 className="text-xs font-extrabold text-white flex items-center gap-2 uppercase tracking-wide font-mono">
-                  📦 1. Python Environment Packages
+              <div className="bg-surface border border-separator rounded-2xl p-5 space-y-3">
+                <h4 className="text-xs font-medium text-label flex items-center gap-2 tabular-nums">
+                  1. Install packages
                 </h4>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-label-2">
                   Ensure you possess the required packages configured prior to model invocation. Execute the shell setup code in your local terminal:
                 </p>
-                <div className="bg-slate-950 p-3 rounded-lg border border-slate-850 font-mono text-[10px] text-emerald-400 select-all">
+                <div className="bg-well p-3 rounded-lg border border-separator tabular-nums text-[11px] text-green select-all">
                   pip install pandas numpy scikit-learn matplotlib seaborn xgboost
                 </div>
-                <div className="text-[10px] text-slate-500 leading-normal font-sans pt-1.5">
-                  🛡️ <strong>Note on Python requirements:</strong> Ensure Python version 3.8 or above is selected to avoid dependency resolution anomalies on older interpreter engines.
+                <div className="text-[11px] text-label-3 leading-normal pt-1.5">
+                  <strong>Note on Python requirements:</strong> Ensure Python version 3.8 or above is selected to avoid dependency resolution anomalies on older interpreter engines.
                 </div>
               </div>
 
-              <div className="bg-[#0b0f19] border border-slate-800/80 rounded-2xl p-5 space-y-3">
-                <h4 className="text-xs font-extrabold text-white flex items-center gap-2 uppercase tracking-wide font-mono">
-                  🚀 2. Local Execution Run-Loop
+              <div className="bg-surface border border-separator rounded-2xl p-5 space-y-3">
+                <h4 className="text-xs font-medium text-label flex items-center gap-2 tabular-nums">
+                  2. Run the script
                 </h4>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-label-2">
                   Follow these elementary workspace actions to train the local model:
                 </p>
-                <ul className="text-[10.5px] text-slate-300 space-y-2 list-decimal list-inside pl-1 font-sans">
-                  <li>Navigate your browser to the <strong>Upload & Preview</strong> workspace and download your cleansed data table as a CSV named <code className="font-mono bg-slate-950 text-emerald-400 text-[9.5px] px-1 py-0.5 rounded leading-none">dataset.csv</code>.</li>
-                  <li>In the same directory, paste or download your <code className="font-mono bg-slate-950 text-emerald-400 text-[9.5px] px-1 py-0.5 rounded leading-none">data_science_workflow.py</code> pipeline file.</li>
+                <ul className="text-[11px] text-label space-y-2 list-decimal list-inside pl-1">
+                  <li>Navigate your browser to the <strong>Upload & Preview</strong> workspace and download your cleansed data table as a CSV named <code className="tabular-nums bg-well text-green text-[11px] px-1 py-0.5 rounded leading-none">dataset.csv</code>.</li>
+                  <li>In the same directory, paste or download your <code className="tabular-nums bg-well text-green text-[11px] px-1 py-0.5 rounded leading-none">data_science_workflow.py</code> pipeline file.</li>
                   <li>Trigger the runtime compiler executor via terminal:</li>
-                  <div className="bg-slate-950 p-2 rounded border border-slate-850 font-mono text-[9px] text-emerald-400 mt-1">
+                  <div className="bg-well p-2 rounded border border-separator tabular-nums text-[11px] text-green mt-1">
                     python data_science_workflow.py
                   </div>
                   <li>Observe metric summaries printed alongside output visual asset renders including feature rankings.</li>
@@ -2058,8 +2037,9 @@ export default function StakeholderDashboard(props: StakeholderDashboardProps) {
     <DashboardProvider initialData={props.dataset.rows}>
       <IntelligentDashboardLayer dataset={props.dataset} mlResult={props.mlResult} />
       {expertMode && (
-      <div className="mt-6 border-t border-slate-800 pt-4 animate-fade-in relative z-0">
-         <h2 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-6">Legacy Dashboard Capabilities</h2>
+      <div className="mt-12 animate-fade-in relative z-0">
+         <h2 className="section-title">Advanced analysis</h2>
+         <p className="mt-1 mb-5 text-sm text-label-2">Filters, maps, trends and exportable Python for deeper work.</p>
          <StakeholderDashboardInner {...props} />
       </div>
       )}

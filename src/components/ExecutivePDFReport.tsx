@@ -123,20 +123,20 @@ export default function ExecutivePDFReport({ dataset, aiAnalysis, mlResult }: Ex
   };
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-2xl relative overflow-hidden mt-8 animate-fade-in">
+    <div className="bg-surface rounded-2xl border border-separator p-6 sm:p-8 shadow-sm relative overflow-hidden mt-8 animate-fade-in">
        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-indigo-500/10 rounded-lg flex items-center justify-center border border-indigo-500/20 shadow-inner">
-            <BookOpen className="w-5 h-5 text-indigo-400" />
+          <div className="w-10 h-10 bg-blue/10 rounded-lg flex items-center justify-center border border-blue/20">
+            <BookOpen className="w-5 h-5 text-blue" />
           </div>
           <div>
-            <h2 className="text-xl font-extrabold text-white tracking-tight">Executive PDF Report</h2>
-            <p className="text-xs text-slate-400 mt-1">Compile all stages into a final polished PDF report containing an AI executive summary.</p>
+            <h2 className="text-xl font-semibold text-label tracking-tight">AI executive summary (PDF)</h2>
+            <p className="text-xs text-label-2 mt-1">Compile all stages into a final polished PDF report containing an AI executive summary.</p>
           </div>
        </div>
 
        {error && (
-         <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-xs flex items-start gap-3 mb-6">
-           <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+         <div className="p-4 bg-red/10 border border-red/20 text-red rounded-xl text-xs flex items-start gap-3 mb-6">
+           <AlertCircle className="w-4 h-4 text-red shrink-0 mt-0.5" />
            <p>{error}</p>
          </div>
        )}
@@ -144,7 +144,7 @@ export default function ExecutivePDFReport({ dataset, aiAnalysis, mlResult }: Ex
        <button
          onClick={generateReport}
          disabled={loading}
-         className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-bold py-4 px-6 rounded-xl transition-all shadow-lg flex items-center justify-center gap-3"
+         className="w-full bg-blue hover:bg-blue disabled:bg-fill text-white font-semibold py-4 px-6 rounded-xl transition-all shadow-sm flex items-center justify-center gap-3"
        >
          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
          {loading ? 'Synthesizing Report & Calling AI...' : 'Generate Full PDF Report'}

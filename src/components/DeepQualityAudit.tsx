@@ -114,90 +114,93 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
   };
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-2xl relative overflow-hidden mt-8">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-500/10 rounded-lg flex items-center justify-center border border-indigo-500/20 shadow-inner">
-            <Microscope className="w-5 h-5 text-indigo-400" />
-          </div>
-          <div>
-            <h2 className="text-xl font-extrabold text-white tracking-tight">Deep Quality Audit</h2>
-            <p className="text-xs text-slate-400 mt-1">AI-powered scan for duplicates, mismatches, and formatting anomalies.</p>
-          </div>
+    <section aria-labelledby="audit-heading">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="audit-heading" className="section-title">Quality audit</h2>
+          <p className="mt-1 text-sm text-label-2">
+            An AI scan for duplicates, mismatched types and formatting problems.
+          </p>
         </div>
-        {!issues && !loading && (
-          <button
-            onClick={runAudit}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm py-2 px-6 rounded-xl transition-all duration-300 shadow-lg shadow-indigo-500/20"
-          >
-            Run Comprehensive Scan
+        {issues && !loading && issues.length > 0 && (
+          <button type="button" onClick={downloadReport} className="btn btn-secondary">
+            <Download className="w-4 h-4" /> Download Report
           </button>
         )}
       </div>
 
-      {loading && (
-        <div className="flex flex-col items-center justify-center py-12">
-           <Loader2 className="w-8 h-8 text-indigo-400 animate-spin mb-4" />
-           <p className="text-sm font-bold text-indigo-300">Scanning thousands of cells across {dataset.columns.length} columns...</p>
-           <p className="text-xs text-slate-500 mt-1">Evaluating type boundaries and detecting dataset anomalies.</p>
-        </div>
-      )}
-
-      {error && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-xs flex items-start gap-3">
-          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-          <p>{error}</p>
-        </div>
-      )}
-
-      {issues && !loading && (
-        <div className="space-y-6 animate-fade-in">
-          {issues.length === 0 ? (
-            <div className="text-center py-8">
-              <ShieldCheck className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
-              <h3 className="text-lg font-bold text-white">Dataset is Pristine</h3>
-              <p className="text-sm text-slate-400 mt-1">No critical anomalies, duplicates, or type mismatches discovered.</p>
+      <div className="card mt-5 p-5 sm:p-6">
+        {!issues && !loading && !error && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-blue/12 text-blue flex items-center justify-center shrink-0">
+              <Microscope className="w-6 h-6" />
             </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="card-title">Check this dataset for hidden issues</p>
+              <p className="mt-0.5 text-sm text-label-2">
+                Scans all {dataset.columns.length} columns and suggests a fix for anything it finds.
+              </p>
+            </div>
+            <button type="button" onClick={runAudit} className="btn btn-primary btn-lg shrink-0">
+              Run Audit
+            </button>
+          </div>
+        )}
+
+        {loading && (
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <Loader2 className="w-7 h-7 text-blue animate-spin" />
+            <p className="mt-4 text-base font-semibold text-label">Auditing {dataset.columns.length} columns…</p>
+            <p className="mt-1 text-sm text-label-2">Checking types, duplicates and unusual values.</p>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <p role="alert" className="flex-1 flex items-start gap-2 text-sm text-red">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              {error}
+            </p>
+            {!loading && (
+              <button type="button" onClick={runAudit} className="btn btn-secondary shrink-0">Try Again</button>
+            )}
+          </div>
+        )}
+
+        {issues && !loading && (
+          <div className="animate-fade-in">
+            {issues.length === 0 ? (
+              <div className="text-center py-8">
+                <ShieldCheck className="w-12 h-12 text-green mx-auto" />
+                <h3 className="mt-3 text-lg font-semibold tracking-tight text-label">No issues found</h3>
+                <p className="mt-1 text-sm text-label-2">No duplicates, type mismatches or anomalies were detected.</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-separator -my-5">
                 {issues.map((issue, idx) => {
-                  const isHigh = issue.severity.toLowerCase() === 'high';
-                  const isMed = issue.severity.toLowerCase() === 'medium';
+                  const severity = issue.severity.toLowerCase();
+                  const tone = severity === 'high' ? 'bg-red/12 text-red' : severity === 'medium' ? 'bg-orange/12 text-orange' : 'bg-blue/12 text-blue';
                   return (
-                    <div key={idx} className="bg-slate-950/80 border border-slate-800 rounded-xl p-5 shadow-sm hover:border-indigo-500/30 transition-colors">
-                      <div className="flex items-start justify-between mb-3">
-                        <h4 className="text-sm font-bold text-white line-clamp-1 flex-1 pr-3">{issue.issueName}</h4>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase shrink-0 ${isHigh ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : isMed ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>
-                          {issue.severity}
-                        </span>
+                    <li key={idx} className="py-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="text-base font-semibold tracking-tight text-label">{issue.issueName}</h3>
+                        <span className={`tag capitalize shrink-0 ${tone}`}>{issue.severity}</span>
                       </div>
-                      <p className="text-xs text-slate-400 leading-relaxed mb-4">{issue.description}</p>
-                      <div className="bg-slate-900 rounded-lg p-3 border border-slate-800/80">
-                         <div className="flexItems-center gap-2 mb-2">
-                           <Code className="w-3.5 h-3.5 text-slate-500" />
-                           <span className="text-[10px] font-mono uppercase text-slate-500 font-bold tracking-wider">Suggested Fix</span>
-                         </div>
-                         <pre className="text-xs font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap">
-                            {issue.pythonFix}
-                         </pre>
+                      <p className="mt-1 text-sm text-label-2 leading-relaxed max-w-3xl">{issue.description}</p>
+                      <div className="mt-3 rounded-xl bg-well p-3">
+                        <p className="flex items-center gap-1.5 text-xs font-medium text-label-2">
+                          <Code className="w-3.5 h-3.5" /> Suggested fix
+                        </p>
+                        <pre className="mt-2 text-xs text-label overflow-x-auto whitespace-pre-wrap">{issue.pythonFix}</pre>
                       </div>
-                    </div>
+                    </li>
                   );
                 })}
-              </div>
-              <div className="flex justify-start mt-6">
-                 <button
-                   onClick={downloadReport}
-                   className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm py-2.5 px-6 rounded-xl transition-all duration-300 border border-slate-700 border-b-2"
-                 >
-                   <Download className="w-4 h-4" /> Download Quality Report (TXT)
-                 </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

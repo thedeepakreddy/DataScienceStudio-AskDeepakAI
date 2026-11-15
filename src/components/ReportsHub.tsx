@@ -30,6 +30,7 @@ import {
   Play,
   BrainCircuit
 } from 'lucide-react';
+import AppIcon from './AppIcon';
 import { Dataset, MLResult } from '../types';
 import ExecutivePDFReport from './ExecutivePDFReport';
 import ETLPipelineExport from './ETLPipelineExport';
@@ -44,7 +45,7 @@ interface ReportsHubProps {
 export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHubProps) {
   const { expertMode } = usePipelineContext();
   const [logs, setLogs] = useState<string[]>([
-    'Secure Advisory Terminal initialized.',
+    'Report ready.',
     'Ready for complete multi-column Unified Strategy Report execution...'
   ]);
 
@@ -334,7 +335,7 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
       
       setLogs(prev => [
         ...prev,
-        `✓ PDF Executive Report compiled successfully! Filename: AskDeepakAI_Strategic_Strategy_Report_${dataset.filename.replace(/\.[^/.]+$/, "")}.pdf`
+        `PDF Executive Report compiled successfully! Filename: AskDeepakAI_Strategic_Strategy_Report_${dataset.filename.replace(/\.[^/.]+$/, "")}.pdf`
       ]);
     } catch (err: any) {
       console.error(err);
@@ -386,138 +387,73 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
   return (
     <div className="space-y-8" id="unified_strategy_workspace">
       
-      {/* 🚀 Consistent ML Pipeline stage header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/40 backdrop-blur-md rounded-2xl border border-slate-800/80 p-5 shadow-2xl relative overflow-hidden">
-        <div>
-          <span className="text-[10px] font-bold text-indigo-400 tracking-widest font-mono uppercase">EXECUTIVE REPORTING</span>
-          <h2 className="text-xl font-extrabold text-white tracking-tight mt-1">6. Strategic Intelligence & Executive Reports Hub</h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Compile model metrics, audit dataset attributes, and generate print-ready compiled corporate PDF documents.
-          </p>
-        </div>
-        <span className="bg-[#131B2E]/90 text-indigo-400 text-[10px] font-mono font-bold px-3 py-1 rounded-full border border-indigo-500/30 uppercase tracking-wide flex items-center gap-1.5 shadow-md shrink-0">
-          <BrainCircuit className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-          ML Pipeline Stage: ACTIVE
-        </span>
-      </div>
-      
-      {/* CONTROL DOCK / DYNAMIC CONTROLLER BARS */}
-      <div className="bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-5 relative z-10">
-          <div>
-            <span className="text-[10px] font-mono font-bold text-teal-400 bg-teal-500/10 border border-teal-500/25 px-2.5 py-1 rounded-xl uppercase tracking-widest inline-block select-none">
-              STRATEGIC INTELLIGENCE
-            </span>
-            <h2 className="text-xl font-extrabold text-white tracking-tight mt-2 flex items-center gap-2 font-sans">
-              <Scroll className="w-5.5 h-5.5 text-teal-400" /> Unified Strategic Business Report
-            </h2>
-            <p className="text-xs text-slate-400 mt-1 max-w-xl font-sans">
-              A comprehensive three-column report layout presenting cohort metrics, automated machine learning forecasts, and strategic growth guidelines.
-            </p>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={handleDownloadPDF}
-              className="bg-teal-650 hover:bg-teal-555 text-white bg-teal-500 hover:bg-teal-400 font-bold text-xs py-3 px-5 rounded-xl flex items-center gap-2 shadow-lg shadow-teal-550/20 transition-all duration-300 self-start sm:self-auto cursor-pointer border-0"
-              title="Compile and download exact A4 print-ready PDF"
-            >
-              <Download className="w-4 h-4 text-white shrink-0" /> DOWNLOAD FULL PDF
-            </button>
-            <button
-              onClick={() => window.print()}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs py-3 px-4 rounded-xl flex items-center gap-2 transition-all duration-300 cursor-pointer border border-slate-700"
-            >
-              <Printer className="w-4 h-4 text-slate-400" /> Print
-            </button>
-          </div>
+      {/* Export actions */}
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <p className="text-sm text-label-2">
+          Built from your current data{mlResult ? ' and trained model' : ''}. Updates as you work.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => window.print()} className="btn btn-secondary">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+          <button type="button" onClick={handleDownloadPDF} className="btn btn-primary" title="Download an A4 PDF">
+            <Download className="w-4 h-4" /> Download PDF
+          </button>
         </div>
       </div>
 
-      {/* ================= UNIFIED EXECUTIVE REPORT COMPONENT ================= */}
-      <div className="bg-slate-900/40 backdrop-blur-md border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl relative overflow-hidden print:bg-white print:text-black print:p-0 print:border-0" id="live_strategic_report_page">
-        <div className="absolute top-0 right-0 w-[420px] h-[340px] bg-indigo-500/5 rounded-full blur-3xl pointer-events-none print:hidden" />
-        
-        {/* LOGO HEADER STRIP (CENTERED ASK DEEPAK AI LOGO) */}
-        <div className="flex flex-col items-center justify-center text-center pb-8 border-b border-slate-800/80 mb-8 relative z-10">
-          
-          {/* Centered Grand AskDeepakAI Corporate Logo */}
-          <div className="flex flex-col items-center justify-center space-y-3 mb-3 shrink-0" id="centered_brand_logo_hub">
-            {/* Larger Stacked Color Pill Bars */}
-            <div className="flex flex-col justify-between w-16 h-10 select-none space-y-1.5">
-              {/* Top Bar */}
-              <div className="h-[24%] w-full flex rounded-full overflow-hidden shadow">
-                <div className="w-[18%] h-full bg-[#1b5bd2]"></div>
-                <div className="w-[82%] h-full bg-[#3bc8c8]"></div>
-              </div>
-              {/* Middle Bar */}
-              <div className="h-[24%] w-full flex rounded-full overflow-hidden shadow">
-                <div className="w-[18%] h-full bg-[#3bc8c8]"></div>
-                <div className="w-[82%] h-full bg-[#ef7222]"></div>
-              </div>
-              {/* Bottom Bar */}
-              <div className="h-[24%] w-[55%] flex rounded-full overflow-hidden shadow">
-                <div className="w-[32%] h-full bg-[#dfa435]"></div>
-                <div className="w-[68%] h-full bg-[#b22038]"></div>
-              </div>
-            </div>
+      {/* The report document */}
+      <div className="card p-6 sm:p-10 print:shadow-none print:p-0" id="live_strategic_report_page">
 
-            {/* Typography */}
-            <div className="text-center">
-              <span className="text-white text-3xl tracking-tight leading-none font-sans block whitespace-nowrap">
-                <span className="font-light text-slate-350">Ask</span>
-                <span className="font-black text-white">Deepak</span>
-                <span className="font-black text-teal-400">AI</span>
-              </span>
-              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-teal-500/10 text-teal-400 border border-teal-500/25 tracking-widest mt-1.5 inline-block font-black">
-                Unified Analytical Strategy System
-              </span>
+        {/* Document header */}
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 mb-8 border-b border-separator">
+          <div className="flex items-center gap-4">
+            <AppIcon size={44} />
+            <div>
+              <p className="text-xs font-medium text-label-2">AskDeepakAI · Data Science Studio</p>
+              <h2 className="text-[28px] leading-tight font-semibold tracking-tight text-label">Data Analysis Report</h2>
             </div>
           </div>
-
-          <p className="text-[11px] text-slate-400 font-mono tracking-wide max-w-lg mt-2 font-medium leading-relaxed">
-            Report Class: <strong>STRATEGIC PIPELINE AUDIT</strong> • Dataset: <strong>{dataset.filename}</strong><br />
-            Security ID: <span className="text-teal-400 font-bold font-mono">ADP-MD5-{Math.floor(Date.now() / 1000).toString(16).toUpperCase()}78BA</span> 
-          </p>
+          <dl className="text-xs text-label-2 sm:text-right space-y-0.5">
+            <div><dt className="inline">Dataset: </dt><dd className="inline text-label font-medium">{dataset.filename}</dd></div>
+            <div><dt className="inline">Generated: </dt><dd className="inline text-label font-medium">{new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</dd></div>
+          </dl>
         </div>
 
         {/* THREE COLUMN STRATEGY DISPLAY (NEXT TO EACH OTHER) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10 items-stretch" id="triple_column_briefs">
           
           {/* COLUMN 1: EXPLORATORY DATA ANALYSIS (EDA DIAGNOSTIC) */}
-          <div className="bg-slate-950/40 p-6 rounded-2xl border-t-4 border-t-teal-500 border border-slate-850 flex flex-col justify-between space-y-6">
+          <div className="bg-well p-6 rounded-2xl flex flex-col justify-between space-y-6">
             <div className="space-y-4">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-teal-500/10 flex items-center justify-center text-teal-400">
+                <div className="w-8 h-8 rounded-lg bg-teal/10 flex items-center justify-center text-teal">
                   <BarChart4 className="w-4 h-4" />
                 </div>
-                <h3 className="font-sans font-black text-white text-sm tracking-tight uppercase font-sans">
-                  I. Data Quality & Distribution
+                <h3 className="card-title">
+                  Data quality
                 </h3>
               </div>
 
               {/* Ingestion Profile Status Box */}
-              <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1.5 text-xs font-mono">
-                <span className="text-[9px] font-black text-teal-400 uppercase tracking-widest block font-mono">DATASET OVERVIEW</span>
-                <div className="flex justify-between text-slate-400">
-                  <span>Columns Count:</span>
-                  <strong className="text-white">{dataset.columns.length} columns</strong>
+              <div className="p-3.5 rounded-xl bg-surface space-y-1.5 text-xs tabular-nums">
+                                <div className="flex justify-between text-label-2">
+                  <span>Columns</span>
+                  <strong className="text-label font-medium">{dataset.columns.length}</strong>
                 </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>Numeric Variables:</span>
-                  <strong className="text-white font-medium">{numericCount} fields</strong>
+                <div className="flex justify-between text-label-2">
+                  <span>Numeric columns</span>
+                  <strong className="text-label font-medium">{numericCount}</strong>
                 </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>Missing Values Count:</span>
-                  <strong className="text-white font-medium">{((dynamicMissingCount / (dataset.rowCount * dataset.columns.length || 1)) * 100).toFixed(2)}%</strong>
+                <div className="flex justify-between text-label-2">
+                  <span>Missing values</span>
+                  <strong className="text-label font-medium">{((dynamicMissingCount / (dataset.rowCount * dataset.columns.length || 1)) * 100).toFixed(2)}%</strong>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <h4 className="text-[11px] font-mono font-bold text-teal-400 uppercase tracking-wider">Executive Summary:</h4>
-                <p className="text-xs text-slate-350 leading-relaxed font-sans">
+                <h4 className="text-xs font-semibold text-label-2">Summary</h4>
+                <p className="text-xs text-label leading-relaxed">
                   {aiAnalysis?.overviewSummary || 
                     `Corporate integrity check confirms successful ingestion of workspace database '${dataset.filename}'. Statistical sweeps identify a clean layout featuring ${numericCount} continuous metrics and ${categoricalCount} categoricals. General missing coordinates occupy slightly below ${((dynamicMissingCount / (dataset.rowCount * dataset.columns.length || 1)) * 105).toFixed(2)}% of cells, showing high readiness for automated modeling.`}
                 </p>
@@ -525,27 +461,27 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
 
               {/* Insights Loop */}
               <div className="space-y-2.5">
-                <h4 className="text-[11px] font-mono font-bold text-teal-400 uppercase tracking-wider">Key Observations:</h4>
-                <ul className="text-xs text-slate-400 space-y-2 font-sans">
+                <h4 className="text-xs font-semibold text-label-2">Key observations</h4>
+                <ul className="text-xs text-label-2 space-y-2">
                   {aiAnalysis?.insights && Array.isArray(aiAnalysis.insights) ? (
                     aiAnalysis.insights.slice(0, 3).map((ins: string, idx: number) => (
                       <li key={idx} className="flex gap-2">
-                        <span className="text-teal-400 font-bold shrink-0">✓</span>
+                        <Check className="w-3.5 h-3.5 text-green shrink-0 mt-0.5" />
                         <span className="leading-relaxed">{ins}</span>
                       </li>
                     ))
                   ) : (
                     <>
                       <li className="flex gap-2">
-                        <span className="text-teal-400 font-bold shrink-0">✓</span>
+                        <Check className="w-3.5 h-3.5 text-green shrink-0 mt-0.5" />
                         <span>Study continuous metrics and outliers dynamically on the Scatter controls.</span>
                       </li>
                       <li className="flex gap-2">
-                        <span className="text-teal-400 font-bold shrink-0">✓</span>
+                        <Check className="w-3.5 h-3.5 text-green shrink-0 mt-0.5" />
                         <span>Impute missing coordinates with central tendencies to prevent modeling decay.</span>
                       </li>
                       <li className="flex gap-2">
-                        <span className="text-teal-400 font-bold shrink-0">✓</span>
+                        <Check className="w-3.5 h-3.5 text-green shrink-0 mt-0.5" />
                         <span>Ensure clean target variable formats in classification tasks.</span>
                       </li>
                     </>
@@ -553,51 +489,45 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
                 </ul>
               </div>
             </div>
-
-            <div className="pt-4 border-t border-slate-800/60 text-[10px] text-slate-500 font-mono flex items-center justify-between">
-              <span>Section verified</span>
-              <span>ADP-P1</span>
-            </div>
           </div>
 
           {/* COLUMN 2: MACHINE LEARNING PIPELINE PERFORMANCE */}
-          <div className="bg-slate-950/40 p-6 rounded-2xl border-t-4 border-t-indigo-500 border border-slate-850 flex flex-col justify-between space-y-6">
+          <div className="bg-well p-6 rounded-2xl flex flex-col justify-between space-y-6">
             <div className="space-y-4">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+                <div className="w-8 h-8 rounded-lg bg-blue/10 flex items-center justify-center text-blue">
                   <Cpu className="w-4 h-4" />
                 </div>
-                <h3 className="font-sans font-black text-white text-sm tracking-tight uppercase font-sans">
-                  II. Automated Predictive Intelligence
+                <h3 className="card-title">
+                  Model results
                 </h3>
               </div>
 
               {mlResult ? (
                 <div className="space-y-4">
                   {/* ML Characteristics Box */}
-                  <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-805 text-xs font-mono space-y-1.5 border-slate-800">
-                    <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest block font-mono">FORECAST METRICS</span>
-                    <div className="flex justify-between text-slate-400">
-                      <span>Forecast Method:</span>
-                      <strong className="text-white truncate max-w-[120px]">{mlResult.modelAlgorithm || 'Automated'}</strong>
+                  <div className="p-3.5 rounded-xl bg-surface text-xs tabular-nums space-y-1.5">
+                                        <div className="flex justify-between text-label-2">
+                      <span>Algorithm</span>
+                      <strong className="text-label truncate max-w-[120px]">{mlResult.modelAlgorithm || 'Automated'}</strong>
                     </div>
-                    <div className="flex justify-between text-slate-400">
-                      <span>Primary Goal:</span>
-                      <strong className="text-white font-medium uppercase">{mlResult.modelType || 'regression'}</strong>
+                    <div className="flex justify-between text-label-2">
+                      <span>Task</span>
+                      <strong className="text-label font-medium">{mlResult.modelType || 'regression'}</strong>
                     </div>
                   </div>
 
                   {/* Accuracy Gauge Segment */}
                   <div className="space-y-2">
-                    <div className="flex justify-between text-[11px] font-mono">
-                      <span className="text-indigo-400 font-bold">MODEL RELIABILITY INDEX:</span>
-                      <strong className="text-white">
+                    <div className="flex justify-between text-xs tabular-nums">
+                      <span className="text-label-2">Test score</span>
+                      <strong className="text-label">
                         {((mlResult.metrics.accuracy !== undefined ? mlResult.metrics.accuracy : (mlResult.metrics.r2Score || 0.85)) * 100).toFixed(1)}%
                       </strong>
                     </div>
-                    <div className="h-2 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                    <div className="h-2 w-full bg-surface rounded-full overflow-hidden border border-separator">
                       <div 
-                        className="h-full bg-indigo-500 rounded-full"
+                        className="h-full bg-blue rounded-full"
                         style={{ width: `${Math.min(100, (mlResult.metrics.accuracy !== undefined ? mlResult.metrics.accuracy : (mlResult.metrics.r2Score || 0.85)) * 100)}%` }}
                       />
                     </div>
@@ -605,17 +535,17 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
 
                   {/* Feature Weights Segment */}
                   <div className="space-y-2 pt-2">
-                    <h4 className="text-[11px] font-mono font-bold text-indigo-400 uppercase tracking-wider">Top Business Performance Drivers:</h4>
+                    <h4 className="text-xs font-semibold text-label-2">Top drivers</h4>
                     <div className="space-y-2">
                       {mlResult.featureImportance?.slice(0, 4).map((f, i) => (
                         <div key={i} className="space-y-1">
-                          <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                          <div className="flex justify-between text-[11px] tabular-nums text-label-2">
                             <span className="truncate max-w-[110px]">{f.feature}</span>
                             <span>{(f.score * 100).toFixed(1)}%</span>
                           </div>
-                          <div className="h-1.5 w-full bg-slate-900/60 rounded-full overflow-hidden">
+                          <div className="h-1.5 w-full bg-surface rounded-full overflow-hidden">
                             <div 
-                              className="h-full bg-indigo-400/80 rounded-full"
+                              className="h-full bg-blue/80 rounded-full"
                               style={{ width: `${Math.min(100, f.score * 100)}%` }}
                             />
                           </div>
@@ -625,38 +555,33 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
                   </div>
                 </div>
               ) : (
-                <div className="p-5 rounded-xl border border-dashed border-slate-800 bg-slate-950/60 text-center space-y-3 relative py-8">
-                  <BadgeAlert className="w-8 h-8 text-indigo-500/70 mx-auto animate-pulse" />
-                  <p className="text-xs font-bold text-white font-sans">Verification Pipeline Idle</p>
-                  <p className="text-[10px] text-slate-400 leading-relaxed font-sans mt-1">
-                    No active ML training parameters currently verified. Open the <strong>ML Modeling</strong> view inside the Workstation and click <strong>"Execute Pipeline"</strong> to compile coefficient scores.
+                <div className="rounded-xl bg-surface text-center space-y-2 px-5 py-8">
+                  <Cpu className="w-7 h-7 text-label-3 mx-auto" />
+                  <p className="text-sm font-semibold text-label">No model trained yet</p>
+                  <p className="text-[11px] text-label-2 leading-relaxed mt-1">
+                    Train a model in the Model step and its results will appear here.
                   </p>
                 </div>
               )}
             </div>
-
-            <div className="pt-4 border-t border-slate-800/60 text-[10px] text-slate-500 font-mono flex items-center justify-between">
-              <span>Section verified</span>
-              <span>ADP-P2</span>
-            </div>
           </div>
 
           {/* COLUMN 3: MANAGEMENT & OPERATIONAL DECISION DIRECTIVES */}
-          <div className="bg-slate-950/40 p-6 rounded-2xl border-t-4 border-t-amber-500 border border-slate-850 flex flex-col justify-between space-y-6">
+          <div className="bg-well p-6 rounded-2xl flex flex-col justify-between space-y-6">
             <div className="space-y-5">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-500">
+                <div className="w-8 h-8 rounded-lg bg-orange/10 flex items-center justify-center text-orange">
                   <TrendingUp className="w-4 h-4" />
                 </div>
-                <h3 className="font-sans font-black text-white text-sm tracking-tight uppercase">
-                  III. Risks & Recommendations
+                <h3 className="card-title">
+                  Risks and recommendations
                 </h3>
               </div>
 
               {/* Deep Insights */}
               <div className="space-y-2">
-                <h4 className="text-[11px] font-mono font-bold text-[#38bdf8] uppercase tracking-wider">Strategic Business Insights:</h4>
-                <div className="text-[11.5px] text-slate-300 leading-relaxed font-sans space-y-2">
+                <h4 className="text-xs font-semibold text-label-2">Insights</h4>
+                <div className="text-xs text-label leading-relaxed space-y-2">
                   <p>
                     • <strong>Geographic Performance Tractions</strong>: High-density localization highlights distinct regions that contribute the bulk of current revenue streams. This is visible on the interactive map.
                   </p>
@@ -668,14 +593,14 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
 
               {/* Potential Risks */}
               <div className="space-y-2 pt-1">
-                <h4 className="text-[11px] font-mono font-bold text-rose-400 uppercase tracking-wider">Market & Operational Risks:</h4>
+                <h4 className="text-xs font-semibold text-label-2">Risks</h4>
                 <div className="space-y-2">
-                  <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/20 text-[11px] font-sans leading-relaxed text-rose-305 text-rose-300">
-                    <span className="font-bold text-rose-400 font-mono block text-[10px] uppercase">RISK 1: Region & Segment Resource Misallocation (HIGH)</span>
+                  <div className="p-3 rounded-xl bg-red/10 text-xs leading-relaxed text-label">
+                    <span className="font-semibold text-red block mb-0.5">High · Region and segment concentration</span>
                     Over-relying on a single primary geography compromises portfolio safety during sudden regional economic changes.
                   </div>
-                  <div className="p-2.5 rounded-xl bg-amber-950/35 border border-amber-500/20 text-[11px] font-sans leading-relaxed text-amber-255 text-amber-300">
-                    <span className="font-bold text-amber-400 font-mono block text-[10px] uppercase">RISK 2: Customer Segment Churn (MODERATE)</span>
+                  <div className="p-3 rounded-xl bg-orange/10 text-xs leading-relaxed text-label">
+                    <span className="font-semibold text-orange block mb-0.5">Moderate · Customer segment churn</span>
                     Dependence on several key segments creates revenue volatility if customer retention trends are not actively managed.
                   </div>
                 </div>
@@ -683,90 +608,43 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
 
               {/* 5 Strategic Recommendations */}
               <div className="space-y-2.5 pt-1">
-                <h4 className="text-[11px] font-mono font-bold text-amber-400 uppercase tracking-wider">5 Business Growth Recommendations:</h4>
-                <div className="space-y-2 text-[11px] text-slate-350 font-sans">
-                  <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 leading-relaxed">
-                    <strong className="text-white block font-sans mb-0.5">1. Target Media Budgets Wisely</strong>
+                <h4 className="text-xs font-semibold text-label-2">Recommendations</h4>
+                <div className="space-y-2 text-xs text-label">
+                  <div className="p-3 rounded-xl bg-surface leading-relaxed">
+                    <strong className="text-label block mb-0.5">1. Target Media Budgets Wisely</strong>
                     Direct advertising and promotional expenditure into recognized high-performing regional hubs.
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 leading-relaxed">
-                    <strong className="text-white block font-sans mb-0.5">2. Enrich Buyer Profile Surveys</strong>
+                  <div className="p-3 rounded-xl bg-surface leading-relaxed">
+                    <strong className="text-label block mb-0.5">2. Enrich Buyer Profile Surveys</strong>
                     Supplement base demographics with ongoing customer buying-habit feedback surveys.
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 leading-relaxed">
-                    <strong className="text-white block font-sans mb-0.5">3. Consolidate Local Operations</strong>
+                  <div className="p-3 rounded-xl bg-surface leading-relaxed">
+                    <strong className="text-label block mb-0.5">3. Consolidate Local Operations</strong>
                     Establish dedicated service and support checkpoints in top performance centers.
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 leading-relaxed">
-                    <strong className="text-white block font-sans mb-0.5">4. Continuous Cohort Monitoring</strong>
+                  <div className="p-3 rounded-xl bg-surface leading-relaxed">
+                    <strong className="text-label block mb-0.5">4. Continuous Cohort Monitoring</strong>
                     Schedule bi-weekly dashboard checks to identify shifts in customer spending patterns.
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 leading-relaxed">
-                    <strong className="text-white block font-sans mb-0.5">5. Streamline Tiered Packaging</strong>
+                  <div className="p-3 rounded-xl bg-surface leading-relaxed">
+                    <strong className="text-label block mb-0.5">5. Streamline Tiered Packaging</strong>
                     Group pricing tiers to minimize user choice confusion and maximize user registration rates.
                   </div>
                 </div>
               </div>
             </div>
-
-            <div className="pt-4 border-t border-slate-800/60 text-[10px] text-slate-500 font-mono flex items-center justify-between">
-              <span>Section verified</span>
-              <span>ADP-P3</span>
-            </div>
           </div>
 
         </div>
 
-        {/* BOTTOM AREA: PHYSICAL SEAL STAMP SECTION */}
-        <div className="mt-12 pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-6 relative z-10" id="signature_seal_platform">
-          <div className="space-y-1.5 text-center sm:text-left">
-            <span className="text-[9px] font-mono font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-lg uppercase tracking-wider">
-              Verification State: SECURED
-            </span>
-            <p className="font-black text-white text-xs font-sans mt-2">Certified Strategic Dashboard Portfolios</p>
-            <p className="text-[10px] text-slate-450 leading-relaxed font-mono max-w-md">
-              Approved as a reliable, production-ready corporate report. Digitally stamped, signed, and encrypted via localized workspace nodes.
-            </p>
-          </div>
-
-          {/* THE MASTER ASK DEEPAK AI APPROVED STAMP */}
-          <div className="relative flex items-center justify-center w-40 h-40 select-none print:break-inside-avoid">
-            {/* outer rings with beautiful CSS dash-spin */}
-            <div className="absolute inset-0 rounded-full border-4 border-dashed border-teal-500/50 flex items-center justify-center animate-[spin_40s_linear_infinite]" />
-            <div className="absolute inset-1 rounded-full border-2 border-indigo-400/40" />
-
-            <div className="w-32 h-32 rounded-full bg-[#0d162d] border border-teal-500/30 flex flex-col items-center justify-center text-center p-3 shadow-2xl relative">
-              <div className="text-[7.5px] font-black text-teal-400 tracking-widest font-mono uppercase">ASK DEEPAK AI</div>
-              
-              {/* Huge APPROVED center badge */}
-              <div className="text-base font-black text-white bg-gradient-to-r from-teal-400 to-indigo-400 bg-clip-text text-transparent my-1 tracking-tight">
-                APPROVED
-              </div>
-              
-              <div className="text-[6px] font-black text-indigo-300 tracking-wider uppercase font-mono">QC-VERIFIED 2026</div>
-              
-              {/* Decorative mini barcode symbol */}
-              <div className="flex gap-[1.5px] items-center justify-center mt-2.5 h-3 opacity-60">
-                <div className="w-[1.5px] h-full bg-teal-400" />
-                <div className="w-[2.5px] h-full bg-teal-400" />
-                <div className="w-[1px] h-full bg-teal-400" />
-                <div className="w-[3px] h-full bg-teal-400" />
-                <div className="w-[1.5px] h-full bg-teal-400" />
-                <div className="w-[1px] h-full bg-teal-400" />
-                <div className="w-[2px] h-full bg-teal-400" />
-              </div>
-
-              <div className="text-[7px] text-slate-500 mt-1 font-mono uppercase">
-                ADP-{Math.floor(Date.now() / 100000).toString(16).toUpperCase()}
-              </div>
-            </div>
-          </div>
-        </div>
-
+        <p className="mt-10 pt-6 border-t border-separator text-xs text-label-3">
+          Generated automatically from {dataset.rowCount.toLocaleString()} rows and {dataset.columns.length} columns.
+          Review findings against your own domain knowledge before acting on them.
+        </p>
       </div>
 
       {expertMode && <ExecutivePDFReport dataset={dataset} aiAnalysis={aiAnalysis} mlResult={mlResult} />}
@@ -774,11 +652,9 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
 
       {/* OPERATIONAL LOGS / TERMINAL */}
       {expertMode && (
-      <div className="bg-slate-900/40 p-5 rounded-2xl border border-slate-850 shadow-xl" id="reports_hub_terminal">
-        <h3 className="text-[10px] font-bold uppercase tracking-widest text-[#5C6F84] flex items-center gap-2 font-mono mb-4">
-          <Terminal className="w-4 h-4 text-emerald-400" /> Export & Publishing Audit Logs
-        </h3>
-        <div className="bg-slate-950/60 p-4 h-[120px] rounded-xl border border-slate-850 font-mono text-[10px] text-emerald-400 space-y-1.5 overflow-y-auto shadow-inner">
+      <div className="card p-5 sm:p-6" id="reports_hub_terminal">
+        <h3 className="card-title mb-3">Export log</h3>
+        <div className="bg-well p-4 h-[120px] rounded-xl font-code text-xs text-label-2 space-y-1.5 overflow-y-auto">
           {logs.map((log, i) => (
             <div key={i} className="leading-relaxed">
               &gt; {log}

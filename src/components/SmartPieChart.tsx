@@ -1,3 +1,4 @@
+import { CHART_COLORS } from '../utils/chartTheme';
 import React, { useState } from 'react';
 import { useDashboardContext } from './DashboardContext';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -7,7 +8,7 @@ interface SmartPieChartProps {
   categoryColumn: string;
 }
 
-const COLORS = ['#3B82F6', '#10B981', '#6366F1', '#8B5CF6', '#EC4899', '#F43F5E', '#F59E0B', '#14B8A6'];
+const COLORS = CHART_COLORS;
 
 export default function SmartPieChart({ categoryColumn }: SmartPieChartProps) {
   const { filteredData } = useDashboardContext();
@@ -15,9 +16,9 @@ export default function SmartPieChart({ categoryColumn }: SmartPieChartProps) {
 
   if (!filteredData || filteredData.length === 0) {
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg min-h-[300px] flex flex-col items-center justify-center">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-4">Pie Chart: {categoryColumn}</h3>
-        <p className="text-slate-500 text-xs text-center">No data available.</p>
+      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+        <h3 className="text-sm font-semibold tracking-tight text-label mb-4">{categoryColumn}</h3>
+        <p className="text-label-3 text-xs text-center">No data available.</p>
       </div>
     );
   }
@@ -37,12 +38,12 @@ export default function SmartPieChart({ categoryColumn }: SmartPieChartProps) {
   const toggleDonut = () => setIsDonut(!isDonut);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg min-h-[300px] flex flex-col relative">
+    <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col relative">
        <div className="flex justify-between items-start mb-2">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest overflow-hidden text-ellipsis whitespace-nowrap pr-2">
-          {categoryColumn} Distribution
+        <h3 className="text-sm font-semibold tracking-tight text-label overflow-hidden text-ellipsis whitespace-nowrap pr-2">
+          Share by {categoryColumn}
         </h3>
-        <button onClick={toggleDonut} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded text-slate-400 transition-colors" title="Toggle Donut">
+        <button onClick={toggleDonut} className="p-1.5 bg-fill hover:bg-fill-strong rounded text-label-2 transition-colors" title="Toggle Donut">
           <Target className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -67,8 +68,6 @@ export default function SmartPieChart({ categoryColumn }: SmartPieChartProps) {
               ))}
             </Pie>
             <Tooltip
-              contentStyle={{ backgroundColor: '#0B0E17', borderColor: '#1E293B', color: '#fff', fontSize: '12px', borderRadius: '8px' }}
-              itemStyle={{ color: '#fff' }}
             />
             <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
           </PieChart>

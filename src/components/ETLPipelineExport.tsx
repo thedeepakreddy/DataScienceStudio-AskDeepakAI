@@ -52,21 +52,21 @@ export default function ETLPipelineExport() {
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 mt-8 shadow-2xl relative overflow-hidden animate-fade-in">
+    <div className="bg-surface border border-separator rounded-2xl p-6 sm:p-8 mt-8 shadow-sm relative overflow-hidden animate-fade-in">
        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-             <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center border border-emerald-500/20">
-               <Workflow className="w-5 h-5 text-emerald-400" />
+             <div className="w-10 h-10 bg-green/10 rounded-lg flex items-center justify-center border border-green/20">
+               <Workflow className="w-5 h-5 text-green" />
              </div>
              <div>
-               <h2 className="text-xl font-extrabold text-white tracking-tight">Export ETL Pipeline</h2>
-               <p className="text-xs text-slate-400 mt-1">Generate a runnable Python script of your data transformations.</p>
+               <h2 className="text-xl font-semibold text-label tracking-tight">Export pipeline as Python</h2>
+               <p className="text-xs text-label-2 mt-1">Generate a runnable Python script of your data transformations.</p>
              </div>
           </div>
           {!script && !loading && (
              <button
                 onClick={generateScript}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm py-2 px-6 rounded-xl transition-all shadow-lg"
+                className="bg-green hover:bg-green text-white font-semibold text-sm py-2 px-6 rounded-xl transition-all shadow-sm"
              >
                 Generate Script
              </button>
@@ -74,10 +74,10 @@ export default function ETLPipelineExport() {
        </div>
 
        {!script && !loading && (
-         <div className="mb-6 text-xs text-slate-400 bg-slate-950/50 border border-slate-800 rounded-xl p-4">
+         <div className="mb-6 text-xs text-label-2 bg-well border border-separator rounded-xl p-4">
            {realTransformations.length > 0 ? (
              <>
-               <p className="font-bold text-slate-300 mb-2">Real operations that will be encoded into this script ({realTransformations.length}):</p>
+               <p className="font-semibold text-label mb-2">Real operations that will be encoded into this script ({realTransformations.length}):</p>
                <ul className="space-y-1 list-disc list-inside">
                  {realTransformations.map((t, i) => <li key={i}>{t}</li>)}
                </ul>
@@ -90,31 +90,31 @@ export default function ETLPipelineExport() {
 
        {loading && (
           <div className="py-8 flex flex-col items-center justify-center">
-             <Loader2 className="w-8 h-8 text-emerald-400 animate-spin mb-4" />
-             <p className="text-sm font-bold text-emerald-300">Writing pandas and SQLAlchemy code...</p>
+             <Loader2 className="w-8 h-8 text-green animate-spin mb-4" />
+             <p className="text-sm font-semibold text-green">Writing pandas and SQLAlchemy code...</p>
           </div>
        )}
 
        {error && (
-         <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-xs flex items-start gap-3 mb-6">
-           <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+         <div className="p-4 bg-red/10 border border-red/20 text-red rounded-xl text-xs flex items-start gap-3 mb-6">
+           <AlertCircle className="w-4 h-4 text-red shrink-0 mt-0.5" />
            <p>{error}</p>
          </div>
        )}
 
        {script && (
           <div className="space-y-4">
-             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-x-auto">
-               <div className="flex items-center gap-2 mb-3 text-slate-500 text-xs font-mono uppercase tracking-wider">
+             <div className="bg-well p-4 rounded-xl border border-separator overflow-x-auto">
+               <div className="flex items-center gap-2 mb-3 text-label-3 text-xs tabular-nums">
                  <Terminal className="w-4 h-4" /> pipeline.py
                </div>
-               <pre className="text-xs text-emerald-300 font-mono leading-relaxed">{script}</pre>
+               <pre className="text-xs text-green tabular-nums leading-relaxed">{script}</pre>
              </div>
              
              <div className="flex justify-end">
                 <button
                    onClick={downloadScript}
-                   className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-sm py-2 px-6 rounded-xl transition-all border border-slate-700"
+                   className="flex items-center gap-2 bg-fill hover:bg-fill-strong text-green font-semibold text-sm py-2 px-6 rounded-xl transition-all border border-separator-strong"
                 >
                    <Download className="w-4 h-4" /> Download ETL Script (.py)
                 </button>
