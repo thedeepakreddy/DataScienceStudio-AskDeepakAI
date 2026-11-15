@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Dataset } from '../types';
 import { Microscope, Loader2, AlertTriangle, Download, Code, ShieldCheck } from 'lucide-react';
 import { usePipelineContext } from '../contexts/PipelineContext';
+import { apiFetch } from '../utils/api';
 
 interface DeepQualityAuditProps {
   dataset: Dataset;
@@ -64,7 +65,7 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
       };
 
       // 2. Fetch AI Python fixes
-      const response = await fetch('/api/deep-quality-audit', {
+      const response = await apiFetch('/api/deep-quality-audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ auditSummary })

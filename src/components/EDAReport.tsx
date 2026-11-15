@@ -42,6 +42,7 @@ import HypothesisLab from './HypothesisLab';
 import ABTestInterpreter from './ABTestInterpreter';
 import SQLAssistant from './SQLAssistant';
 import { usePipelineContext } from '../contexts/PipelineContext';
+import { apiFetch } from '../utils/api';
 
 interface EDAReportProps {
   dataset: Dataset;
@@ -73,7 +74,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
     setLoadingDeepEda(true);
     setDeepEdaError(null);
     try {
-      const res = await fetch('/api/eda', {
+      const res = await apiFetch('/api/eda', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ datasetRows: dataset.rows })

@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, animate } from 'motion/react';
 import { Sparkles, MessageSquare, Send, X, Trash2, Cpu, BarChart2, Check, RefreshCw, Layers, Compass, Code, Play } from 'lucide-react';
 import { Dataset } from '../types';
+import { apiFetch } from '../utils/api';
 
 interface AssistiveTouchBotProps {
   activeDataset: Dataset | null;
@@ -533,7 +534,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
 
       let data;
       try {
-        const res = await fetch('/api/chat-bot', {
+        const res = await apiFetch('/api/chat-bot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

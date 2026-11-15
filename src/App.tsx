@@ -15,6 +15,7 @@ import {
   Mail,
   MapPin,
   Moon,
+  Sparkles,
   Sun,
   Target,
   X,
@@ -34,6 +35,7 @@ import AppIcon from './components/AppIcon';
 import LoadingScreen from './components/LoadingScreen';
 import { usePipelineContext, PipelineStage } from './contexts/PipelineContext';
 import { STAGES, STAGE_ORDER } from './stages';
+import { apiFetch, API_SETTLED_EVENT } from './utils/api';
 
 type Theme = 'light' | 'dark';
 
@@ -127,6 +129,33 @@ export default function App() {
     return () => document.removeEventListener('click', handleGlobalClick, true);
   }, [activeTab, activeDataset]);
 
+  // Why AI answers are (or aren't) coming from Gemini. The server records the
+  // outcome of each real call; this just reads it - on load, and again after
+  // any API call settles - so a silent fallback to template answers is visible.
+  const [aiStatus, setAiStatus] = useState<{ state: string; reason: string | null; message: string; detail: string | null } | null>(null);
+  const [aiChecking, setAiChecking] = useState(false);
+  const [aiNoticeDismissedFor, setAiNoticeDismissedFor] = useState<string | null>(null);
+  const refreshAiStatus = useCallback(async (probe = false) => {
+    try {
+      const res = await fetch(`/api/ai/status${probe ? '?probe=1' : ''}`, { cache: 'no-store' });
+      if (res.ok) setAiStatus(await res.json());
+    } catch { /* status is best-effort */ }
+  }, []);
+  // "Check Again" makes one small live call to Gemini rather than reading the last result.
+  const recheckAi = async () => {
+    setAiChecking(true);
+    await refreshAiStatus(true);
+    setAiChecking(false);
+  };
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onSettled = () => { clearTimeout(timer); timer = setTimeout(() => refreshAiStatus(), 300); };
+    onSettled(); // initial read
+    window.addEventListener(API_SETTLED_EVENT, onSettled);
+    return () => { clearTimeout(timer); window.removeEventListener(API_SETTLED_EVENT, onSettled); };
+  }, [refreshAiStatus]);
+  const showAiNotice = aiStatus?.state === 'unavailable' && aiNoticeDismissedFor !== aiStatus.reason;
+
   // AI & ML States
   const [aiAnalysis, setAiAnalysis] = useState<any | null>(null);
   const [loadingAI, setLoadingAI] = useState<boolean>(false);
@@ -181,7 +210,7 @@ export default function App() {
         statistics: c.statistics
       }));
 
-      const res = await fetch('/api/analyze-dataset', {
+      const res = await apiFetch('/api/analyze-dataset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -229,7 +258,7 @@ export default function App() {
     setLoadingML(true);
     setErrorLine(null);
     try {
-      const res = await fetch('/api/run-ml-prediction', {
+      const res = await apiFetch('/api/run-ml-prediction', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -292,7 +321,7 @@ export default function App() {
             id="brand_logo"
             aria-label="Data Science Studio — go to Import"
           >
-            <AppIcon size={28} />
+            <AppIcon size={36} />
             <span className="hidden sm:inline text-[17px] font-semibold tracking-tight text-label truncate">
               Data Science Studio
             </span>
@@ -405,6 +434,39 @@ export default function App() {
               onClick={() => setErrorLine(null)}
               className="shrink-0 -m-1 p-1 rounded-full hover:bg-red/10"
               aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {showAiNotice && aiStatus && (
+          <div role="status" className="mb-6 flex flex-wrap items-start gap-3 rounded-2xl bg-orange/10 px-4 py-3 text-sm">
+            <Sparkles className="w-[18px] h-[18px] text-orange shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-label">
+                <span className="font-semibold">AI answers are unavailable right now.</span>{' '}
+                AI features are using built-in answers instead.
+              </p>
+              <details className="mt-1 text-xs text-label-2">
+                <summary className="cursor-pointer w-max">Why?</summary>
+                <p className="mt-1 leading-relaxed">{aiStatus.message}</p>
+                {aiStatus.detail && <p className="mt-1 text-label-3 break-words">Google said: “{aiStatus.detail}”</p>}
+              </details>
+            </div>
+            <button
+              type="button"
+              onClick={recheckAi}
+              disabled={aiChecking}
+              className="btn btn-sm btn-secondary shrink-0"
+            >
+              {aiChecking ? 'Checking…' : 'Check Again'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setAiNoticeDismissedFor(aiStatus.reason)}
+              className="shrink-0 -m-1 p-1 rounded-full text-label-2 hover:bg-fill"
+              aria-label="Hide AI notice"
             >
               <X className="w-4 h-4" />
             </button>

@@ -6,6 +6,8 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
+import { type GeminiFailureKind, classifyGeminiError, describeGeminiFailure, mostTellingFailure, summarizeGeminiError } from './geminiHealth';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from '@google/genai';
@@ -14,6 +16,70 @@ const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: '50mb' }));
+
+// --- LONG-RUNNING REQUESTS AS BACKGROUND JOBS ---
+// Training, a cold ML-service wake-up or a retried Gemini call can each take
+// well over a minute. A single request held open that long is fragile: WebKit
+// (Safari, and every browser on iOS) drops a request that has been silent for
+// 60 seconds and reports only "Load failed", switching tabs on a phone can
+// abort it, and some proxies cut idle connections too.
+//
+// So when the client asks for it (X-Async-Job: 1), a POST is answered at once
+// with a job id, the route's normal handler keeps running in the background
+// with its response captured here instead of written to the socket, and the
+// client collects the result from GET /api/jobs/:id with short polls. Handlers
+// need no changes - they still just call res.status(...).json(...).
+type AsyncJob = { done: boolean; status: number; body: unknown; finishedAt: number | null };
+const asyncJobs = new Map<string, AsyncJob>();
+const ASYNC_JOB_RESULT_TTL_MS = 10 * 60 * 1000;   // how long a finished result waits to be collected
+const ASYNC_JOB_MAX_AGE_MS = 30 * 60 * 1000;      // a job that never finishes is dropped after this
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, job] of asyncJobs) {
+    const createdAt = Number(id.split('-')[0]);
+    if ((job.finishedAt && now - job.finishedAt > ASYNC_JOB_RESULT_TTL_MS) || now - createdAt > ASYNC_JOB_MAX_AGE_MS) {
+      asyncJobs.delete(id);
+    }
+  }
+}, 60 * 1000).unref();
+
+app.use('/api', (req, res, next) => {
+  if (req.method !== 'POST' || req.get('X-Async-Job') !== '1') return next();
+
+  const jobId = `${Date.now()}-${randomUUID()}`;
+  const job: AsyncJob = { done: false, status: 200, body: null, finishedAt: null };
+  asyncJobs.set(jobId, job);
+  res.status(202).json({ jobId });
+
+  // From here on the handler's response is captured rather than sent.
+  let status = 200;
+  const finish = (body: unknown) => {
+    if (job.done) return;
+    job.done = true;
+    job.status = status;
+    job.body = body;
+    job.finishedAt = Date.now();
+  };
+  const captured = res as any;
+  captured.status = (code: number) => { status = code; return res; };
+  captured.sendStatus = (code: number) => { status = code; finish(null); return res; };
+  captured.json = (body: unknown) => { finish(body); return res; };
+  captured.send = (body: unknown) => { finish(body); return res; };
+  captured.end = () => { finish(null); return res; };
+  captured.set = captured.setHeader = captured.type = () => res;
+  Object.defineProperty(captured, 'headersSent', { get: () => job.done, configurable: true });
+
+  next();
+});
+
+app.get('/api/jobs/:jobId', (req, res) => {
+  const job = asyncJobs.get(req.params.jobId);
+  res.set('Cache-Control', 'no-store');
+  if (!job) return res.status(404).json({ error: 'Unknown or expired job.' });
+  if (!job.done) return res.status(202).json({ done: false });
+  res.json({ done: true, status: job.status, body: job.body });
+});
 
 // --- FIREBASE ADMIN INITIALIZATION ---
 let db: FirebaseFirestore.Firestore | null = null;
@@ -60,6 +126,16 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
+// --- GEMINI HEALTH ---
+// Every AI feature degrades to a built-in template when Gemini fails, which is
+// right for the feature but used to leave no trace outside the server log: the
+// app just looked like "Gemini isn't responding". The outcome of each real call
+// is recorded here and exposed at /api/ai/status so the UI can say why.
+const geminiHealth: {
+  lastOk: { at: number; model: string } | null;
+  lastFailure: { at: number; kind: GeminiFailureKind; models: string[]; detail: string } | null;
+} = { lastOk: null, lastFailure: null };
+
 // Highly resilient wrapper function to manage transient service errors (503 UNAVAILABLE, 429 timeouts),
 // with automatic backoff retry & seamless fallback to high-availability lite models.
 async function generateContentWithRetry(client: GoogleGenAI, params: {
@@ -72,6 +148,13 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
   // gemini-2.5-flash stays last as the widely-provisioned safety net.
   const modelsToTry = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'];
   let lastError: any = null;
+  const failureKinds: GeminiFailureKind[] = [];
+
+  // Without a key every model would be tried and rejected in turn; say so once.
+  if (!process.env.GEMINI_API_KEY) {
+    geminiHealth.lastFailure = { at: Date.now(), kind: 'no_key', models: [], detail: 'GEMINI_API_KEY is not set.' };
+    throw new Error('GEMINI_API_KEY is not set on the server.');
+  }
 
   for (const model of modelsToTry) {
     let attempts = 3;
@@ -87,10 +170,12 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
         });
         if (response) {
           console.log(`[AskDeepakAI Gemini Client] Loaded analytical response successfully from model: "${model}"`);
+          geminiHealth.lastOk = { at: Date.now(), model };
           return response;
         }
       } catch (err: any) {
         lastError = err;
+        failureKinds.push(classifyGeminiError(err));
         const errMsg = (err?.message || String(err)).toLowerCase();
         
         // Match standard highly loaded/throttled or service error patterns
@@ -115,6 +200,12 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
     }
   }
 
+  geminiHealth.lastFailure = {
+    at: Date.now(),
+    kind: mostTellingFailure(failureKinds),
+    models: modelsToTry,
+    detail: summarizeGeminiError(lastError),
+  };
   throw lastError || new Error('GenerateContent failed across all primary and secondary fallback models');
 }
 
@@ -123,7 +214,64 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
 // actually fit and evaluated by this service — never from Gemini, and never
 // from a client-side formula. If the service is unreachable, callers must
 // surface a clear error instead of silently substituting fabricated numbers.
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000';
+// ONE ML service for everything: the wake button, the status probe, training,
+// EDA and model downloads all resolve their target through getMlServiceUrl().
+// (They used to disagree: with ML_SERVICE_URL unset, "wake" primed the hosted
+// service while training still called 127.0.0.1:8000 - so the button reported
+// the engine as on and the very next training run failed as "unreachable".)
+//
+//   1. ML_SERVICE_URL, when explicitly configured (production, docker).
+//   2. Otherwise a Python service running on this machine, if one answers.
+//   3. Otherwise the hosted free-tier deployment below.
+const ML_SERVICE_LOCAL_URL = 'http://127.0.0.1:8000';
+const ML_SERVICE_PUBLIC_URL = 'https://askdeepakai-datascientist-mlservice.onrender.com';
+const ML_SERVICE_CONFIGURED_URL = (process.env.ML_SERVICE_URL || '').replace(/\/+$/, '') || null;
+
+// Re-check which service to use now and then, so starting (or stopping) a local
+// uvicorn mid-session is picked up without restarting this server.
+const ML_SERVICE_RESOLVE_TTL_MS = 30000;
+let resolvedMlService: { url: string; at: number } | null = null;
+
+// Newer builds of the ML service serve a "keep this tab open" page at "/" and
+// say so in /health. Older deployments answer "/" with {"detail":"Not Found"},
+// so remember what each service told us and only link to a page that exists.
+const mlServicesWithKeepAlivePage = new Set<string>();
+function noteMlServiceHealth(url: string, health: any) {
+  if (health?.keep_alive_page === true) mlServicesWithKeepAlivePage.add(url);
+  else mlServicesWithKeepAlivePage.delete(url);
+}
+
+async function isMlServiceListening(url: string, timeoutMs: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
+    if (response.ok) noteMlServiceHealth(url, await response.json().catch(() => null));
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function getMlServiceUrl(): Promise<string> {
+  if (ML_SERVICE_CONFIGURED_URL) return ML_SERVICE_CONFIGURED_URL;
+  if (resolvedMlService && Date.now() - resolvedMlService.at < ML_SERVICE_RESOLVE_TTL_MS) {
+    return resolvedMlService.url;
+  }
+  const localIsUp = await isMlServiceListening(ML_SERVICE_LOCAL_URL, 1500);
+  resolvedMlService = { url: localIsUp ? ML_SERVICE_LOCAL_URL : ML_SERVICE_PUBLIC_URL, at: Date.now() };
+  return resolvedMlService.url;
+}
+
+// A link a person can open in their own browser to wake the service by hand -
+// only meaningful for a public https host, not localhost or a docker hostname.
+function mlServiceOpenUrl(url: string): string | null {
+  if (!url.startsWith('https://')) return null;
+  return mlServicesWithKeepAlivePage.has(url) ? `${url}/` : `${url}/health`;
+}
+
 // AutoML mode fits 5 real candidate models (with cross-validation refits) on
 // the full dataset; on a free-tier host's slower, shared CPU a several
 // -thousand-row dataset can genuinely take a few minutes, not seconds.
@@ -137,16 +285,9 @@ const ML_SERVICE_TIMEOUT_MS = 240000;
 const GATEWAY_RETRY_STATUSES = new Set([502, 503, 504]);
 const GATEWAY_RETRY_DELAYS_MS = [3000, 5000, 8000, 12000, 18000, 25000]; // ~71s total coverage
 
-// The public free-tier deployment of the Python ML service. Render spins a free
-// instance down after ~15 minutes idle, and the next request then pays a cold
-// start. The /api/ml-service/wake endpoint below lets the UI pay that cost up
-// front, in the background, before the user asks for any real training work.
-// ML_SERVICE_URL wins when it is explicitly configured (production, docker,
-// or a local uvicorn); the public URL is the fallback so the button still does
-// something useful when the app runs locally with no ML service of its own.
-const ML_SERVICE_PUBLIC_URL = 'https://askdeepakai-datascientist-mlservice.onrender.com';
-const ML_SERVICE_WAKE_URL = (process.env.ML_SERVICE_URL || ML_SERVICE_PUBLIC_URL).replace(/\/+$/, '');
-
+// Free-tier hosts spin an idle instance down after ~15 minutes, and the next
+// request then pays a cold start. The /api/ml-service/wake endpoint below lets
+// the UI pay that cost up front, in the background, before any real training.
 // A cold start is ~25-60s, so poll patiently but cap the whole thing well under
 // a browser's patience. Each individual probe gets a short timeout so a hung
 // socket doesn't eat the entire budget.
@@ -163,7 +304,7 @@ type WakeOutcome = {
   service: any;
 };
 
-async function wakeMlService(): Promise<WakeOutcome> {
+async function wakeMlService(baseUrl: string): Promise<WakeOutcome> {
   const startedAt = Date.now();
   let attempts = 0;
   let lastDetail = 'no response';
@@ -173,16 +314,17 @@ async function wakeMlService(): Promise<WakeOutcome> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), WAKE_PROBE_TIMEOUT_MS);
     try {
-      const response = await fetch(`${ML_SERVICE_WAKE_URL}/health`, {
+      const response = await fetch(`${baseUrl}/health`, {
         method: 'GET',
         signal: controller.signal,
       });
 
       if (response.ok) {
         const service = await response.json().catch(() => null);
+        noteMlServiceHealth(baseUrl, service);
         return {
           status: 'awake',
-          url: ML_SERVICE_WAKE_URL,
+          url: baseUrl,
           attempts,
           elapsedMs: Date.now() - startedAt,
           // More than one probe means the first one hit a sleeping instance.
@@ -197,7 +339,7 @@ async function wakeMlService(): Promise<WakeOutcome> {
       if (!GATEWAY_RETRY_STATUSES.has(response.status)) {
         throw new Error(`ML service responded with ${lastDetail}.`);
       }
-      console.log(`[AskDeepakAI ML wake] ${lastDetail} from ${ML_SERVICE_WAKE_URL} - still cold, probe ${attempts}...`);
+      console.log(`[AskDeepakAI ML wake] ${lastDetail} from ${baseUrl} - still cold, probe ${attempts}...`);
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         lastDetail = `probe timed out after ${WAKE_PROBE_TIMEOUT_MS / 1000}s`;
@@ -215,18 +357,19 @@ async function wakeMlService(): Promise<WakeOutcome> {
   }
 
   throw new Error(
-    `The ML service at ${ML_SERVICE_WAKE_URL} did not come up within ${WAKE_TOTAL_BUDGET_MS / 1000}s (last: ${lastDetail}). ` +
+    `The ML service at ${baseUrl} did not come up within ${WAKE_TOTAL_BUDGET_MS / 1000}s (last: ${lastDetail}). ` +
     `Free-tier cold starts are usually under a minute - try once more, or check the host's dashboard.`
   );
 }
 
 
 async function callMlService(path: string, options: { method?: string; body?: any } = {}) {
+  const baseUrl = await getMlServiceUrl();
   for (let attempt = 0; ; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), ML_SERVICE_TIMEOUT_MS);
     try {
-      const response = await fetch(`${ML_SERVICE_URL}${path}`, {
+      const response = await fetch(`${baseUrl}${path}`, {
         method: options.method || 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -254,7 +397,7 @@ async function callMlService(path: string, options: { method?: string; body?: an
       return parsed;
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        throw new Error(`ML compute service timed out after ${ML_SERVICE_TIMEOUT_MS / 1000}s at ${ML_SERVICE_URL}.`, { cause: err });
+        throw new Error(`ML compute service timed out after ${ML_SERVICE_TIMEOUT_MS / 1000}s at ${baseUrl}.`, { cause: err });
       }
       const msg = String(err?.message || err);
       // Node's fetch (undici) wraps connection-level failures in a generic
@@ -279,8 +422,13 @@ async function callMlService(path: string, options: { method?: string; body?: an
         );
       }
       if (/ECONNREFUSED|fetch failed|ENOTFOUND/i.test(msg)) {
+        // The cached choice may be stale (e.g. a local service was just stopped).
+        resolvedMlService = null;
+        const openUrl = mlServiceOpenUrl(baseUrl);
         throw new Error(
-          `ML compute service is unreachable at ${ML_SERVICE_URL}. Start it with: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000`,
+          openUrl
+            ? `The ML engine at ${baseUrl} is not responding - it is probably asleep. Use "Wake ML Engine" in the toolbar, or open ${openUrl} in a new tab and keep it open, then try again.`
+            : `ML compute service is unreachable at ${baseUrl}. Start it with: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000`,
           { cause: err }
         );
       }
@@ -296,15 +444,18 @@ async function callMlService(path: string, options: { method?: string; body?: an
 // without CORS on it, and proxying here also keeps the service URL out of the
 // client bundle. Returns only status metadata - nothing is rendered to the user.
 app.post('/api/ml-service/wake', async (_req, res) => {
+  const url = await getMlServiceUrl();
   try {
-    const outcome = await wakeMlService();
-    console.log(`[AskDeepakAI ML wake] Service awake after ${outcome.attempts} probe(s) in ${outcome.elapsedMs}ms.`);
-    res.json(outcome);
+    const outcome = await wakeMlService(url);
+    console.log(`[AskDeepakAI ML wake] ${url} awake after ${outcome.attempts} probe(s) in ${outcome.elapsedMs}ms.`);
+    res.json({ ...outcome, openUrl: mlServiceOpenUrl(url) });
   } catch (err: any) {
     console.error('[AskDeepakAI ML wake] Failed:', err?.message || err);
     res.status(503).json({
       status: 'unreachable',
-      url: ML_SERVICE_WAKE_URL,
+      url,
+      // Lets the UI offer "open it in a new tab" as a manual way to wake it.
+      openUrl: mlServiceOpenUrl(url),
       error: err?.message || 'Failed to wake the ML service.',
     });
   }
@@ -313,16 +464,45 @@ app.post('/api/ml-service/wake', async (_req, res) => {
 // Lightweight, non-blocking status probe. Unlike /wake this never retries, so
 // the UI can poll it cheaply to show whether the service is still warm.
 app.get('/api/ml-service/status', async (_req, res) => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
-  try {
-    const response = await fetch(`${ML_SERVICE_WAKE_URL}/health`, { method: 'GET', signal: controller.signal });
-    res.json({ status: response.ok ? 'awake' : 'asleep', url: ML_SERVICE_WAKE_URL });
-  } catch {
-    res.json({ status: 'asleep', url: ML_SERVICE_WAKE_URL });
-  } finally {
-    clearTimeout(timeoutId);
+  const url = await getMlServiceUrl();
+  const awake = await isMlServiceListening(url, 5000);
+  res.json({ status: awake ? 'awake' : 'asleep', url, openUrl: mlServiceOpenUrl(url) });
+});
+
+// AI STATUS - why Gemini is or isn't answering.
+// Reports what the most recent real call did, at no cost. With ?probe=1 it
+// makes one tiny live call first (rate-limited, so it cannot burn quota).
+const AI_PROBE_MIN_INTERVAL_MS = 30000;
+let lastAiProbeAt = 0;
+
+function currentAiStatus() {
+  const { lastOk, lastFailure } = geminiHealth;
+  const configured = !!process.env.GEMINI_API_KEY;
+  if (!configured) {
+    return { state: 'unavailable' as const, reason: 'no_key' as const, message: describeGeminiFailure('no_key', []), detail: null, model: null };
   }
+  if (lastFailure && (!lastOk || lastFailure.at > lastOk.at)) {
+    return {
+      state: 'unavailable' as const,
+      reason: lastFailure.kind,
+      message: describeGeminiFailure(lastFailure.kind, lastFailure.models),
+      detail: lastFailure.detail,
+      model: null,
+    };
+  }
+  if (lastOk) return { state: 'ok' as const, reason: null, message: 'Gemini is responding.', detail: null, model: lastOk.model };
+  return { state: 'unknown' as const, reason: null, message: 'No AI request has been made yet.', detail: null, model: null };
+}
+
+app.get('/api/ai/status', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (req.query.probe === '1' && process.env.GEMINI_API_KEY && Date.now() - lastAiProbeAt > AI_PROBE_MIN_INTERVAL_MS) {
+    lastAiProbeAt = Date.now();
+    try {
+      await generateContentWithRetry(getGeminiClient(), { contents: 'Reply with the single word: OK' });
+    } catch { /* the failure is recorded in geminiHealth and reported below */ }
+  }
+  res.json(currentAiStatus());
 });
 
 // 1. DATASET ANALYSIS & AUTOMATED MODEL RECOMMENDATION
@@ -2054,7 +2234,7 @@ app.post('/api/drift-metrics', async (req, res) => {
 // Streams the real, genuinely-fitted joblib artifact back from the Python service.
 app.get('/api/ml/download/:modelId', async (req, res) => {
   try {
-    const upstream = await fetch(`${ML_SERVICE_URL}/download/${encodeURIComponent(req.params.modelId)}`);
+    const upstream = await fetch(`${await getMlServiceUrl()}/download/${encodeURIComponent(req.params.modelId)}`);
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => '');
       return res.status(upstream.status).json({ error: text || 'Model not found or expired. Train again.' });

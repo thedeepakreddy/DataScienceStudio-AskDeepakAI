@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Bot, Loader2, AlertCircle, CheckCircle2, XCircle, Sparkles, ShieldCheck, ArrowRight } from 'lucide-react';
 import { Dataset, AgentRunResult, AgentStep } from '../types';
+import { apiFetch } from '../utils/api';
 
 interface AgentAnalysisProps {
   dataset: Dataset;
@@ -23,7 +24,7 @@ export default function AgentAnalysis({ dataset, target, features, championModel
     setError(null);
     setResult(null);
     try {
-      const resp = await fetch('/api/agent/run', {
+      const resp = await apiFetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: dataset.rows, target, features, modelKey: championModelKey, primaryMetric, primaryMetricValue }),

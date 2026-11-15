@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Database, Search, Code, CheckCircle, Copy, AlertCircle, Loader2, Table as TableIcon } from 'lucide-react';
 import alasql from 'alasql';
 import { Dataset } from '../types';
+import { apiFetch } from '../utils/api';
 
 interface SQLAssistantProps {
   dataset?: Dataset;
@@ -37,7 +38,7 @@ export default function SQLAssistant({ dataset }: SQLAssistantProps) {
     setSqlError(null);
 
     try {
-      const response = await fetch('/api/sql-assistant', {
+      const response = await apiFetch('/api/sql-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schema, question }),
