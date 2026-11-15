@@ -3,6 +3,7 @@ import { usePipelineContext } from '../contexts/PipelineContext';
 import { Rocket, Activity, CheckCircle, ShieldAlert, Cpu, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Dataset } from '../types';
+import { apiFetch } from '../utils/api';
 
 interface DriftMetrics {
   [feature: string]: {
@@ -44,7 +45,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
     setDeployStatus('deploying');
     setDeployError(null);
     try {
-      const response = await fetch('/api/train', {
+      const response = await apiFetch('/api/train', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -89,7 +90,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
 
     setDriftError(null);
     try {
-      const response = await fetch('/api/drift-metrics', {
+      const response = await apiFetch('/api/drift-metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reference_data: referenceRows, current_data: currentRows })

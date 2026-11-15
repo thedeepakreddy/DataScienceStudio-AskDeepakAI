@@ -3,6 +3,7 @@ import { Download, Terminal, Loader2, Workflow, AlertCircle } from 'lucide-react
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { describeCleaningOperation } from '../utils/cleaningOperations';
 import { CleaningOperation } from '../types';
+import { apiFetch } from '../utils/api';
 
 export default function ETLPipelineExport() {
   const { cleaningSteps } = usePipelineContext();
@@ -17,7 +18,7 @@ export default function ETLPipelineExport() {
      setError(null);
 
      try {
-       const response = await fetch('/api/etl-script-generator', {
+       const response = await apiFetch('/api/etl-script-generator', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({

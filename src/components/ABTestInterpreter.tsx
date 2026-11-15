@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AreaChart, BrainCircuit, Loader2, Copy, CheckCircle, AlertCircle } from 'lucide-react';
+import { apiFetch } from '../utils/api';
 
 export default function ABTestInterpreter() {
   const [controlSize, setControlSize] = useState(1000);
@@ -51,7 +52,7 @@ export default function ABTestInterpreter() {
     setError(null);
     try {
        const results = calculateTest();
-       const response = await fetch('/api/ab-test-interpreter', {
+       const response = await apiFetch('/api/ab-test-interpreter', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ results, params: { controlSize, controlRate, treatmentSize, treatmentRate, confidence, testType } })

@@ -15,6 +15,7 @@ import SmartDataTable from './SmartDataTable';
 import FiltersPanel from './FiltersPanel';
 import SlicersPanel from './SlicersPanel';
 import { isIdentifierColumn } from '../utils/csvParser';
+import { apiFetch } from '../utils/api';
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -83,7 +84,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
     setLoadingConfig(true);
     setConfigError(null);
     try {
-      const response = await fetch('/api/dashboard/auto-configure', {
+      const response = await apiFetch('/api/dashboard/auto-configure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile: datasetProfile, customProblem: problemOverride || customProblem })
@@ -213,7 +214,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
            return { name: kpi, average: vals.length ? (sum / vals.length) : 0, sum, count: vals.length };
          })
       };
-      const response = await fetch('/api/dashboard/insight-banner', {
+      const response = await apiFetch('/api/dashboard/insight-banner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dataStateSummary: summary })

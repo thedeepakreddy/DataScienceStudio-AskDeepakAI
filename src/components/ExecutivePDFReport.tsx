@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { jsPDF } from 'jspdf';
 import { BookOpen, Sparkles, Loader2, Download, AlertCircle, FileText } from 'lucide-react';
+import { apiFetch } from '../utils/api';
 
 interface ExecutivePDFReportProps {
   dataset: any;
@@ -31,7 +32,7 @@ export default function ExecutivePDFReport({ dataset, aiAnalysis, mlResult }: Ex
          } : null
       };
 
-      const response = await fetch('/api/executive-pdf-report', {
+      const response = await apiFetch('/api/executive-pdf-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reportData })

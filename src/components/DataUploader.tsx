@@ -9,6 +9,7 @@ import { Dataset } from '../types';
 import { parseCSV, loadSampleDataset } from '../utils/csvParser';
 import PipelineBuilder from './PipelineBuilder';
 import { usePipelineContext } from '../contexts/PipelineContext';
+import { apiFetch } from '../utils/api';
 
 interface DataUploaderProps {
   onDatasetLoaded: (dataset: Dataset) => void;
@@ -81,7 +82,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
     setDatasetProfile(profile);
 
     try {
-      const response = await fetch('/api/pipeline-intelligence', {
+      const response = await apiFetch('/api/pipeline-intelligence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ datasetProfile: profile, businessProblem: problem })

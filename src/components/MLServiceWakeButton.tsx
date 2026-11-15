@@ -5,6 +5,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Power, Loader2, CheckCircle2, AlertTriangle, ExternalLink, X } from 'lucide-react';
+import { apiFetch } from '../utils/api';
 
 type WakeState = 'idle' | 'waking' | 'online' | 'error';
 
@@ -114,7 +115,7 @@ export default function MLServiceWakeButton() {
     try {
       // Runs entirely in the background - no navigation, no popup, nothing
       // rendered from the service's own response.
-      const response = await fetch('/api/ml-service/wake', {
+      const response = await apiFetch('/api/ml-service/wake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
@@ -200,8 +201,8 @@ export default function MLServiceWakeButton() {
               <p id="ml-wake-help-body" className="mt-1 text-xs text-label-2 leading-relaxed">
                 {openUrl ? (
                   <>
-                    Open the engine in a new tab and wait until it shows <span className="font-code text-label">"status":"ok"</span>.
-                    Keep that tab open until you finish using Data Science Studio — this page connects
+                    Open the engine in a new tab and wait for its page to load — that wakes it up.
+                    Keep that tab open until you finish using Data Science Studio. This page connects
                     automatically once the engine is running.
                   </>
                 ) : (

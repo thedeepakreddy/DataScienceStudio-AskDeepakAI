@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MLResult } from '../types';
 import { Brain, Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { apiFetch } from '../utils/api';
 
 interface ModelExplainerProps {
   result: any;
@@ -38,7 +39,7 @@ export default function ModelExplainer({ result }: ModelExplainerProps) {
           type: result.modelType || "Unknown ML Predictor"
        };
        
-       const response = await fetch('/api/model-explainer', {
+       const response = await apiFetch('/api/model-explainer', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ featureImportance: formattedFiParams, metrics, context })

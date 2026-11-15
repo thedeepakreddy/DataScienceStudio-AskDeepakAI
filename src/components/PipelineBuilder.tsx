@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Clock, Key, CheckCircle2, AlertCircle } from 'lucide-react';
 import { parseCSV } from '../utils/csvParser';
+import { apiFetch } from '../utils/api';
 
 export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?: (dataset: any) => void }) {
   const [provider, setProvider] = useState<'PostgreSQL' | 'Snowflake'>('PostgreSQL');
@@ -15,7 +16,7 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
     setMessage('');
 
     try {
-      const response = await fetch('/api/db-connections', {
+      const response = await apiFetch('/api/db-connections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, connectionString, schedule })

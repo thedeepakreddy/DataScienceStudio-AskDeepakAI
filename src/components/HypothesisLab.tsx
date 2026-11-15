@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Dataset } from '../types';
 import { Lightbulb, FlaskConical, Play, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { apiFetch } from '../utils/api';
 
 interface HypothesisLabProps {
   dataset: Dataset;
@@ -47,7 +48,7 @@ export default function HypothesisLab({ dataset }: HypothesisLabProps) {
     setError(null);
     try {
       const dataSample = dataset.rows.slice(0, 10); // Provide short sample
-      const response = await fetch('/api/hypothesis-lab/generate', {
+      const response = await apiFetch('/api/hypothesis-lab/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ columns: dataset.columns, dataSample })
@@ -87,7 +88,7 @@ export default function HypothesisLab({ dataset }: HypothesisLabProps) {
 
      let result: any;
      try {
-       const resp = await fetch('/api/hypothesis-lab/run-test', {
+       const resp = await apiFetch('/api/hypothesis-lab/run-test', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ data: dataset.rows, columns: testColumns })
@@ -111,7 +112,7 @@ export default function HypothesisLab({ dataset }: HypothesisLabProps) {
      // Feed the real result back to interpret (narration only - the numbers
      // above already came from the real test, this just explains them).
      try {
-       const resp = await fetch('/api/hypothesis-lab/interpret', {
+       const resp = await apiFetch('/api/hypothesis-lab/interpret', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ hypothesis, result })

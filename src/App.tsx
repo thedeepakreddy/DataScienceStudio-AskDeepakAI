@@ -34,6 +34,7 @@ import AppIcon from './components/AppIcon';
 import LoadingScreen from './components/LoadingScreen';
 import { usePipelineContext, PipelineStage } from './contexts/PipelineContext';
 import { STAGES, STAGE_ORDER } from './stages';
+import { apiFetch } from './utils/api';
 
 type Theme = 'light' | 'dark';
 
@@ -181,7 +182,7 @@ export default function App() {
         statistics: c.statistics
       }));
 
-      const res = await fetch('/api/analyze-dataset', {
+      const res = await apiFetch('/api/analyze-dataset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -229,7 +230,7 @@ export default function App() {
     setLoadingML(true);
     setErrorLine(null);
     try {
-      const res = await fetch('/api/run-ml-prediction', {
+      const res = await apiFetch('/api/run-ml-prediction', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

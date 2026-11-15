@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as stats
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.compose import ColumnTransformer
@@ -564,9 +564,73 @@ def store_model(pipeline: Pipeline, meta: dict[str, Any]) -> str:
 # Endpoints
 # --------------------------------------------------------------------------
 
+# Opening the service's bare address in a browser tab is the manual way to wake
+# it on a free-tier host (the Studio links here when its own wake attempt
+# fails). Without this route FastAPI answers {"detail":"Not Found"}, which reads
+# as "broken" even though the service is up. The page also pings /health every
+# few minutes, so a tab left open really does keep the instance from idling out.
+KEEP_ALIVE_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ML Engine · Data Science Studio</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f5f5f7; --card: #fff; --text: #1d1d1f; --muted: #6e6e73; --green: #248a3d; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #000; --card: #1c1c1e; --text: #f5f5f7; --muted: #a1a1a6; --green: #30d158; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--bg);
+    color: var(--text); font: 17px/1.47 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  main { max-width: 420px; width: 100%; padding: 32px; border-radius: 24px; background: var(--card); text-align: center;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, .06); }
+  .dot { width: 14px; height: 14px; margin: 0 auto 16px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--green) 18%, transparent); }
+  h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.2; font-weight: 600; letter-spacing: -.02em; }
+  p { margin: 0; color: var(--muted); }
+  small { display: block; margin-top: 20px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div class="dot" id="dot"></div>
+  <h1 id="title">ML engine is running</h1>
+  <p>Keep this tab open while you use Data Science Studio. It keeps the engine awake.</p>
+  <small id="status">Connected just now</small>
+</main>
+<script>
+  var dot = document.getElementById('dot'), title = document.getElementById('title'), status = document.getElementById('status');
+  function check() {
+    fetch('/health', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      dot.style.opacity = 1;
+      title.textContent = 'ML engine is running';
+      status.textContent = 'Last checked ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }).catch(function () {
+      dot.style.opacity = .3;
+      title.textContent = 'Reconnecting to the ML engine…';
+      status.textContent = 'Trying again shortly';
+    });
+  }
+  // Free-tier hosts idle a service out after ~15 minutes without traffic.
+  setInterval(check, 4 * 60 * 1000);
+</script>
+</body>
+</html>
+"""
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def keep_alive_page():
+    return KEEP_ALIVE_PAGE
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "xgboost_available": HAS_XGBOOST}
+    # keep_alive_page lets the web app send people to "/" instead of "/health".
+    return {"status": "ok", "xgboost_available": HAS_XGBOOST, "keep_alive_page": True}
 
 
 @app.post("/train")

@@ -6,6 +6,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from '@google/genai';
@@ -14,6 +15,70 @@ const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: '50mb' }));
+
+// --- LONG-RUNNING REQUESTS AS BACKGROUND JOBS ---
+// Training, a cold ML-service wake-up or a retried Gemini call can each take
+// well over a minute. A single request held open that long is fragile: WebKit
+// (Safari, and every browser on iOS) drops a request that has been silent for
+// 60 seconds and reports only "Load failed", switching tabs on a phone can
+// abort it, and some proxies cut idle connections too.
+//
+// So when the client asks for it (X-Async-Job: 1), a POST is answered at once
+// with a job id, the route's normal handler keeps running in the background
+// with its response captured here instead of written to the socket, and the
+// client collects the result from GET /api/jobs/:id with short polls. Handlers
+// need no changes - they still just call res.status(...).json(...).
+type AsyncJob = { done: boolean; status: number; body: unknown; finishedAt: number | null };
+const asyncJobs = new Map<string, AsyncJob>();
+const ASYNC_JOB_RESULT_TTL_MS = 10 * 60 * 1000;   // how long a finished result waits to be collected
+const ASYNC_JOB_MAX_AGE_MS = 30 * 60 * 1000;      // a job that never finishes is dropped after this
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, job] of asyncJobs) {
+    const createdAt = Number(id.split('-')[0]);
+    if ((job.finishedAt && now - job.finishedAt > ASYNC_JOB_RESULT_TTL_MS) || now - createdAt > ASYNC_JOB_MAX_AGE_MS) {
+      asyncJobs.delete(id);
+    }
+  }
+}, 60 * 1000).unref();
+
+app.use('/api', (req, res, next) => {
+  if (req.method !== 'POST' || req.get('X-Async-Job') !== '1') return next();
+
+  const jobId = `${Date.now()}-${randomUUID()}`;
+  const job: AsyncJob = { done: false, status: 200, body: null, finishedAt: null };
+  asyncJobs.set(jobId, job);
+  res.status(202).json({ jobId });
+
+  // From here on the handler's response is captured rather than sent.
+  let status = 200;
+  const finish = (body: unknown) => {
+    if (job.done) return;
+    job.done = true;
+    job.status = status;
+    job.body = body;
+    job.finishedAt = Date.now();
+  };
+  const captured = res as any;
+  captured.status = (code: number) => { status = code; return res; };
+  captured.sendStatus = (code: number) => { status = code; finish(null); return res; };
+  captured.json = (body: unknown) => { finish(body); return res; };
+  captured.send = (body: unknown) => { finish(body); return res; };
+  captured.end = () => { finish(null); return res; };
+  captured.set = captured.setHeader = captured.type = () => res;
+  Object.defineProperty(captured, 'headersSent', { get: () => job.done, configurable: true });
+
+  next();
+});
+
+app.get('/api/jobs/:jobId', (req, res) => {
+  const job = asyncJobs.get(req.params.jobId);
+  res.set('Cache-Control', 'no-store');
+  if (!job) return res.status(404).json({ error: 'Unknown or expired job.' });
+  if (!job.done) return res.status(202).json({ done: false });
+  res.json({ done: true, status: job.status, body: job.body });
+});
 
 // --- FIREBASE ADMIN INITIALIZATION ---
 let db: FirebaseFirestore.Firestore | null = null;
@@ -141,11 +206,21 @@ const ML_SERVICE_CONFIGURED_URL = (process.env.ML_SERVICE_URL || '').replace(/\/
 const ML_SERVICE_RESOLVE_TTL_MS = 30000;
 let resolvedMlService: { url: string; at: number } | null = null;
 
+// Newer builds of the ML service serve a "keep this tab open" page at "/" and
+// say so in /health. Older deployments answer "/" with {"detail":"Not Found"},
+// so remember what each service told us and only link to a page that exists.
+const mlServicesWithKeepAlivePage = new Set<string>();
+function noteMlServiceHealth(url: string, health: any) {
+  if (health?.keep_alive_page === true) mlServicesWithKeepAlivePage.add(url);
+  else mlServicesWithKeepAlivePage.delete(url);
+}
+
 async function isMlServiceListening(url: string, timeoutMs: number): Promise<boolean> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
+    if (response.ok) noteMlServiceHealth(url, await response.json().catch(() => null));
     return response.ok;
   } catch {
     return false;
@@ -167,7 +242,8 @@ async function getMlServiceUrl(): Promise<string> {
 // A link a person can open in their own browser to wake the service by hand -
 // only meaningful for a public https host, not localhost or a docker hostname.
 function mlServiceOpenUrl(url: string): string | null {
-  return url.startsWith('https://') ? `${url}/health` : null;
+  if (!url.startsWith('https://')) return null;
+  return mlServicesWithKeepAlivePage.has(url) ? `${url}/` : `${url}/health`;
 }
 
 // AutoML mode fits 5 real candidate models (with cross-validation refits) on
@@ -219,6 +295,7 @@ async function wakeMlService(baseUrl: string): Promise<WakeOutcome> {
 
       if (response.ok) {
         const service = await response.json().catch(() => null);
+        noteMlServiceHealth(baseUrl, service);
         return {
           status: 'awake',
           url: baseUrl,
