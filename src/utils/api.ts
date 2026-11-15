@@ -25,6 +25,10 @@ const sleep = (ms: number, signal?: AbortSignal | null) =>
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body ?? null), { status, headers: JSON_HEADERS });
 
+/** Fired on `window` whenever an API call finishes, so status indicators can refresh. */
+export const API_SETTLED_EVENT = 'studio:api-settled';
+const announceSettled = () => window.dispatchEvent(new Event(API_SETTLED_EVENT));
+
 /**
  * Drop-in replacement for `fetch` for calls to this app's own API that may be
  * slow (model training, waking the ML engine, AI calls).
@@ -44,7 +48,10 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
   });
 
   // Not handed off as a job (e.g. an older server) - the response is the answer.
-  if (start.status !== 202) return start;
+  if (start.status !== 202) {
+    announceSettled();
+    return start;
+  }
   const jobId: string | undefined = (await start.json().catch(() => null))?.jobId;
   if (!jobId) return jsonResponse(502, { error: 'The server did not start the request. Please try again.' });
 
@@ -72,6 +79,9 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
       return jsonResponse(503, { error: 'The server restarted before this finished. Please try again.' });
     }
     const state = await poll.json().catch(() => null);
-    if (state?.done) return jsonResponse(state.status ?? 200, state.body);
+    if (state?.done) {
+      announceSettled();
+      return jsonResponse(state.status ?? 200, state.body);
+    }
   }
 }

@@ -7,6 +7,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { type GeminiFailureKind, classifyGeminiError, describeGeminiFailure, mostTellingFailure, summarizeGeminiError } from './geminiHealth';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from '@google/genai';
@@ -125,6 +126,16 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
+// --- GEMINI HEALTH ---
+// Every AI feature degrades to a built-in template when Gemini fails, which is
+// right for the feature but used to leave no trace outside the server log: the
+// app just looked like "Gemini isn't responding". The outcome of each real call
+// is recorded here and exposed at /api/ai/status so the UI can say why.
+const geminiHealth: {
+  lastOk: { at: number; model: string } | null;
+  lastFailure: { at: number; kind: GeminiFailureKind; models: string[]; detail: string } | null;
+} = { lastOk: null, lastFailure: null };
+
 // Highly resilient wrapper function to manage transient service errors (503 UNAVAILABLE, 429 timeouts),
 // with automatic backoff retry & seamless fallback to high-availability lite models.
 async function generateContentWithRetry(client: GoogleGenAI, params: {
@@ -137,6 +148,13 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
   // gemini-2.5-flash stays last as the widely-provisioned safety net.
   const modelsToTry = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'];
   let lastError: any = null;
+  const failureKinds: GeminiFailureKind[] = [];
+
+  // Without a key every model would be tried and rejected in turn; say so once.
+  if (!process.env.GEMINI_API_KEY) {
+    geminiHealth.lastFailure = { at: Date.now(), kind: 'no_key', models: [], detail: 'GEMINI_API_KEY is not set.' };
+    throw new Error('GEMINI_API_KEY is not set on the server.');
+  }
 
   for (const model of modelsToTry) {
     let attempts = 3;
@@ -152,10 +170,12 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
         });
         if (response) {
           console.log(`[AskDeepakAI Gemini Client] Loaded analytical response successfully from model: "${model}"`);
+          geminiHealth.lastOk = { at: Date.now(), model };
           return response;
         }
       } catch (err: any) {
         lastError = err;
+        failureKinds.push(classifyGeminiError(err));
         const errMsg = (err?.message || String(err)).toLowerCase();
         
         // Match standard highly loaded/throttled or service error patterns
@@ -180,6 +200,12 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
     }
   }
 
+  geminiHealth.lastFailure = {
+    at: Date.now(),
+    kind: mostTellingFailure(failureKinds),
+    models: modelsToTry,
+    detail: summarizeGeminiError(lastError),
+  };
   throw lastError || new Error('GenerateContent failed across all primary and secondary fallback models');
 }
 
@@ -441,6 +467,42 @@ app.get('/api/ml-service/status', async (_req, res) => {
   const url = await getMlServiceUrl();
   const awake = await isMlServiceListening(url, 5000);
   res.json({ status: awake ? 'awake' : 'asleep', url, openUrl: mlServiceOpenUrl(url) });
+});
+
+// AI STATUS - why Gemini is or isn't answering.
+// Reports what the most recent real call did, at no cost. With ?probe=1 it
+// makes one tiny live call first (rate-limited, so it cannot burn quota).
+const AI_PROBE_MIN_INTERVAL_MS = 30000;
+let lastAiProbeAt = 0;
+
+function currentAiStatus() {
+  const { lastOk, lastFailure } = geminiHealth;
+  const configured = !!process.env.GEMINI_API_KEY;
+  if (!configured) {
+    return { state: 'unavailable' as const, reason: 'no_key' as const, message: describeGeminiFailure('no_key', []), detail: null, model: null };
+  }
+  if (lastFailure && (!lastOk || lastFailure.at > lastOk.at)) {
+    return {
+      state: 'unavailable' as const,
+      reason: lastFailure.kind,
+      message: describeGeminiFailure(lastFailure.kind, lastFailure.models),
+      detail: lastFailure.detail,
+      model: null,
+    };
+  }
+  if (lastOk) return { state: 'ok' as const, reason: null, message: 'Gemini is responding.', detail: null, model: lastOk.model };
+  return { state: 'unknown' as const, reason: null, message: 'No AI request has been made yet.', detail: null, model: null };
+}
+
+app.get('/api/ai/status', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (req.query.probe === '1' && process.env.GEMINI_API_KEY && Date.now() - lastAiProbeAt > AI_PROBE_MIN_INTERVAL_MS) {
+    lastAiProbeAt = Date.now();
+    try {
+      await generateContentWithRetry(getGeminiClient(), { contents: 'Reply with the single word: OK' });
+    } catch { /* the failure is recorded in geminiHealth and reported below */ }
+  }
+  res.json(currentAiStatus());
 });
 
 // 1. DATASET ANALYSIS & AUTOMATED MODEL RECOMMENDATION
