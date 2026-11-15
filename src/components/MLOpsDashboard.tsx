@@ -113,20 +113,20 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
   })) : [];
 
   return (
-    <div className="bg-[#050A10] border border-slate-800 rounded-2xl p-6 shadow-2xl">
-      <div className="flex flex-col md:flex-row items-center justify-between mb-8 pb-4 border-b border-slate-800 gap-4">
+    <div className="bg-surface border border-separator rounded-2xl p-6 shadow-sm">
+      <div className="flex flex-col md:flex-row items-center justify-between mb-8 pb-4 border-b border-separator gap-4">
         <div className="flex items-center gap-3">
-          <Cpu className="w-6 h-6 text-indigo-400" />
+          <Cpu className="w-6 h-6 text-blue" />
           <div>
-            <h2 className="text-lg font-bold text-white">MLOps Production Center</h2>
-            <p className="text-sm text-slate-400">Real Python Compute — trains an actual Random Forest on your active dataset</p>
+            <h2 className="text-lg font-semibold text-label">Model monitoring</h2>
+            <p className="text-sm text-label-2">Real Python Compute — trains an actual Random Forest on your active dataset</p>
           </div>
         </div>
 
         <button
           onClick={handleDeploy}
           disabled={deployStatus !== 'idle'}
-          className={`flex items-center gap-2 px-6 py-3 font-bold rounded-xl shadow-lg transition-all ${deployStatus === 'online' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/50 cursor-default' : 'bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95'}`}
+          className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-xl shadow-sm transition-all ${deployStatus === 'online' ? 'bg-green/20 text-green border border-green/50 cursor-default' : 'bg-blue hover:bg-blue text-white active:scale-95'}`}
         >
           {deployStatus === 'idle' && <><Rocket className="w-4 h-4" /> 1-Click Deploy</>}
           {deployStatus === 'deploying' && <><Activity className="w-4 h-4 animate-spin" /> Training on Real Data...</>}
@@ -135,7 +135,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
       </div>
 
       {deployError && (
-        <div className="mb-6 p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-xs flex items-start gap-2.5">
+        <div className="mb-6 p-3.5 bg-red/10 border border-red/20 text-red rounded-xl text-xs flex items-start gap-2.5">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{deployError}</span>
         </div>
@@ -144,14 +144,14 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
       {deployStatus === 'online' && (
         <div className="space-y-6">
           {deploySummary && (
-            <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-4 flex items-center justify-between">
+            <div className="bg-green/10 border border-green/20 rounded-xl p-4 flex items-center justify-between">
               <div>
-                <p className="text-[10px] text-emerald-400/80 uppercase tracking-wider font-bold font-mono">Real Trained Model</p>
-                <p className="text-sm text-white font-bold mt-0.5">{deploySummary.modelName}</p>
+                <p className="text-[11px] text-green font-medium tabular-nums">Real Trained Model</p>
+                <p className="text-sm text-label font-semibold mt-0.5">{deploySummary.modelName}</p>
               </div>
               <div className="text-right">
-                <p className="text-[10px] text-emerald-400/80 uppercase tracking-wider font-bold font-mono">{deploySummary.metricLabel}</p>
-                <p className="text-lg text-emerald-300 font-black mt-0.5">
+                <p className="text-[11px] text-green font-medium tabular-nums">{deploySummary.metricLabel}</p>
+                <p className="text-lg text-green font-semibold mt-0.5">
                   {deploySummary.metricLabel.toLowerCase().includes('accuracy')
                     ? `${(deploySummary.metricValue * 100).toFixed(1)}%`
                     : deploySummary.metricValue.toFixed(3)}
@@ -160,15 +160,15 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
             </div>
           )}
 
-          <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
-            <h3 className="text-sm font-bold text-white tracking-widest uppercase mb-4">Data Drift Telemetry (Real KS-Test)</h3>
-            <p className="text-[10.5px] text-slate-500 mb-4 -mt-2">
+          <div className="bg-surface rounded-xl p-5 border border-separator">
+            <h3 className="text-sm font-medium text-label mb-4">Data drift (KS test)</h3>
+            <p className="text-[11px] text-label-3 mb-4 -mt-2">
               Comparing the first half of your active dataset (reference) against the second half (current) — this app has no separate live production stream, so this is a genuine statistical comparison of real historical data rather than simulated traffic.
             </p>
 
             {driftError && (
-              <div className="p-3 mb-4 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-xs flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div className="p-3 mb-4 bg-red/10 border border-red/20 text-red rounded-xl text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red shrink-0 mt-0.5" />
                 <p>{driftError}</p>
               </div>
             )}
@@ -177,16 +177,16 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
                // BEGINNER MODE: Simple badges
                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                  {chartData.map((stat, idx) => (
-                   <div key={idx} className={`p-4 rounded-xl border flex items-center gap-3 ${stat.isDrifted ? 'bg-red-500/10 border-red-500/20' : 'bg-emerald-500/10 border-emerald-500/20'}`}>
-                     {stat.isDrifted ? <ShieldAlert className="text-red-400 w-6 h-6" /> : <CheckCircle className="text-emerald-400 w-6 h-6" />}
+                   <div key={idx} className={`p-4 rounded-xl border flex items-center gap-3 ${stat.isDrifted ? 'bg-red/10 border-red/20' : 'bg-green/10 border-green/20'}`}>
+                     {stat.isDrifted ? <ShieldAlert className="text-red w-6 h-6" /> : <CheckCircle className="text-green w-6 h-6" />}
                      <div>
-                       <div className="text-xs text-slate-400 font-bold uppercase">{stat.feature} Health</div>
-                       <div className={`font-bold ${stat.isDrifted ? 'text-red-300' : 'text-emerald-300'}`}>{stat.isDrifted ? 'Drifted' : 'Stable'}</div>
+                       <div className="text-xs text-label-2 font-medium">{stat.feature} Health</div>
+                       <div className={`font-bold ${stat.isDrifted ? 'text-red' : 'text-green'}`}>{stat.isDrifted ? 'Drifted' : 'Stable'}</div>
                      </div>
                    </div>
                  ))}
                  {chartData.length === 0 && !driftError && (
-                   <div className="col-span-3 text-center text-slate-500 text-xs py-4">No numeric columns available for drift analysis.</div>
+                   <div className="col-span-3 text-center text-label-3 text-xs py-4">No numeric columns available for drift analysis.</div>
                  )}
                </div>
             ) : (
@@ -194,21 +194,19 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
                <div className="h-[250px] w-full">
                  <ResponsiveContainer width="100%" height="100%">
                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                     <XAxis dataKey="feature" tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
-                     <YAxis tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
+                     <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+                     <XAxis dataKey="feature" tick={{ fill: 'var(--chart-axis)', fontSize: 12 }} axisLine={false} tickLine={false} />
+                     <YAxis tick={{ fill: 'var(--chart-axis)', fontSize: 12 }} axisLine={false} tickLine={false} />
                      <Tooltip
-                       contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
                        formatter={(value: number, name: string) => [value.toFixed(3), name === 'ksStat' ? 'KS-Statistic' : 'P-Value']}
-                       labelStyle={{ color: '#94a3b8', fontWeight: 'bold', marginBottom: '4px' }}
                      />
-                     <ReferenceLine y={0.05} label="Drift Threshold (p=0.05)" stroke="#ef4444" strokeDasharray="3 3" />
-                     <Bar dataKey="ksStat" fill="#6366f1" radius={[4, 4, 0, 0]} name="KS-Statistic" />
+                     <ReferenceLine y={0.05} label="Drift Threshold (p=0.05)" stroke="var(--chart-5)" strokeDasharray="3 3" />
+                     <Bar dataKey="ksStat" fill="var(--chart-1)" radius={[4, 4, 0, 0]} name="KS-Statistic" />
                    </BarChart>
                  </ResponsiveContainer>
                </div>
             )}
-            {expertMode && <p className="text-xs text-slate-500 mt-4 leading-relaxed">* Real Kolmogorov-Smirnov test computed by the Python service between the two real data slices described above. Values peaking above the threshold signal a genuine distribution shift.</p>}
+            {expertMode && <p className="text-xs text-label-3 mt-4 leading-relaxed">* Real Kolmogorov-Smirnov test computed by the Python service between the two real data slices described above. Values peaking above the threshold signal a genuine distribution shift.</p>}
           </div>
         </div>
       )}

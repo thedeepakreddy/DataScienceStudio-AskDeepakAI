@@ -3,31 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  AlertTriangle,
+  Check,
+  CircleUser,
   FileSpreadsheet,
-  Layers,
-  Compass,
-  Cpu,
-  Sliders,
-  Newspaper,
-  Brain,
-  HelpCircle,
-  Database,
-  Terminal,
-  ChevronRight,
-  TrendingUp,
-  Workflow,
-  Sparkles,
-  RefreshCw,
-  Zap,
-  CheckCircle,
-  FolderOpen,
   Github,
   Linkedin,
   Mail,
-  User
+  MapPin,
+  Moon,
+  Sun,
+  Target,
+  X,
 } from 'lucide-react';
 import { Dataset, MLResult } from './types';
 import DataUploader from './components/DataUploader';
@@ -37,14 +27,22 @@ import MLPipeline from './components/MLPipeline';
 import StakeholderDashboard from './components/StakeholderDashboard';
 import ReportsHub from './components/ReportsHub';
 import AssistiveTouchBot from './components/AssistiveTouchBot';
-import NeuralBackground from './components/NeuralBackground';
 import StageNavigation from './components/StageNavigation';
 import StageHeader from './components/StageHeader';
 import MLServiceWakeButton from './components/MLServiceWakeButton';
-import PipelineProgressBar from './components/PipelineProgressBar';
-import { usePipelineContext, PipelineStage } from './contexts/PipelineContext';
-
+import AppIcon from './components/AppIcon';
 import LoadingScreen from './components/LoadingScreen';
+import { usePipelineContext, PipelineStage } from './contexts/PipelineContext';
+import { STAGES, STAGE_ORDER } from './stages';
+
+type Theme = 'light' | 'dark';
+
+function initialTheme(): Theme {
+  if (typeof window === 'undefined') return 'light';
+  const stored = localStorage.getItem('theme');
+  if (stored === 'light' || stored === 'dark') return stored;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
 
 export default function App() {
   const [showLoading, setShowLoading] = useState(true);
@@ -52,34 +50,43 @@ export default function App() {
   // depends on this callback, so a fresh function reference on every App
   // render would keep restarting that timer for as long as showLoading stays true.
   const handleLoadingComplete = useCallback(() => setShowLoading(false), []);
-  const { businessProblem, bannerDismissed, setBannerDismissed, expertMode, setExpertMode, setHasRunEda } = usePipelineContext();
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    if (typeof window !== 'undefined') {
-      const storedTheme = localStorage.getItem('theme');
-      if (storedTheme === 'light' || storedTheme === 'dark') {
-        return storedTheme;
-      }
-    }
-    return 'dark';
-  });
+  const {
+    businessProblem, bannerDismissed, setBannerDismissed,
+    expertMode, setExpertMode,
+    hasRunAudit, hasRunEda, setHasRunEda,
+  } = usePipelineContext();
 
-  const handleThemeChange = (newTheme: 'dark' | 'light') => {
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
+  // Appearance follows the system until the user picks one explicitly.
+  const [theme, setTheme] = useState<Theme>(initialTheme);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', theme === 'dark' ? '#000000' : '#f5f5f7');
+  }, [theme]);
+  const toggleTheme = () => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    localStorage.setItem('theme', next);
   };
 
   const [originalDataset, setOriginalDataset] = useState<Dataset | null>(null);
   const [activeDataset, setActiveDataset] = useState<Dataset | null>(null);
-  const [activeTab, setActiveTab] = useState<'ingest' | 'clean' | 'eda' | 'ml' | 'dashboard' | 'reports'>('ingest');
-  const [isPillMode, setIsPillMode] = useState<boolean>(true);
-  const [isHovered, setIsHovered] = useState<boolean>(false);
-  const [isMobile, setIsMobile] = useState<boolean>(window.innerWidth < 1024);
-
-  React.useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 1024);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+  const [activeTab, setActiveTabState] = useState<PipelineStage>('ingest');
+  const [visited, setVisited] = useState<Set<PipelineStage>>(() => new Set<PipelineStage>(['ingest']));
+  const setActiveTab = useCallback((tab: PipelineStage) => {
+    setActiveTabState(tab);
+    setVisited(prev => (prev.has(tab) ? prev : new Set(prev).add(tab)));
   }, []);
+
+  // Every stage opens at its title, and the stage bar keeps the current step in view.
+  const stageBarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+    stageBarRef.current
+      ?.querySelector<HTMLElement>('[aria-current="step"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [activeTab]);
 
   // GLOBAL CLICK TRACKER FOR DEEPAKLLMS TRAINING DATA
   React.useEffect(() => {
@@ -120,13 +127,6 @@ export default function App() {
     return () => document.removeEventListener('click', handleGlobalClick, true);
   }, [activeTab, activeDataset]);
 
-  const isSidebarExpanded = (!isPillMode || isHovered);
-
-  // Keep premium pipeline pill layout activated and collapsing automatically
-  React.useEffect(() => {
-    setIsPillMode(true);
-  }, [activeDataset, activeTab]);
-
   // AI & ML States
   const [aiAnalysis, setAiAnalysis] = useState<any | null>(null);
   const [loadingAI, setLoadingAI] = useState<boolean>(false);
@@ -135,13 +135,20 @@ export default function App() {
   const [errorLine, setErrorLine] = useState<string | null>(null);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState<boolean>(false);
 
+  // Close the About sheet with Escape, like any system sheet.
+  useEffect(() => {
+    if (!isAboutModalOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsAboutModalOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isAboutModalOpen]);
+
   const handleDatasetLoaded = (dataset: Dataset) => {
     setOriginalDataset(dataset);
     setActiveDataset(dataset);
     setAiAnalysis(null);
     setMlResult(null);
     setErrorLine(null);
-    // Remove auto shift to clean tab
   };
 
   const handleUpdateDataset = (updated: Dataset) => {
@@ -200,7 +207,7 @@ export default function App() {
       setHasRunEda(true);
     } catch (err: any) {
       console.error(err);
-      setErrorLine('AI exploratory analysis failed: ' + (err.message || 'Check model keys.'));
+      setErrorLine('AI analysis failed: ' + (err.message || 'Check model keys.'));
     } finally {
       setLoadingAI(false);
     }
@@ -251,331 +258,267 @@ export default function App() {
       return parsed;
     } catch (err: any) {
       console.error(err);
-      setErrorLine('ML training failed: ' + (err.message || 'The ML compute service may be offline.'));
+      setErrorLine('Model training failed: ' + (err.message || 'The ML engine may be offline.'));
       throw err;
     } finally {
       setLoadingML(false);
     }
   };
 
+  // A stage counts as complete once its key action has been done. Completion
+  // drives the checkmarks and the emphasis of "Continue" — it never locks a step.
+  const stageComplete: Record<PipelineStage, boolean> = {
+    ingest: !!activeDataset,
+    clean: hasRunAudit,
+    eda: hasRunEda,
+    ml: !!mlResult,
+    dashboard: !!activeDataset && visited.has('dashboard'),
+    reports: !!activeDataset && visited.has('reports'),
+  };
+
   return (
-    <div className={`min-h-screen bg-transparent text-slate-100 flex flex-col font-sans selection:bg-indigo-500/20 selection:text-indigo-300 ${theme === 'light' ? 'light' : ''}`} id="workstation_app">
-      {/* Loading Screen Overlay */}
-      {showLoading && <LoadingScreen onComplete={handleLoadingComplete} />}
+    <div className="min-h-screen flex flex-col bg-canvas text-label" id="workstation_app">
+      <AnimatePresence>
+        {showLoading && <LoadingScreen onComplete={handleLoadingComplete} />}
+      </AnimatePresence>
 
-      {/* Animated Glowing AskDeepakAI Logo Neural Background Chip */}
-      <NeuralBackground />
+      {/* Toolbar: identity on the left, global controls on the right. */}
+      <header className="bg-canvas">
+        <div className="mx-auto max-w-[1400px] h-14 px-4 sm:px-6 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab('ingest')}
+            className="flex items-center gap-2.5 min-w-0 rounded-lg -ml-1 px-1 py-1"
+            id="brand_logo"
+            aria-label="Data Science Studio — go to Import"
+          >
+            <AppIcon size={28} />
+            <span className="hidden sm:inline text-[17px] font-semibold tracking-tight text-label truncate">
+              Data Science Studio
+            </span>
+          </button>
 
-      {/* Top Brushed Workspace Header */}
-      <header className="h-[72px] bg-slate-950/20 backdrop-blur-3xl border-b border-white/[0.04] px-6 sm:px-8 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-[0_8px_32px_rgba(0,0,0,0.35)]">
-        <div className="flex items-center gap-4 min-w-0">
-          {/* Custom Styled AskDeepakAI Logo Pill Stack */}
-          <div className="flex flex-col justify-between w-9 h-6 select-none shrink-0" id="brand_logo">
-            {/* Top Bar */}
-            <div className="h-[26%] w-full flex rounded-full overflow-hidden shadow-sm">
-              <div className="w-[18%] h-full bg-[#1b5bd2]"></div>
-              <div className="w-[82%] h-full bg-[#3bc8c8]"></div>
-            </div>
-            {/* Middle Bar */}
-            <div className="h-[26%] w-full flex rounded-full overflow-hidden shadow-sm">
-              <div className="w-[18%] h-full bg-[#3bc8c8]"></div>
-              <div className="w-[82%] h-full bg-[#ef7222]"></div>
-            </div>
-            {/* Bottom Bar */}
-            <div className="h-[26%] w-[52%] flex rounded-full overflow-hidden shadow-sm">
-              <div className="w-[32%] h-full bg-[#dfa435]"></div>
-              <div className="w-[68%] h-full bg-[#b22038]"></div>
-            </div>
-          </div>
-          <div className="min-w-0 flex flex-col justify-center gap-0.5">
-            {/* Main Title — Desktop */}
-            <div className="hidden sm:flex flex-col gap-0">
-              <span className="text-white text-[26px] font-extralight tracking-[-0.02em] leading-none whitespace-nowrap">
-                AI Data Science Studio
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {activeDataset && (
+              <span className="tag hidden lg:inline-flex max-w-[220px] mr-1" title={activeDataset.filename}>
+                <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{activeDataset.filename}</span>
               </span>
-              <span className="text-slate-400 text-[11px] font-light tracking-[0.18em] uppercase mt-1 leading-none">
-                by <span className="text-indigo-400 font-medium">AskDeepakAI</span>
-              </span>
-            </div>
+            )}
 
-            {/* Main Title — Mobile */}
-            <div className="sm:hidden flex flex-col gap-0">
-              <span className="text-white text-[18px] font-extralight tracking-[-0.02em] leading-none whitespace-nowrap">
-                AI Data Science Studio
-              </span>
-              <span className="text-slate-400 text-[9px] font-light tracking-[0.15em] uppercase mt-1 leading-none">
-                by <span className="text-indigo-400 font-medium">AskDeepakAI</span>
-              </span>
-            </div>
-
-            {/* Mobile Mode Toggle */}
-            <div className="sm:hidden flex items-center gap-0.5 mt-2 bg-slate-950/60 rounded-lg p-0.5 border border-slate-800 self-start">
+            <div className="segmented" role="group" aria-label="Experience level">
               <button
+                type="button"
+                aria-pressed={!expertMode}
                 onClick={() => setExpertMode(false)}
-                className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded transition-colors ${!expertMode ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+                title="Plain-language guidance and one-click defaults"
               >
                 Beginner
               </button>
               <button
+                type="button"
+                aria-pressed={expertMode}
                 onClick={() => setExpertMode(true)}
-                className={`text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded transition-colors ${expertMode ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+                title="Hyperparameters, SQL, drift monitoring and pipeline exports"
               >
                 Expert
               </button>
             </div>
-          </div>
-        </div>
 
-        <div className="hidden sm:flex items-center gap-5">
-          {activeDataset && (
-            <div className="hidden sm:flex items-center gap-2 bg-black/20 backdrop-blur-md border border-white/5 px-4 py-1.5 rounded-full shadow-[inset_0_1px_8px_rgba(255,255,255,0.02)] text-xs">
-              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_12px_rgba(16,185,129,0.8)]"></span>
-              <span className="text-emerald-300 font-mono text-[11px] font-semibold truncate max-w-[120px]">{activeDataset.filename}</span>
-            </div>
-          )}
+            <MLServiceWakeButton />
 
-          {/* User Persona / Mode Toggle for Desktop */}
-          <div className="flex bg-slate-950/60 rounded-xl p-1 border border-slate-800 shrink-0">
             <button
-              onClick={() => setExpertMode(false)}
-              className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors ${!expertMode ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              type="button"
+              onClick={toggleTheme}
+              className="btn btn-icon"
+              aria-label={theme === 'dark' ? 'Switch to light appearance' : 'Switch to dark appearance'}
+              title={theme === 'dark' ? 'Light appearance' : 'Dark appearance'}
             >
-              Beginner
+              {theme === 'dark' ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
             </button>
+
             <button
-              onClick={() => setExpertMode(true)}
-              className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-colors ${expertMode ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              type="button"
+              onClick={() => setIsAboutModalOpen(true)}
+              className="btn btn-icon"
+              aria-label="About the creator"
+              title="About the creator"
             >
-              Expert
+              <CircleUser className="w-[18px] h-[18px]" />
             </button>
           </div>
-
-          <MLServiceWakeButton />
-
-          <button
-            onClick={() => setIsAboutModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#3bc8c8]/20 bg-[#3bc8c8]/5 hover:bg-[#3bc8c8]/15 hover:border-[#3bc8c8]/40 text-[#3bc8c8] hover:text-[#57e2e2] transition-all duration-300 text-xs font-semibold select-none cursor-pointer shadow-[0_0_15px_rgba(59,200,200,0.05)] hover:shadow-[0_0_20px_rgba(59,200,200,0.15)] font-display"
-          >
-            <User className="w-3.5 h-3.5" />
-            <span className="tracking-wide">About the Creator</span>
-          </button>
         </div>
       </header>
 
-      {/* Persistent global error alert */}
-      {errorLine && (
-        <div className="bg-rose-500/10 border-b border-rose-500/20 text-rose-300 p-3 px-6 text-xs font-semibold flex items-center justify-between shrink-0 gap-3">
-          <div className="flex items-center gap-2">
-            <span className="p-1 rounded bg-rose-500/20 text-rose-400">⚠️</span>
-            <span>{errorLine}</span>
-          </div>
-          <button 
-            onClick={() => setErrorLine(null)}
-            className="text-xs text-rose-400/70 hover:text-rose-300 transition-colors uppercase font-bold tracking-wider cursor-pointer"
-          >
-            Dismiss
-          </button>
+      {/* Stage bar: the six-step workflow. Stays in view while the page scrolls. */}
+      <div className="material sticky top-0 z-40 border-b border-separator">
+        <div ref={stageBarRef} className="mx-auto max-w-[1400px] px-4 sm:px-6 py-2 overflow-x-auto scrollbar-none">
+          <nav className="flex w-max mx-auto p-[3px] rounded-[11px] bg-fill" aria-label="Workflow steps">
+            {STAGE_ORDER.map((id, idx) => {
+              const stage = STAGES[id];
+              const isSelected = activeTab === id;
+              const isLocked = id !== 'ingest' && !activeDataset;
+              const isDone = stageComplete[id];
+
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveTab(id)}
+                  disabled={isLocked}
+                  aria-current={isSelected ? 'step' : undefined}
+                  title={isLocked ? 'Import a dataset first' : stage.title}
+                  className={`flex items-center gap-2 h-8 pl-2 pr-3.5 rounded-[8px] text-xs font-medium whitespace-nowrap ${
+                    isSelected
+                      ? 'bg-raised text-label shadow-[0_0_0_0.5px_rgba(0,0,0,0.04),0_3px_8px_rgba(0,0,0,0.12)] dark:bg-fill-strong'
+                      : isLocked
+                      ? 'text-label-3 opacity-60'
+                      : 'text-label-2 hover:text-label'
+                  }`}
+                >
+                  <span
+                    className={`flex items-center justify-center w-[18px] h-[18px] rounded-full text-[11px] font-semibold tabular-nums ${
+                      isDone
+                        ? 'bg-green text-white'
+                        : isSelected
+                        ? 'bg-blue text-white'
+                        : 'bg-fill-strong text-label-2'
+                    }`}
+                  >
+                    {isDone ? <Check className="w-3 h-3" strokeWidth={3} /> : idx + 1}
+                  </span>
+                  {stage.label}
+                </button>
+              );
+            })}
+          </nav>
         </div>
-      )}
+      </div>
 
-      {/* Main Tabbed Layout Container */}
-      <div className={`flex-1 flex flex-col overflow-x-hidden relative`} id="layout_stage_wrapper">
-
-        {/* Futuristic Cyber Nav Bar (Horizontal) */}
-        <div className="w-full border-b border-white/10 bg-slate-950/40 backdrop-blur-3xl shrink-0 z-30 sticky top-0 shadow-[0_4px_20px_rgba(0,0,0,0.1)]">
-          <div className="flex items-center px-4 md:px-8 overflow-x-auto scrollbar-none py-3">
-            
-            <nav className="flex items-center space-x-1 md:space-x-2 w-max max-w-full mx-auto">
-              {[
-                { id: 'ingest', step: '01', label: 'Data Ingestion', icon: FolderOpen, status: 'Ready' },
-                { id: 'clean', step: '02', label: 'Cleaning Studio', icon: Layers, status: activeDataset ? 'Unlocked' : 'Locked' },
-                { id: 'eda', step: '03', label: 'Exploration', icon: Compass, status: activeDataset ? 'Active' : 'Locked' },
-                { id: 'ml', step: '04', label: 'ML Modeling', icon: Cpu, status: activeDataset ? 'Active' : 'Locked' },
-                { id: 'dashboard', step: '05', label: 'Dashboard', icon: Sliders, status: activeDataset ? 'Active' : 'Locked' },
-                { id: 'reports', step: '06', label: 'Insights', icon: Newspaper, status: activeDataset ? 'Active' : 'Locked' },
-              ].map((tab, idx, arr) => {
-                const isSelected = activeTab === tab.id;
-                const isLocked = tab.id !== 'ingest' && !activeDataset;
-                const IconComponent = tab.icon;
-
-                return (
-                  <React.Fragment key={tab.id}>
-                    <button
-                      onClick={() => !isLocked && setActiveTab(tab.id as any)}
-                      disabled={isLocked}
-                      title={tab.label}
-                      className={`group relative flex items-center transition-all duration-300 cursor-pointer h-10 px-3 md:px-4 rounded-xl shrink-0 ${
-                        isLocked
-                          ? 'opacity-30 cursor-not-allowed bg-transparent text-slate-500'
-                          : isSelected
-                          ? 'bg-indigo-500/15 text-white border border-indigo-500/30 shadow-[inset_0_0_15px_rgba(99,102,241,0.1)]'
-                          : 'text-slate-400 border border-transparent hover:text-slate-200 hover:bg-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <IconComponent className={`w-[16px] h-[16px] shrink-0 ${isSelected ? 'text-indigo-400 drop-shadow-[0_0_6px_rgba(99,102,241,0.5)]' : 'text-slate-500 group-hover:text-slate-300'} transition-colors`} />
-                        <span className={`text-[12px] md:text-[13px] font-medium font-display tracking-wide whitespace-nowrap ${isSelected ? 'text-white font-semibold' : 'text-slate-400'}`}>
-                          {tab.label}
-                        </span>
-                      </div>
-                    </button>
-                    {idx < arr.length - 1 && (
-                      <div className="flex items-center justify-center relative px-1 h-full mx-1">
-                        {/* Glowing line behind the arrow */}
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 md:w-6 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent blur-[1px]"></div>
-                        <ChevronRight className={`w-3 h-3 md:w-4 md:h-4 text-slate-600/50 relative z-10 transition-colors ${!isLocked ? 'text-indigo-500/70 drop-shadow-[0_0_3px_rgba(99,102,241,0.5)]' : ''}`} />
-                        <ChevronRight className={`w-3 h-3 md:w-4 md:h-4 text-slate-600/50 relative z-10 -ml-1.5 md:-ml-2 transition-colors ${!isLocked ? 'text-indigo-400/70 drop-shadow-[0_0_3px_rgba(99,102,241,0.5)]' : ''}`} />
-                      </div>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </nav>
-            
-          </div>
-        </div>
-
-        {businessProblem && !bannerDismissed && (
-          <div className="bg-indigo-900/40 border-b border-indigo-500/30 px-6 py-3 flex items-center justify-between z-20">
-            <div className="flex items-center gap-3">
-              <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
-              <p className="text-sm text-indigo-100 shadow-sm leading-snug">
-                <span className="font-bold text-indigo-300 mr-2 uppercase tracking-wide text-xs">Business Goal:</span>
-                {businessProblem}
-              </p>
-            </div>
-            <button 
-              onClick={() => setBannerDismissed(true)}
-              className="text-indigo-400 hover:text-indigo-200 transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-widest ml-4 shrink-0"
+      <main className="flex-1 w-full mx-auto max-w-[1400px] px-4 sm:px-6 pt-8 sm:pt-12 pb-16">
+        {errorLine && (
+          <div role="alert" className="mb-6 flex items-start gap-3 rounded-2xl bg-red/10 px-4 py-3 text-sm text-red">
+            <AlertTriangle className="w-[18px] h-[18px] shrink-0 mt-0.5" />
+            <p className="flex-1 min-w-0">{errorLine}</p>
+            <button
+              type="button"
+              onClick={() => setErrorLine(null)}
+              className="shrink-0 -m-1 p-1 rounded-full hover:bg-red/10"
+              aria-label="Dismiss error"
             >
-              Dismiss
+              <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* Workspace Display Area */}
-        <main className={`flex-1 p-4 pb-8 md:p-8 md:overflow-y-auto overflow-y-visible w-full space-y-6 relative transition-all duration-500 ease-in-out ${isPillMode ? 'max-w-[1550px]' : 'max-w-7xl'} mx-auto`} style={{ WebkitOverflowScrolling: 'touch' }}>
-          
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.15, ease: "easeOut" }}
+        {businessProblem && !bannerDismissed && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl bg-blue/10 px-4 py-3 text-sm">
+            <Target className="w-[18px] h-[18px] text-blue shrink-0 mt-0.5" />
+            <p className="flex-1 min-w-0 text-label">
+              <span className="font-semibold">Your goal: </span>
+              {businessProblem}
+            </p>
+            <button
+              type="button"
+              onClick={() => setBannerDismissed(true)}
+              className="shrink-0 -m-1 p-1 rounded-full text-label-2 hover:bg-fill"
+              aria-label="Hide goal"
             >
-              <StageHeader activeTab={activeTab as PipelineStage} />
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
-              {activeTab === 'ingest' && (
-                <DataUploader 
-                  onDatasetLoaded={handleDatasetLoaded} 
-                  currentDataset={activeDataset} 
-                  onProceed={() => setActiveTab('clean')} 
-                />
-              )}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.28, 0.11, 0.32, 1] }}
+          >
+            <StageHeader activeTab={activeTab} />
 
-              {activeTab === 'clean' && activeDataset && (
-                <DataCleaning
-                  dataset={activeDataset}
-                  onUpdateDataset={handleUpdateDataset}
-                  onResetOriginal={handleResetOriginal}
-                />
-              )}
+            {activeTab === 'ingest' && (
+              <DataUploader
+                onDatasetLoaded={handleDatasetLoaded}
+                currentDataset={activeDataset}
+                onProceed={() => setActiveTab('clean')}
+              />
+            )}
 
-              {activeTab === 'eda' && activeDataset && (
-                <EDAReport
-                  dataset={activeDataset}
-                  aiAnalysis={aiAnalysis}
-                  loadingAI={loadingAI}
-                  onTriggerAI={triggerAIScan}
-                />
-              )}
+            {activeTab === 'clean' && activeDataset && (
+              <DataCleaning
+                dataset={activeDataset}
+                onUpdateDataset={handleUpdateDataset}
+                onResetOriginal={handleResetOriginal}
+              />
+            )}
 
-              {activeTab === 'ml' && activeDataset && (
-                <MLPipeline
-                  dataset={activeDataset}
-                  aiSuggestedTarget={aiAnalysis?.recommendedTarget}
-                  aiSuggestedType={aiAnalysis?.modelType}
-                  aiSuggestedFeatures={aiAnalysis?.suggestedFeatures}
-                  onTriggerPrediction={triggerPrediction}
-                  mlResult={mlResult}
-                  loadingML={loadingML}
-                />
-              )}
+            {activeTab === 'eda' && activeDataset && (
+              <EDAReport
+                dataset={activeDataset}
+                aiAnalysis={aiAnalysis}
+                loadingAI={loadingAI}
+                onTriggerAI={triggerAIScan}
+              />
+            )}
 
-              {activeTab === 'dashboard' && activeDataset && (
-                <StakeholderDashboard
-                  dataset={activeDataset}
-                  strategicSlicer={aiAnalysis?.strategicSlicer}
-                  mlResult={mlResult}
-                  aiAnalysis={aiAnalysis}
-                />
-              )}
+            {activeTab === 'ml' && activeDataset && (
+              <MLPipeline
+                dataset={activeDataset}
+                aiSuggestedTarget={aiAnalysis?.recommendedTarget}
+                aiSuggestedType={aiAnalysis?.modelType}
+                aiSuggestedFeatures={aiAnalysis?.suggestedFeatures}
+                onTriggerPrediction={triggerPrediction}
+                mlResult={mlResult}
+                loadingML={loadingML}
+              />
+            )}
 
-              {activeTab === 'reports' && activeDataset && (
-                <ReportsHub
-                  dataset={activeDataset}
-                  mlResult={mlResult}
-                  aiAnalysis={aiAnalysis}
-                />
-              )}
+            {activeTab === 'dashboard' && activeDataset && (
+              <StakeholderDashboard
+                dataset={activeDataset}
+                strategicSlicer={aiAnalysis?.strategicSlicer}
+                mlResult={mlResult}
+                aiAnalysis={aiAnalysis}
+              />
+            )}
 
-              {/* Stage Navigation Footer */}
-              <StageNavigation activeTab={activeTab} setActiveTab={setActiveTab} />
-            </motion.div>
-          </AnimatePresence>
+            {activeTab === 'reports' && activeDataset && (
+              <ReportsHub
+                dataset={activeDataset}
+                mlResult={mlResult}
+                aiAnalysis={aiAnalysis}
+              />
+            )}
 
-          {/* General Ingestion Empty-State Case */}
-          {!activeDataset && activeTab !== 'ingest' && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="text-center bg-[#0C111C]/65 border border-slate-800/80 p-12 rounded-2xl max-w-lg mx-auto mt-12 shadow-2xl relative overflow-hidden"
+            <StageNavigation
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              canContinue={!!activeDataset}
+              stageComplete={stageComplete[activeTab]}
+            />
+          </motion.div>
+        </AnimatePresence>
+      </main>
+
+      <footer className="border-t border-separator">
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-label-3">
+          <span>Data Science Studio by AskDeepakAI</span>
+          <span>
+            Designed and engineered by{' '}
+            <button
+              type="button"
+              onClick={() => setIsAboutModalOpen(true)}
+              className="text-blue hover:underline rounded"
             >
-              <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-indigo-500 to-[#10b981]" />
-              <div className="w-14 h-14 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-indigo-500/20">
-                <Database className="w-6 h-6 text-indigo-400" />
-              </div>
-              <h3 className="font-extrabold text-white text-base tracking-tight">Dataset Connection Incomplete</h3>
-              <p className="text-xs text-slate-450 mt-2 max-w-sm mx-auto leading-relaxed">
-                Before you can inspect rows, cleanse covariates, isolate exploratory patterns, or configure predictive machine learning models, please ingest a worksheet Template.
-              </p>
-              <div className="mt-6 flex justify-center gap-3">
-                <button
-                  onClick={() => setActiveTab('ingest')}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2.5 px-6 rounded-xl transition-all duration-300 cursor-pointer shadow-lg shadow-indigo-650/20 border-0 flex items-center gap-2"
-                >
-                  <FolderOpen className="w-4 h-4" /> Go to Ingest Studio
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </main>
-      </div>
-
-      {/* Footer Status Bar matching the design precisely */}
-      <footer className="min-h-12 h-auto sm:h-10 bg-slate-950/20 backdrop-blur-2xl border-t border-white/[0.04] px-6 flex flex-col sm:flex-row items-center justify-between gap-2 py-3 sm:py-0 shrink-0 text-slate-400 text-[11px] font-mono select-none z-30 shadow-[0_-8px_30px_rgba(0,0,0,0.2)]">
-        <div className="flex items-center gap-5">
-          <span className="text-slate-500">
-            METRICS COMPILIER: <strong className="text-slate-400">ACTIVE</strong>
+              Deepak Reddy
+            </button>
           </span>
         </div>
-        <div className="text-slate-400 text-[10px] text-center tracking-normal font-sans">
-          Designed and engineered by{" "}
-          <button
-            type="button"
-            onClick={() => setIsAboutModalOpen(true)}
-            className="text-indigo-400 font-semibold font-display hover:text-indigo-300 hover:underline bg-transparent border-0 p-0 cursor-pointer transition-colors inline"
-          >
-            Deepak Reddy
-          </button>
-        </div>
-        <div className="flex items-center gap-2 text-indigo-400 uppercase tracking-wider font-bold text-[10px]">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"></span>
-          STAKEHOLDER READY
-        </div>
       </footer>
-      
+
       {/* Assistive Touch Dynamic Gemini Co-pilot (Drag and move anywhere, controls all pipeline stages & data) */}
       <AssistiveTouchBot
         activeDataset={activeDataset}
@@ -587,122 +530,96 @@ export default function App() {
         triggerPrediction={triggerPrediction}
       />
 
-      {/* About the Creator Modal Dialog */}
+      {/* About the creator — presented as a sheet. */}
       <AnimatePresence>
         {isAboutModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop Layer */}
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
               onClick={() => setIsAboutModalOpen(false)}
-              className="absolute inset-0 bg-[#06080c]/85 backdrop-blur-md"
+              className="absolute inset-0 bg-[var(--scrim)]"
             />
 
-            {/* Modal Body Container */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', duration: 0.4 }}
-              className="bg-[#0B1220] border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full relative z-10 shadow-2xl overflow-hidden"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="about-title"
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 24, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: [0.28, 0.11, 0.32, 1] }}
+              className="relative z-10 w-full sm:max-w-md bg-raised rounded-t-3xl sm:rounded-3xl shadow-xl p-6 sm:p-8 max-h-[90vh] overflow-y-auto"
             >
-              {/* Modern Decorative Glow Layer */}
-              <div className="absolute top-0 right-0 w-44 h-44 bg-[#3bc8c8]/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute bottom-0 left-0 w-44 h-44 bg-[#1b5bd2]/10 rounded-full blur-3xl pointer-events-none" />
-              
-              {/* Header Details */}
-              <div className="flex items-start justify-between relative z-10">
-                <div className="flex items-center gap-4">
-                  {/* Creator Monogram Badge */}
-                  <div className="w-14 h-14 bg-gradient-to-br from-[#1b5bd2] via-[#2cb2b2] to-[#3bc8c8] rounded-2xl flex items-center justify-center shadow-lg shadow-[#1b5bd2]/15 border border-slate-700/35">
-                    <span className="text-white font-extrabold text-xl tracking-tight">DR</span>
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-white text-base sm:text-lg tracking-tight">Gorisi Deepak Reddy</h3>
-                    <p className="text-[10px] uppercase tracking-wider font-mono font-bold text-[#3bc8c8] mt-0.5">
-                      Data Analyst & Analytics Engineer
-                    </p>
-                    <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                      Budapest, Hungary
-                    </p>
-                  </div>
-                </div>
-
-                {/* Close Button Icon */}
+              <div className="flex justify-end -mt-2 -mr-2">
                 <button
+                  type="button"
                   onClick={() => setIsAboutModalOpen(false)}
-                  className="p-1 px-2.5 rounded-lg border border-slate-800 bg-[#0f1524] text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-bold"
-                  aria-label="Close Profile"
+                  className="btn btn-plain font-semibold"
+                  autoFocus
                 >
-                  ✕
+                  Done
                 </button>
               </div>
 
-              {/* Bio Content Div */}
-              <div className="mt-6 text-xs text-slate-300 leading-relaxed font-normal bg-[#080d19] p-5 rounded-2xl border border-slate-800/40 relative z-10">
-                <span className="text-[9px] uppercase font-bold text-slate-500 font-mono tracking-widest block mb-1.5">
-                  Professional Bio
-                </span>
+              <div className="flex flex-col items-center text-center">
+                <div className="w-20 h-20 rounded-full bg-blue flex items-center justify-center">
+                  <span className="text-white text-[28px] font-semibold tracking-tight">DR</span>
+                </div>
+                <h2 id="about-title" className="mt-4 text-2xl font-semibold tracking-tight text-label">
+                  Gorisi Deepak Reddy
+                </h2>
+                <p className="mt-1 text-sm text-label-2">Data Analyst &amp; Analytics Engineer</p>
+                <p className="mt-1 inline-flex items-center gap-1 text-xs text-label-3">
+                  <MapPin className="w-3.5 h-3.5" /> Budapest, Hungary
+                </p>
+              </div>
+
+              <div className="mt-6 space-y-3 text-sm text-label leading-relaxed">
                 <p>
-                  I am <strong className="text-white font-semibold">Gorisi Deepak Reddy</strong>, a Data Analyst and Analytics Engineer based in Budapest. Holding an MSc in IT for Business Data Analytics, I specialize in building end-to-end data pipelines that bridge the gap between technical data insights and business strategy.
+                  I’m a Data Analyst and Analytics Engineer based in Budapest. With an MSc in IT for Business Data
+                  Analytics, I build end-to-end data pipelines that connect technical insight to business strategy.
                 </p>
-                <p className="mt-2.5">
-                  My core technical expertise spans Python, SQL, predictive machine learning, and advanced data visualization. I engineered <strong className="text-[#3bc8c8] font-semibold">AskDeepakAI</strong> to automate the rigorous data science workflow, instantly transforming raw data into clean pipelines, ML analyses, and actionable business reports. I am currently open to Data Analyst or BI roles where I can continue deploying ROI-driven analytical solutions.
+                <p>
+                  My work spans Python, SQL, predictive machine learning and data visualization. I built AskDeepakAI
+                  to automate the data science workflow — turning raw data into clean pipelines, ML analyses and
+                  actionable reports. I’m currently open to Data Analyst and BI roles.
                 </p>
               </div>
 
-              {/* Redirection Links Buttons Block */}
-              <div className="mt-6 space-y-2.5 relative z-10">
-                <span className="text-[9px] uppercase font-bold text-slate-500 font-mono tracking-widest block mb-1">
-                  Connect & Collaborate
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 px-1 sm:px-0">
-                  <a
-                    href="https://github.com/thedeepakreddy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-[#0f1524] hover:bg-[#151c30] text-slate-200 hover:text-white text-xs font-semibold hover:border-slate-700 transition-all duration-300 select-none cursor-pointer font-mono"
-                  >
-                    <Github className="w-3.5 h-3.5 text-slate-400" />
-                    <span>GitHub</span>
-                  </a>
-                  
-                  <a
-                    href="https://www.linkedin.com/in/deepak-reddy-038582223"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-[#0f1524] hover:bg-[#151c30] text-slate-200 hover:text-white text-xs font-semibold hover:border-slate-700 transition-all duration-300 select-none cursor-pointer font-mono"
-                  >
-                    <Linkedin className="w-3.5 h-3.5 text-slate-400" />
-                    <span>LinkedIn</span>
-                  </a>
-
-                  <a
-                    href="mailto:thedeepakreddy1@gmail.com"
-                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-[#3bc8c8]/20 bg-[#3bc8c8]/5 hover:bg-[#3bc8c8]/10 text-[#3bc8c8] hover:text-[#57e2e2] text-xs font-semibold border-solid transition-all duration-300 select-none cursor-pointer font-mono"
-                  >
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>Write Mail</span>
-                  </a>
-                </div>
-              </div>
-
-              {/* Action Close Frame Button */}
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={() => setIsAboutModalOpen(false)}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-[#141b2e] hover:bg-[#1a233c] text-slate-300 hover:text-white border border-slate-800 transition-all cursor-pointer"
+              <div className="mt-6 grid grid-cols-3 gap-2">
+                <a
+                  href="https://github.com/thedeepakreddy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary flex-col gap-1 h-auto py-3 rounded-2xl text-xs"
                 >
-                  Close Profile
-                </button>
+                  <Github className="w-5 h-5" />
+                  GitHub
+                </a>
+                <a
+                  href="https://www.linkedin.com/in/deepak-reddy-038582223"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary flex-col gap-1 h-auto py-3 rounded-2xl text-xs"
+                >
+                  <Linkedin className="w-5 h-5" />
+                  LinkedIn
+                </a>
+                <a
+                  href="mailto:thedeepakreddy1@gmail.com"
+                  className="btn btn-secondary flex-col gap-1 h-auto py-3 rounded-2xl text-xs"
+                >
+                  <Mail className="w-5 h-5" />
+                  Email
+                </a>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }

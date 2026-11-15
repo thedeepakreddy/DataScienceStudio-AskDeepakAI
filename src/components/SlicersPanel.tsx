@@ -32,10 +32,10 @@ export default function SlicersPanel({ dataset }: SlicersPanelProps) {
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg mb-4">
+    <div className="bg-surface border border-separator rounded-xl p-4 shadow-sm mb-4">
       <div className="flex items-center gap-1.5 mb-4">
-        <Sliders className="w-3.5 h-3.5 text-slate-300" />
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest">Numeric Slicers</h3>
+        <Sliders className="w-3.5 h-3.5 text-label" />
+        <h3 className="text-xs font-medium text-label">Range filters</h3>
       </div>
 
       <div className="space-y-5">
@@ -44,8 +44,8 @@ export default function SlicersPanel({ dataset }: SlicersPanelProps) {
           return (
             <div key={col.name} onMouseEnter={() => initSlicer(col)}>
                <div className="flex justify-between items-center mb-2">
-                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{col.name}</span>
-                 <span className="text-[10px] font-mono text-blue-400">≤ {Number(slicer.currentMax).toFixed(1)}</span>
+                 <span className="text-[11px] font-medium text-label-3">{col.name}</span>
+                 <span className="text-[11px] tabular-nums text-blue">≤ {Number(slicer.currentMax).toFixed(1)}</span>
                </div>
                <input
                  type="range"
@@ -54,16 +54,16 @@ export default function SlicersPanel({ dataset }: SlicersPanelProps) {
                  step={(slicer.max - slicer.min) / 100}
                  value={slicer.currentMax}
                  onChange={(e) => handleSlider(col.name, Number(e.target.value))}
-                 className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-800 accent-blue-500"
+                 className="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-fill accent-blue"
                />
-               <div className="flex justify-between text-[8px] font-mono text-slate-600 mt-1">
+               <div className="flex justify-between text-[11px] tabular-nums text-label-3 mt-1">
                  <span>{Number(slicer.min).toFixed(1)}</span>
                  <span>{Number(slicer.max).toFixed(1)}</span>
                </div>
             </div>
           );
         })}
-        {numericColumns.length === 0 && <div className="text-xs text-slate-500 italic">No numeric columns available.</div>}
+        {numericColumns.length === 0 && <div className="text-xs text-label-3 italic">No numeric columns available.</div>}
       </div>
     </div>
   );

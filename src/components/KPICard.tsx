@@ -1,7 +1,6 @@
 import React from 'react';
 import { useDashboardContext } from './DashboardContext';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
-import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
 interface KPICardProps {
   column: string;
@@ -15,9 +14,9 @@ export default function KPICard({ column }: KPICardProps) {
   const values = filteredData.map(d => Number(d[column])).filter(v => !isNaN(v));
   if (values.length === 0) {
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-center items-center shadow-lg min-h-32">
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">{column}</span>
-        <span className="text-xs text-slate-500">N/A</span>
+      <div className="card p-4 flex flex-col justify-center min-h-32">
+        <span className="text-xs text-label-2 truncate" title={column}>{column}</span>
+        <span className="mt-1 text-sm text-label-3">No numeric values</span>
       </div>
     );
   }
@@ -26,40 +25,32 @@ export default function KPICard({ column }: KPICardProps) {
   const avg = sum / values.length;
   const max = Math.max(...values);
   const min = Math.min(...values);
+  const format = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-  // Sparkline data
+  // Sparkline of the most recent rows, for a sense of spread.
   const sparkData = values.slice(-20).map((v, i) => ({ value: v, index: i }));
-  const isPositive = values[values.length - 1] >= avg;
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between shadow-lg relative overflow-hidden min-h-32">
-      <div className="flex justify-between items-start gap-2 mb-2">
-        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider sm:tracking-widest truncate min-w-0" title={column}>{column}</span>
-        <div className={`p-1 rounded-full ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-          {isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-        </div>
-      </div>
-      
-      <div className="flex items-end gap-3 mb-4 relative z-10">
-        <span className={`text-2xl font-bold font-mono ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-          {avg.toFixed(2)}
-        </span>
-        <span className="text-xs text-slate-500 mb-1">avg</span>
+    <div className="card p-4 flex flex-col min-h-32">
+      <span className="text-xs text-label-2 truncate" title={column}>{column}</span>
+
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
+        <span className="text-[28px] leading-none font-semibold tracking-tight tabular-nums text-label">{format(avg)}</span>
+        <span className="text-xs text-label-3">average</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs font-mono text-slate-400 border-t border-slate-800/50 pt-2 relative z-10">
-        <div>Min: <span className="text-slate-300">{min.toFixed(2)}</span></div>
-        <div>Max: <span className="text-slate-300">{max.toFixed(2)}</span></div>
-      </div>
-
-      <div className="absolute bottom-0 left-0 w-full h-12 opacity-30 pointer-events-none">
+      <div className="mt-3 h-9 -mx-1" aria-hidden="true">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={sparkData}>
             <YAxis domain={['dataMin', 'dataMax']} hide />
-            <Line type="monotone" dataKey="value" stroke={isPositive ? '#10B981' : '#F43F5E'} strokeWidth={2} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
+
+      <p className="mt-2 text-xs text-label-2 tabular-nums">
+        Range {format(min)} – {format(max)}
+      </p>
     </div>
   );
 }

@@ -244,22 +244,22 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
 
   if (loadingConfig) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 bg-slate-900 border border-slate-800 rounded-xl">
-        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-4" />
-        <h3 className="text-sm font-bold text-slate-300">Intelligent Dashboard Configurator</h3>
-        <p className="text-xs text-slate-500 mt-2">AI is analyzing {dataset.columns.length} features to recommend components...</p>
+      <div className="flex flex-col items-center justify-center p-12 bg-surface border border-separator rounded-xl">
+        <Loader2 className="w-8 h-8 text-blue animate-spin mb-4" />
+        <h3 className="text-sm font-semibold text-label">Building your dashboard</h3>
+        <p className="text-xs text-label-3 mt-2">AI is analyzing {dataset.columns.length} features to recommend components...</p>
       </div>
     );
   }
 
   if (configError && !config) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 bg-slate-900 border border-rose-500/20 rounded-xl text-center">
-        <h3 className="text-sm font-bold text-rose-300">Dashboard Auto-Configuration Failed</h3>
-        <p className="text-xs text-slate-400 mt-2 max-w-md">{configError}</p>
+      <div className="flex flex-col items-center justify-center p-12 bg-surface border border-red/20 rounded-xl text-center">
+        <h3 className="text-sm font-semibold text-red">The dashboard couldn’t be configured</h3>
+        <p className="text-xs text-label-2 mt-2 max-w-md">{configError}</p>
         <button
           onClick={() => runAutoConfig()}
-          className="mt-5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2.5 px-5 rounded-lg transition-all"
+          className="mt-5 bg-blue hover:bg-blue text-white font-semibold text-xs py-2.5 px-5 rounded-lg transition-all"
         >
           Retry
         </button>
@@ -274,25 +274,25 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
       
       {/* Insight Banner */}
       {insightBannerData && (
-        <div className="bg-indigo-900/30 border border-indigo-500/30 rounded-xl p-4 mb-6 shadow-xl relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-            <button onClick={getInsights} className="bg-slate-800 hover:bg-slate-700 p-1.5 rounded text-indigo-300" title="Refresh">
+        <div className="card p-5 sm:p-6 mb-6 relative group">
+          <div className="absolute top-3 right-3 flex gap-1">
+            <button onClick={getInsights} className="btn btn-icon w-8 h-8" title="Refresh insights" aria-label="Refresh insights">
               {loadingInsights ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             </button>
-            <button onClick={() => { navigator.clipboard.writeText(insightBannerData.join('\n')); setCopiedInsights(true); setTimeout(()=>setCopiedInsights(false), 2000); }} className="bg-slate-800 hover:bg-slate-700 p-1.5 rounded text-indigo-300" title="Copy">
+            <button onClick={() => { navigator.clipboard.writeText(insightBannerData.join('\n')); setCopiedInsights(true); setTimeout(()=>setCopiedInsights(false), 2000); }} className="bg-fill hover:bg-fill-strong p-1.5 rounded text-blue" title="Copy">
               {copiedInsights ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </button>
           </div>
           <div className="flex items-start gap-4">
-            <div className="p-2 bg-indigo-500/20 rounded-lg shrink-0 mt-1">
-              <Sparkles className="w-5 h-5 text-indigo-400" />
+            <div className="w-10 h-10 rounded-xl bg-blue/12 text-blue flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-indigo-300 mb-2">{insightsAreAi ? 'AI Business Insights' : 'Key Insights'} (Current Dashboard View)</h3>
+              <h3 className="card-title mb-2">{insightsAreAi ? 'AI insights' : 'Key insights'}</h3>
               <ul className="space-y-2">
                 {insightBannerData.map((item, i) => (
-                  <li key={i} className="text-xs text-slate-300 flex items-start gap-2">
-                    <span className="text-indigo-500 font-bold mt-0.5">•</span> {item}
+                  <li key={i} className="text-sm text-label flex items-start gap-2">
+                    <span className="text-label-3">•</span> {item}
                   </li>
                 ))}
               </ul>
@@ -345,20 +345,20 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
         {/* Sidebar Trigger */}
         {expertMode && !sidebarOpen && (
            <div className="absolute right-0 top-0 mt-2 mr-2 z-50">
-             <button onClick={() => setSidebarOpen(true)} className="bg-slate-800 hover:bg-slate-700 p-2 rounded-l py-4 border border-r-0 border-slate-700 shadow-xl transition-all">
-               <PanelRightOpen className="w-4 h-4 text-slate-300" />
+             <button onClick={() => setSidebarOpen(true)} className="bg-fill hover:bg-fill-strong p-2 rounded-l py-4 border border-r-0 border-separator-strong shadow-sm transition-all">
+               <PanelRightOpen className="w-4 h-4 text-label" />
              </button>
            </div>
         )}
 
         {/* User Customisation Panel */}
         {expertMode && sidebarOpen && (
-          <div className="w-80 shrink-0 bg-slate-900 border border-slate-800 rounded-xl shadow-xl flex flex-col sticky top-4 max-h-[90vh]">
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-800/20 backdrop-blur-sm rounded-t-xl z-20">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest flex items-center gap-2">
-                <Server className="w-4 h-4" /> Customise Dashboard
+          <div className="w-80 shrink-0 bg-surface border border-separator rounded-xl shadow-xl flex flex-col sticky top-4 max-h-[90vh]">
+            <div className="p-4 border-b border-separator flex justify-between items-center bg-fill rounded-t-xl z-20">
+              <h3 className="text-xs font-medium text-label flex items-center gap-2">
+                <Server className="w-4 h-4" /> Customize
               </h3>
-              <button onClick={() => setSidebarOpen(false)} className="text-slate-500 hover:text-slate-300">
+              <button onClick={() => setSidebarOpen(false)} className="text-label-3 hover:text-label">
                 <PanelRightClose className="w-4 h-4" />
               </button>
             </div>
@@ -367,37 +367,37 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
               
               {/* Business Problem Selector */}
               <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Business Problem Selection</label>
+                <label className="text-[11px] font-medium text-label-3 block mb-2">Business Problem Selection</label>
                 <select 
                   value={customProblem || config?.detectedProblem || PROBLEM_TYPES[0]}
                   onChange={(e) => runAutoConfig(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-slate-300 mb-2 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full bg-well border border-separator rounded p-2 text-xs text-label mb-2 focus:ring-1 focus:ring-blue focus:outline-none"
                 >
                   <option value="" disabled>Detected: {config?.detectedProblem}</option>
                   {PROBLEM_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
                 <div className="flex gap-2">
-                  <input type="text" placeholder="Or type custom problem..." value={customProblem} onChange={(e)=>setCustomProblem(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-slate-300 focus:ring-1 focus:ring-indigo-500 focus:outline-none" />
-                  <button onClick={() => runAutoConfig()} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 rounded text-xs transition-colors">Apply</button>
+                  <input type="text" placeholder="Or type custom problem..." value={customProblem} onChange={(e)=>setCustomProblem(e.target.value)} className="w-full bg-well border border-separator rounded p-2 text-xs text-label focus:ring-1 focus:ring-blue focus:outline-none" />
+                  <button onClick={() => runAutoConfig()} className="bg-blue hover:bg-blue text-white px-3 rounded text-xs transition-colors">Apply</button>
                 </div>
               </div>
 
               {/* Layout Control */}
-              <div className="border-t border-slate-800/60 pt-4">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Dashboard Layout</label>
-                <div className="flex bg-slate-950 rounded-lg p-1 border border-slate-800">
-                  <button onClick={() => setLayout('2-col')} className={`flex-1 flex items-center justify-center py-1.5 rounded text-xs transition-colors ${layout === '2-col' ? 'bg-slate-800 text-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>
+              <div className="border-t border-separator pt-4">
+                <label className="text-[11px] font-medium text-label-3 block mb-2">Dashboard Layout</label>
+                <div className="flex bg-well rounded-lg p-1 border border-separator">
+                  <button onClick={() => setLayout('2-col')} className={`flex-1 flex items-center justify-center py-1.5 rounded text-xs transition-colors ${layout === '2-col' ? 'bg-fill text-label shadow-sm' : 'text-label-3 hover:text-label'}`}>
                     <LayoutGrid className="w-3.5 h-3.5 mr-1" /> 2 Columns
                   </button>
-                  <button onClick={() => setLayout('3-col')} className={`flex-1 flex items-center justify-center py-1.5 rounded text-xs transition-colors ${layout === '3-col' ? 'bg-slate-800 text-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>
+                  <button onClick={() => setLayout('3-col')} className={`flex-1 flex items-center justify-center py-1.5 rounded text-xs transition-colors ${layout === '3-col' ? 'bg-fill text-label shadow-sm' : 'text-label-3 hover:text-label'}`}>
                     <LayoutGrid className="w-3.5 h-3.5 mr-1" /> 3 Columns
                   </button>
                 </div>
               </div>
 
               {/* Add Components Checklist */}
-              <div className="border-t border-slate-800/60 pt-4">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-3">Visible Components</label>
+              <div className="border-t border-separator pt-4">
+                <label className="text-[11px] font-medium text-label-3 block mb-3">Visible Components</label>
                 <div className="space-y-2">
                   {COMPONENT_LIST.map(comp => {
                     const isRecommended = !!config?.recommendedComponents?.find((c: any) => c.type === comp);
@@ -412,10 +412,10 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
                               if (e.target.checked) setActiveComponents([...activeComponents, comp]);
                               else setActiveComponents(activeComponents.filter(c => c !== comp));
                             }}
-                            className="bg-slate-900 border-slate-700 text-indigo-500 rounded focus:ring-0 w-3.5 h-3.5"
+                            className="bg-surface border-separator-strong text-blue rounded focus:ring-0 w-3.5 h-3.5"
                           />
-                          <span className={`text-[11px] ${isActive ? 'text-slate-300' : 'text-slate-500'}`}>{comp}</span>
-                          {isRecommended && <span className="text-[8px] bg-indigo-500/20 text-indigo-400 px-1 rounded block ml-auto mr-1">AI Pick</span>}
+                          <span className={`text-[11px] ${isActive ? 'text-label' : 'text-label-3'}`}>{comp}</span>
+                          {isRecommended && <span className="text-[11px] bg-blue/20 text-blue px-1 rounded block ml-auto mr-1">AI Pick</span>}
                         </label>
                       </div>
                     );
@@ -425,12 +425,12 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
 
                {/* Dedicated Panels rendered inline inside sidebar */}
                {activeComponents.includes('Filters Panel') && (
-                 <div className="border-t border-slate-800/60 pt-4">
+                 <div className="border-t border-separator pt-4">
                    <FiltersPanel dataset={dataset} />
                  </div>
                )}
                {activeComponents.includes('Slicers Panel') && (
-                 <div className="border-t border-slate-800/60 pt-4">
+                 <div className="border-t border-separator pt-4">
                    <SlicersPanel dataset={dataset} />
                  </div>
                )}

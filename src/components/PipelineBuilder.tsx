@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Database, Clock, Key, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Clock, Key, CheckCircle2, AlertCircle } from 'lucide-react';
 import { parseCSV } from '../utils/csvParser';
 
 export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?: (dataset: any) => void }) {
@@ -57,24 +57,21 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
   };
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 hover:border-indigo-500/50 rounded-2xl p-6 shadow-xl w-full h-full flex flex-col transition-all duration-300">
-      <div className="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
-        <Database className="w-6 h-6 text-indigo-400" />
-        <div>
-          <h2 className="text-lg font-bold text-white">Visual Pipeline Builder</h2>
-          <p className="text-sm text-slate-400">Automate your ingestion pipelines via direct Cloud Warehouse mapping</p>
-        </div>
+    <div className="card p-5 sm:p-6 w-full h-full flex flex-col">
+      <div className="mb-5">
+        <h3 className="card-title">Connect a database</h3>
+        <p className="mt-1 text-sm text-label-2">Pull a table straight from your warehouse and keep it in sync.</p>
       </div>
 
-      <form onSubmit={handleConnect} className="space-y-5">
+      <form onSubmit={handleConnect} className="space-y-4 flex-1 flex flex-col">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 uppercase tracking-widest">Data Provider</label>
+            <label className="field-label">Provider</label>
             <div className="relative">
               <select
                 value={provider}
                 onChange={(e) => setProvider(e.target.value as any)}
-                className="w-full bg-[#060A10] border border-slate-700 text-slate-200 text-sm rounded-xl py-3 px-4 appearance-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all"
+                className="input"
               >
                 <option value="PostgreSQL">PostgreSQL</option>
                 <option value="Snowflake">Snowflake</option>
@@ -82,32 +79,32 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
             </div>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 uppercase tracking-widest">Sync Schedule</label>
+            <label className="field-label">Sync</label>
             <div className="relative flex items-center">
-              <Clock className="w-4 h-4 text-slate-500 absolute left-3" />
+              <Clock className="w-4 h-4 text-label-3 absolute left-3" />
               <select
                 value={schedule}
                 onChange={(e) => setSchedule(e.target.value)}
-                className="w-full bg-[#060A10] border border-slate-700 text-slate-200 text-sm rounded-xl py-3 pl-10 pr-4 appearance-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all"
+                className="input pl-9"
               >
-                <option value="*/15 * * * *">Every 15 Minutes</option>
+                <option value="*/15 * * * *">Every 15 minutes</option>
                 <option value="0 * * * *">Hourly</option>
-                <option value="0 0 * * *">Nightly (Midnight)</option>
+                <option value="0 0 * * *">Nightly</option>
               </select>
             </div>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-300 uppercase tracking-widest">Connection String / URL</label>
+          <label className="field-label">Connection string</label>
           <div className="relative flex items-center">
-            <Key className="w-4 h-4 text-slate-500 absolute left-3" />
+            <Key className="w-4 h-4 text-label-3 absolute left-3" />
             <input
               type="password"
               value={connectionString}
               onChange={(e) => setConnectionString(e.target.value)}
-              placeholder="e.g., postgres://user:password@host:port/dbname"
-              className="w-full bg-[#060A10] border border-slate-700 text-slate-200 text-sm rounded-xl py-3 pl-10 pr-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-all"
+              placeholder="postgres://user:password@host:port/dbname"
+              className="input pl-9"
               required
             />
           </div>
@@ -116,22 +113,22 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
         <button
           type="submit"
           disabled={status === 'loading'}
-          className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-400 text-white font-bold py-3.5 px-6 rounded-xl transition-all shadow-md active:scale-95"
+          className="btn btn-secondary w-full"
         >
-          {status === 'loading' ? 'Authenticating & Verifying Schema...' : 'Initialize Ingestion Pipeline'}
+          {status === 'loading' ? 'Connecting…' : 'Connect'}
         </button>
 
         {status === 'success' && (
-          <div className="flex items-start gap-2 bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl mt-4">
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-            <p className="text-sm text-emerald-300 font-medium leading-relaxed">{message}</p>
+          <div className="flex items-start gap-2 bg-green/10 p-3 rounded-xl">
+            <CheckCircle2 className="w-5 h-5 text-green shrink-0 mt-0.5" />
+            <p className="text-sm text-green font-medium leading-relaxed">{message}</p>
           </div>
         )}
 
         {status === 'error' && (
-          <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 p-4 rounded-xl mt-4">
-            <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-            <p className="text-sm text-red-300 font-medium leading-relaxed">{message}</p>
+          <div className="flex items-start gap-2 bg-red/10 p-3 rounded-xl">
+            <AlertCircle className="w-5 h-5 text-red shrink-0 mt-0.5" />
+            <p className="text-sm text-red font-medium leading-relaxed">{message}</p>
           </div>
         )}
       </form>

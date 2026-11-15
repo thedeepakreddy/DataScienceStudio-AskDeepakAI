@@ -45,18 +45,12 @@ export default function AssistiveTouchBot({
     {
       id: 'welcome-msg',
       role: 'assistant',
-      content: `Hello! I am **AskAI**, acting as your interactive **AskDeepakAI** co-pilot. 👋
+      content: `Hi, I'm your data assistant. I can read your dataset, make changes to it, and move between steps for you.
 
-I have real-time access to your active dataset. I can **read** statistics, **write adjustments** (like dropping columns or filling missing cells), and **edit workflow stages** instantly by your command.
-
-💡 **Tips for interacting with me:**
-You can give a **SQL script** or **Python script** or **English** or other language common English prompt or any language prompt (so AI can understand what update user wants on current dataset). Choose your preferred mode below!
-
-Try asking me items like:
-- *"Analyze this dataset with an EDA scan"*
-- *"Drop the PaymentMethod column"*
-- *"SELECT * FROM dataset WHERE Age > 30"*
-- *"dataset.rows.map(r => r.Age = Number(r.Age) + 10)"*`,
+Ask in plain English, or switch to **SQL** or **Code** below. For example:
+- Analyze this dataset
+- Drop the PaymentMethod column
+- SELECT * FROM dataset WHERE Age > 30`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -181,8 +175,8 @@ Try asking me items like:
   const handleChatDragEnd = (e: any, info: any) => {
     setIsChatDragging(false);
 
-    const chatWidth = 270;
-    const chatHeight = 360;
+    const chatWidth = 360;
+    const chatHeight = 520;
     const pad = 12;
     const footerLimit = 100;
 
@@ -219,13 +213,13 @@ Try asking me items like:
           case 'SELECT_TAB':
             if (cmd.tab) {
               setActiveTab(cmd.tab);
-              executedLogs.push(`🔄 Switched workflow stage to "${cmd.tab.toUpperCase()}"`);
+              executedLogs.push(`Opened the ${cmd.tab} step`);
             }
             break;
 
           case 'RESET_DATASET':
             onResetOriginal();
-            executedLogs.push('🧹 Dynamic dataset restored to original RAW template');
+            executedLogs.push('Restored the original dataset');
             break;
 
           case 'DROP_COLUMN':
@@ -248,9 +242,9 @@ Try asking me items like:
                   rows: refreshedRows,
                   rowCount: refreshedRows.length
                 });
-                executedLogs.push(`🗑️ Dropped column "${targetColName}" from active coordinates`);
+                executedLogs.push(`Removed column "${targetColName}"`);
               } else {
-                executedLogs.push(`⚠️ Column "${cmd.column}" not found in current structures`);
+                executedLogs.push(`Column "${cmd.column}" not found`);
               }
             }
             break;
@@ -293,9 +287,9 @@ Try asking me items like:
                   columns: updatedCols,
                   rows: cleanedRows
                 });
-                executedLogs.push(`✨ Imputed missing values in "${targetCol.name}" using strategy "${strategy}" (${fillVal})`);
+                executedLogs.push(`Imputed missing values in "${targetCol.name}" using strategy "${strategy}" (${fillVal})`);
               } else {
-                executedLogs.push(`⚠️ Column "${cmd.column}" not found to perform imputation`);
+                executedLogs.push(`Column "${cmd.column}" not found to perform imputation`);
               }
             }
             break;
@@ -303,7 +297,7 @@ Try asking me items like:
           case 'RUN_EDA_SCAN':
             // Async background call
             triggerAIScan();
-            executedLogs.push('🧠 Neural exploratory scanning started in the background');
+            executedLogs.push('Started the AI analysis');
             break;
 
           case 'RUN_ML':
@@ -320,7 +314,7 @@ Try asking me items like:
               const hParams = cmd.hyperparameters || { n_estimators: 100, max_depth: 8 };
 
               triggerPrediction(foundTarget, featCols, modelType, hParams);
-              executedLogs.push(`🔮 Machine Learning pipeline trained on "${foundTarget}" using features [${featCols.join(', ')}]`);
+              executedLogs.push(`Machine Learning pipeline trained on "${foundTarget}" using features [${featCols.join(', ')}]`);
             }
             break;
 
@@ -351,7 +345,7 @@ Try asking me items like:
                   rowCount: filteredRows.length
                 });
 
-                executedLogs.push(`🔍 Filtered dataset: Kept rows where "${targetColName}" ${operator} "${filterVal}" (${filteredRows.length} left)`);
+                executedLogs.push(`Filtered dataset: Kept rows where "${targetColName}" ${operator} "${filterVal}" (${filteredRows.length} left)`);
               }
             }
             break;
@@ -387,9 +381,9 @@ Try asking me items like:
                   columns: [...activeDataset.columns, newColMeta],
                   rows: updatedRows
                 });
-                executedLogs.push(`➕ Added column "${newColName}" of type "${newColType}" filled with "${defaultVal}"`);
+                executedLogs.push(`Added column "${newColName}" of type "${newColType}" filled with "${defaultVal}"`);
               } else {
-                executedLogs.push(`⚠️ Column "${newColName}" already exists`);
+                executedLogs.push(`Column "${newColName}" already exists`);
               }
             }
             break;
@@ -423,7 +417,7 @@ Try asking me items like:
                 rows: updatedRows,
                 rowCount: updatedRows.length
               });
-              executedLogs.push(`➕ Appended new raw row matching structure`);
+              executedLogs.push(`Added an empty row`);
             }
             break;
 
@@ -437,9 +431,9 @@ Try asking me items like:
                   rows: refreshedRows,
                   rowCount: refreshedRows.length
                 });
-                executedLogs.push(`🗑️ Deleted dataset row index ${idxToDelete}`);
+                executedLogs.push(`Deleted row ${idxToDelete}`);
               } else {
-                executedLogs.push(`⚠️ Invalid row index ${idxToDelete} specified`);
+                executedLogs.push(`Invalid row index ${idxToDelete} specified`);
               }
             }
             break;
@@ -460,16 +454,16 @@ Try asking me items like:
                     ...updated,
                     rowCount: updated.rows.length
                   });
-                  let logMsg = `📊 SQL Action Applied`;
+                  let logMsg = `SQL Action Applied`;
                   if (cmd.sqlQuery) logMsg += ` [Query: "${cmd.sqlQuery}"]`;
                   if (cmd.explanation) logMsg += `: ${cmd.explanation}`;
                   executedLogs.push(logMsg);
                 } else {
-                  executedLogs.push(`⚠️ Action executed successfully but returned incomplete data arrays`);
+                  executedLogs.push(`The action ran but returned incomplete data`);
                 }
               } catch (evalErr: any) {
                 console.error("Evaluation error:", evalErr);
-                executedLogs.push(`❌ Action Compiler Error: ${evalErr.message || String(evalErr)}`);
+                executedLogs.push(`Couldn’t run that: ${evalErr.message || String(evalErr)}`);
               }
             }
             break;
@@ -478,7 +472,7 @@ Try asking me items like:
             break;
         }
       } catch (err: any) {
-        executedLogs.push(`❌ Error executing command [${cmd.type}]: ${err.message || String(err)}`);
+        executedLogs.push(`Error executing command [${cmd.type}]: ${err.message || String(err)}`);
       }
     }
 
@@ -584,7 +578,7 @@ Try asking me items like:
       const errorMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: `⚠️ Failed to execute task: ${err.message || 'connection timeout'}. Please verify server pipelines are running.`,
+        content: `That didn’t work: ${err.message || 'connection timed out'}. Check that the server is running and try again.`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, errorMsg]);
@@ -611,9 +605,9 @@ Try asking me items like:
             initial={{ opacity: 0, y: -25, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -25, scale: 0.95 }}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#10b981]/15 backdrop-blur-md border border-[#10b981]/30 text-[#10b981] font-mono text-xs px-5 py-3 rounded-full flex items-center gap-2 shadow-2xl tracking-tight leading-relaxed font-bold select-none max-w-lg text-center"
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green/15 backdrop-blur-md border border-green/30 text-green tabular-nums text-xs px-5 py-3 rounded-full flex items-center gap-2 shadow-xl tracking-tight leading-relaxed font-semibold select-none max-w-lg text-center"
           >
-            <div className="w-2 h-2 rounded-full bg-[#10b981] animate-ping" />
+            <div className="w-2 h-2 rounded-full bg-green animate-ping" />
             <span>{lastExecutedTaskMsg}</span>
           </motion.div>
         )}
@@ -640,8 +634,8 @@ Try asking me items like:
               onDragStart={() => setIsDraggingState(true)}
               onDragEnd={handleDragEnd}
               onTap={() => {
-                const chatWidth = 270;
-                const chatHeight = 360;
+                const chatWidth = 360;
+                const chatHeight = 520;
                 const pad = 12;
 
                 let cx = mx.get();
@@ -664,58 +658,15 @@ Try asking me items like:
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              {/* iOS AssistiveTouch Iconic Circle Shell with continuous 3D Live Aura */}
-              <div className="w-14 h-14 bg-[#0A0D14]/90 backdrop-blur-md rounded-full border border-slate-700/50 flex items-center justify-center shadow-[0_0_20px_rgba(59,200,200,0.25)] relative group overflow-hidden select-none animate-neon-breath preserve-3d">
-                <div className="absolute inset-0 bg-[#070A13]/85 rounded-full pointer-events-none" />
-
-                {/* Ambient dynamic grid or stardust backdrops */}
-                <div className="absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-500/20 via-transparent to-transparent pointer-events-none animate-quantum-pulsar" />
-
-                {/* 3D Holographic Orbiting Rings (Continuous) */}
-                <div className="absolute w-12 h-12 rounded-full border border-dashed border-indigo-400/40 animate-live-ring-1 pointer-events-none" style={{ transformStyle: 'preserve-3d' }} />
-                <div className="absolute w-11 h-11 rounded-full border border-double border-teal-400/30 animate-live-ring-2 pointer-events-none" style={{ transformStyle: 'preserve-3d' }} />
-                <div className="absolute w-12 h-12 rounded-full border border-dotted border-rose-450/30 animate-live-ring-3 pointer-events-none" style={{ transformStyle: 'preserve-3d' }} />
-
-                {/* Middle Ring Holder */}
-                <div className="w-11 h-11 rounded-full border border-slate-600/30 flex items-center justify-center bg-slate-900/40 relative z-10 preserve-3d">
-                  
-                  {/* Central Round AskDeepakAI Logo Design - Spinning in 3D perspective continuously */}
-                  <div className="w-8 h-8 rounded-full bg-[#050811]/95 flex flex-col justify-between p-1.5 border border-slate-700/60 shadow-[0_0_15px_rgba(59,200,200,0.4)] relative z-20 select-none overflow-hidden animate-live-3d-spin preserve-3d">
-                    
-                    {/* Glossy Reflection Sweep across the 3D rotating coin */}
-                    <div className="absolute top-0 bottom-0 w-[40%] bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 animate-shiny-sheen pointer-events-none" />
-
-                    {/* Top Bar with 3D layer translated layout */}
-                    <div className="h-[24%] w-full flex rounded-full overflow-hidden" style={{ transform: 'translateZ(4px)' }}>
-                      <div className="w-[18%] h-full bg-[#1b5bd2]"></div>
-                      <div className="w-[82%] h-full bg-[#3bc8c8]"></div>
-                    </div>
-                    {/* Middle Bar with 3D layer translated layout */}
-                    <div className="h-[24%] w-full flex rounded-full overflow-hidden" style={{ transform: 'translateZ(8px)' }}>
-                      <div className="w-[18%] h-full bg-[#3bc8c8]"></div>
-                      <div className="w-[82%] h-full bg-[#ef7222]"></div>
-                    </div>
-                    {/* Bottom Bar with 3D layer translated layout */}
-                    <div className="h-[24%] w-[64%] flex rounded-full overflow-hidden" style={{ transform: 'translateZ(6px)' }}>
-                      <div className="w-[32%] h-full bg-[#dfa435]"></div>
-                      <div className="w-[68%] h-full bg-[#b22038]"></div>
-                    </div>
-
-                    {/* Inner 3D Backlight ring */}
-                    <div className="absolute inset-0 border border-white/5 rounded-full pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* Dynamic corner specular flare elements */}
-                <span className="absolute top-1 left-2 w-1 h-1 rounded-full bg-white opacity-40 blur-[0.5px]" />
-                <span className="absolute bottom-1 right-2 w-1.5 h-1.5 rounded-full bg-indigo-400 opacity-30 blur-[1px]" />
-
-                {/* Ambient horizontal indicator glow */}
-                <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-[#1b5bd2]/60 via-[#3bc8c8]/60 to-[#ef7222]/60 opacity-80 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+              {/* Floating assistant button */}
+              <div
+                className="material w-14 h-14 rounded-full shadow-xl flex items-center justify-center select-none"
+                role="button"
+                aria-label="Open the AI assistant"
+                title="Ask AI"
+              >
+                <Sparkles className="w-6 h-6 text-blue" />
               </div>
-              <span className="text-[9px] font-mono font-bold text-slate-400 mt-1.5 bg-[#0B0F19]/90 border border-slate-800/80 px-2 py-0.5 rounded-full select-none shadow-md hidden sm:inline tracking-wide">
-                AskAI
-              </span>
             </motion.div>
           ) : (
             /* Chat Box Mode (65% Scaler Size applied, Draggable across coordinates) */
@@ -730,7 +681,7 @@ Try asking me items like:
                 damping: 25,
                 stiffness: 220
               }}
-              className="fixed top-0 left-0 w-[300px] h-[400px] bg-slate-900/70 border border-slate-700/50 rounded-3xl shadow-[0_0_40px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.1)] flex flex-col z-50 pointer-events-auto overflow-hidden backdrop-blur-2xl select-text transition-shadow"
+              className="fixed top-0 left-0 w-[360px] max-w-[calc(100vw-24px)] h-[520px] max-h-[calc(100vh-24px)] bg-raised rounded-3xl shadow-xl flex flex-col z-50 pointer-events-auto overflow-hidden select-text"
               id="assistive_chat_panel"
               drag
               dragMomentum={false}
@@ -746,35 +697,15 @@ Try asking me items like:
               }}
               onDragEnd={handleChatDragEnd}
             >
-              {/* Header Details */}
-              <div
-                className="bg-transparent px-4 py-3 border-b border-slate-700/50 flex items-center justify-between z-10 shrink-0 cursor-move select-none relative"
-              >
-                <div className="absolute top-0 right-0 w-[150px] h-[40px] bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
-                <div className="flex items-center gap-3 relative z-10">
-                  <div className="w-7 h-7 bg-[#070A13] rounded-full flex flex-col justify-between p-1 border border-slate-700/40 relative select-none shadow-md shrink-0 overflow-hidden">
-                    {/* Top Bar */}
-                    <div className="h-[24%] w-full flex rounded-full overflow-hidden">
-                      <div className="w-[18%] h-full bg-[#1b5bd2]"></div>
-                      <div className="w-[82%] h-full bg-[#3bc8c8]"></div>
-                    </div>
-                    {/* Middle Bar */}
-                    <div className="h-[24%] w-full flex rounded-full overflow-hidden">
-                      <div className="w-[18%] h-full bg-[#3bc8c8]"></div>
-                      <div className="w-[82%] h-full bg-[#ef7222]"></div>
-                    </div>
-                    {/* Bottom Bar */}
-                    <div className="h-[24%] w-[64%] flex rounded-full overflow-hidden">
-                      <div className="w-[32%] h-full bg-[#dfa435]"></div>
-                      <div className="w-[68%] h-full bg-[#b22038]"></div>
-                    </div>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 border border-[#0A0F1D] absolute bottom-0.5 right-0.5" />
-                  </div>
+              {/* Header — also the drag handle */}
+              <div className="px-4 py-3 border-b border-separator flex items-center justify-between shrink-0 cursor-move select-none">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-8 h-8 rounded-full bg-blue/12 text-blue flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </span>
                   <div>
-                    <h4 className="font-extrabold text-[11px] text-white flex items-center gap-1 leading-none whitespace-nowrap">
-                      AskAI <span className="text-[8px] text-teal-400 font-bold font-mono bg-[#3bc8c8]/10 px-1 rounded border border-[#3bc8c8]/20 shrink-0">DeepakAI</span>
-                    </h4>
-                    <p className="text-[8px] text-slate-400 mt-0.5 font-medium leading-none whitespace-nowrap">Interactive Data Copilot</p>
+                    <h4 className="text-sm font-semibold text-label leading-tight">Ask AI</h4>
+                    <p className="text-xs text-label-2 leading-tight">Works on your data and every step</p>
                   </div>
                 </div>
                 <button
@@ -791,14 +722,15 @@ Try asking me items like:
                       animate(mx, snapX, { type: 'spring', stiffness: 400, damping: 30 });
                     }, 50);
                   }}
-                  className="p-1 px-1.5 text-slate-400 hover:text-white hover:bg-slate-800/80 rounded transition-colors text-[10px] font-bold font-mono border border-slate-850 bg-[#070b14]/60 cursor-pointer"
+                  className="btn btn-icon w-8 h-8 bg-fill"
+                  aria-label="Close assistant"
                 >
-                  ✕
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
               {/* Chat Thread Messages Stream (65% Scaled Height & Text) */}
-              <div className="flex-1 p-3 overflow-y-auto space-y-3 bg-transparent scrollbar-thin select-text" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <div className="flex-1 px-3 py-4 overflow-y-auto space-y-3 select-text" style={{ WebkitOverflowScrolling: 'touch' }}>
                 {messages.map((m) => {
                   const isUser = m.role === 'user';
                   return (
@@ -806,32 +738,13 @@ Try asking me items like:
                       key={m.id} 
                       className={`flex ${isUser ? 'justify-end' : 'justify-start'} items-end gap-1.5`}
                     >
-                      {!isUser && (
-                        <div className="w-5.5 h-5.5 rounded-full bg-[#070A13] flex flex-col justify-between p-1 border border-slate-800 shrink-0 self-start mt-0.5 select-none overflow-hidden">
-                          {/* Top Bar */}
-                          <div className="h-[24%] w-full flex rounded-full overflow-hidden">
-                            <div className="w-[18%] h-full bg-[#1b5bd2]"></div>
-                            <div className="w-[82%] h-full bg-[#3bc8c8]"></div>
-                          </div>
-                          {/* Middle Bar */}
-                          <div className="h-[24%] w-full flex rounded-full overflow-hidden">
-                            <div className="w-[18%] h-full bg-[#3bc8c8]"></div>
-                            <div className="w-[82%] h-full bg-[#ef7222]"></div>
-                          </div>
-                          {/* Bottom Bar */}
-                          <div className="h-[24%] w-[64%] flex rounded-full overflow-hidden">
-                            <div className="w-[32%] h-full bg-[#dfa435]"></div>
-                            <div className="w-[68%] h-full bg-[#b22038]"></div>
-                          </div>
-                        </div>
-                      )}
                       
                       <div className="space-y-1 max-w-[85%]">
                         <div 
-                          className={`rounded-xl p-2.5 text-[10px] inline-block leading-relaxed border relative shadow-md ${
-                            isUser 
-                              ? 'bg-indigo-600 border-indigo-500 text-white rounded-br-none' 
-                              : 'bg-slate-900/80 border-slate-800 text-slate-200 rounded-bl-none space-y-1'
+                          className={`rounded-2xl px-3 py-2 text-xs inline-block leading-relaxed ${
+                            isUser
+                              ? 'bg-blue text-white rounded-br-md'
+                              : 'bg-fill text-label rounded-bl-md space-y-1'
                           }`}
                         >
                           <div className="whitespace-pre-wrap font-sans">
@@ -850,7 +763,7 @@ Try asking me items like:
                                       return (
                                         <React.Fragment key={pIdx}>
                                           {part}
-                                          {boldText && <strong className="text-white font-extrabold">{boldText}</strong>}
+                                          {boldText && <strong className="text-label font-semibold">{boldText}</strong>}
                                         </React.Fragment>
                                       );
                                     })}
@@ -860,7 +773,7 @@ Try asking me items like:
 
                               if (formatted.trim().startsWith('-')) {
                                 return (
-                                  <li key={idx} className="list-disc ml-3 text-slate-350 mt-0.5 font-medium leading-normal">
+                                  <li key={idx} className="list-disc ml-3.5 mt-0.5 leading-normal">
                                     {formatted.replace('-', '').trim()}
                                   </li>
                                 );
@@ -871,30 +784,30 @@ Try asking me items like:
                                   <div key={idx} className="mb-0.5 inline-block">
                                     {formatted.split('`').map((cPart, cIdx) => (
                                       cIdx % 2 === 1 
-                                        ? <code key={cIdx} className="bg-slate-950 px-1 py-0.5 rounded text-amber-300 font-mono text-[9px] font-bold">{cPart}</code>
+                                        ? <code key={cIdx} className="bg-well px-1 py-0.5 rounded text-[11px]">{cPart}</code>
                                         : <span key={cIdx}>{cPart}</span>
                                     ))}
                                   </div>
                                 );
                               }
 
-                              return <p key={idx} className="mb-0.5 font-medium">{formatted}</p>;
+                              return <p key={idx} className="mb-0.5">{formatted}</p>;
                             })}
                           </div>
 
                           {m.executedCommands && m.executedCommands.length > 0 && (
-                            <div className="mt-1.5 pt-1.5 border-t border-slate-800/85 font-mono text-[8.5px] space-y-0.5 text-emerald-450">
-                              <span className="block font-bold text-slate-400 text-[8px] uppercase">⚡ Applied Actions:</span>
+                            <div className="mt-1.5 pt-1.5 border-t border-separator text-[11px] space-y-0.5">
+                              <span className="block font-medium text-label-2">Actions applied</span>
                               {m.executedCommands.map((log, lIdx) => (
-                                <div key={lIdx} className="flex items-start gap-0.5 text-slate-350">
-                                  <span className="text-emerald-400">✓</span>
+                                <div key={lIdx} className="flex items-start gap-1 text-label">
+                                  <Check className="w-3 h-3 text-green shrink-0 mt-0.5" />
                                   <span>{log}</span>
                                 </div>
                               ))}
                             </div>
                           )}
                         </div>
-                        <span className="text-[8px] text-slate-500 font-mono block px-1 text-right leading-none">
+                        <span className="text-[11px] text-label-3 tabular-nums block px-1 leading-none">
                           {m.timestamp}
                         </span>
                       </div>
@@ -902,96 +815,71 @@ Try asking me items like:
                   );
                 })}
 
-                {/* Loading indicator scale down */}
                 {isGenerating && (
-                  <div className="flex justify-start items-center gap-1.5">
-                    <div className="w-5.5 h-5.5 rounded-full bg-[#070A13] flex flex-col justify-between p-1 border border-slate-800 shrink-0 select-none overflow-hidden animate-spin">
-                      <div className="h-[24%] w-full flex rounded-full overflow-hidden">
-                        <div className="w-[18%] h-full bg-[#1b5bd2]"></div>
-                        <div className="w-[82%] h-full bg-[#3bc8c8]"></div>
-                      </div>
-                      <div className="h-[24%] w-full flex rounded-full overflow-hidden">
-                        <div className="w-[18%] h-full bg-[#3bc8c8]"></div>
-                        <div className="w-[82%] h-full bg-[#ef7222]"></div>
-                      </div>
-                    </div>
-                    <div className="bg-slate-900/60 border border-slate-850 rounded-xl rounded-bl-none p-2 px-3 inline-block">
-                      <div className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block animate-bounce" />
-                        <span className="w-1.5 h-1.5 rounded-full bg-teal-500 inline-block animate-bounce" />
-                        <span className="text-[9px] text-slate-450 font-mono font-medium ml-1">Computing...</span>
-                      </div>
+                  <div className="flex justify-start">
+                    <div className="bg-fill rounded-2xl rounded-bl-md px-3 py-2.5 flex items-center gap-1" aria-label="Assistant is thinking">
+                      <span className="w-1.5 h-1.5 rounded-full bg-label-3 animate-bounce" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-label-3 animate-bounce [animation-delay:120ms]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-label-3 animate-bounce [animation-delay:240ms]" />
                     </div>
                   </div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Suggestions Chips Slider Row */}
-              <div className="py-1 px-2 bg-[#0a0f1d] border-t border-slate-800/65 flex gap-1.5 overflow-x-auto scrollbar-none shrink-0 select-none" id="chat_suggestions">
+              {/* Suggested prompts */}
+              <div className="px-3 py-2 flex gap-1.5 overflow-x-auto scrollbar-none shrink-0 select-none" id="chat_suggestions">
                 {[
-                  { label: '🪄 Plan CRM', prompt: 'Analyze this dataset with an EDA scan' },
-                  { label: '🧹 Impute Mean', prompt: 'Fill missing values with mean' },
-                  { label: '📊 Dashboard', prompt: 'Show the stakeholder dashboard' },
-                  { label: '🔌 SQL Run', prompt: 'SELECT * FROM dataset WHERE tenure > 35' },
-                  { label: '🔄 Reset', prompt: 'Reset dataset' }
+                  { label: 'Analyze dataset', prompt: 'Analyze this dataset with an EDA scan' },
+                  { label: 'Fill missing values', prompt: 'Fill missing values with mean' },
+                  { label: 'Open dashboard', prompt: 'Show the stakeholder dashboard' },
+                  { label: 'Run SQL', prompt: 'SELECT * FROM dataset WHERE tenure > 35' },
+                  { label: 'Reset data', prompt: 'Reset dataset' }
                 ].map((s, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={(e) => { e.stopPropagation(); handleSuggestedPromptClick(s.prompt); }}
-                    className="px-2 py-1 rounded-full bg-slate-900 hover:bg-slate-850 text-[9px] text-slate-300 border border-slate-800 transition-colors cursor-pointer select-none font-medium whitespace-nowrap shrink-0"
+                    className="tag bg-blue/10 text-blue hover:bg-blue/15 py-1 shrink-0"
                   >
                     {s.label}
                   </button>
                 ))}
               </div>
 
-              {/* Mode Selector */}
-              <div className="flex bg-[#070A13] border-t border-slate-800/80 shrink-0">
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setInputMode('english'); }}
-                  className={`flex-1 py-1.5 text-[9px] font-bold uppercase transition-colors text-center border-r border-slate-800/50 ${inputMode === 'english' ? 'bg-indigo-600/20 text-indigo-300 relative after:absolute after:bottom-0 after:left-0 after:w-full after:h-[2px] after:bg-indigo-500' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  Ask AI
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setInputMode('sql'); }}
-                  className={`flex-1 py-1.5 text-[9px] font-bold uppercase transition-colors text-center border-r border-slate-800/50 ${inputMode === 'sql' ? 'bg-emerald-600/20 text-emerald-300 relative after:absolute after:bottom-0 after:left-0 after:w-full after:h-[2px] after:bg-emerald-500' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  SQL
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setInputMode('python'); }}
-                  className={`flex-1 py-1.5 text-[9px] font-bold uppercase transition-colors text-center ${inputMode === 'python' ? 'bg-amber-600/20 text-amber-300 relative after:absolute after:bottom-0 after:left-0 after:w-full after:h-[2px] after:bg-amber-500' : 'text-slate-500 hover:text-slate-300'}`}
-                >
-                  Python/JS
-                </button>
-              </div>
-
-              {/* Chat Send Input Form */}
-              <form 
+              {/* Composer */}
+              <form
                 onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleSendMessage(); }}
-                className="p-1.5 bg-[#090D17] flex flex-col gap-1.5 shrink-0 relative select-none"
+                className="p-3 pt-1 border-t border-separator flex flex-col gap-2 shrink-0 select-none"
               >
-                <div className="flex items-center gap-1.5">
+                <div className="segmented w-full mt-2" role="group" aria-label="Input mode">
+                  <button type="button" className="flex-1" aria-pressed={inputMode === 'english'} onClick={(e) => { e.stopPropagation(); setInputMode('english'); }}>
+                    Ask
+                  </button>
+                  <button type="button" className="flex-1" aria-pressed={inputMode === 'sql'} onClick={(e) => { e.stopPropagation(); setInputMode('sql'); }}>
+                    SQL
+                  </button>
+                  <button type="button" className="flex-1" aria-pressed={inputMode === 'python'} onClick={(e) => { e.stopPropagation(); setInputMode('python'); }}>
+                    Code
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder={inputMode === 'english' ? 'Ask anything in simple English...' : inputMode === 'sql' ? 'User compact SQL command...' : 'User Python/JS script...'}
+                    placeholder={inputMode === 'english' ? 'Ask anything about your data' : inputMode === 'sql' ? 'SELECT … FROM dataset' : 'Write a transform in Python or JS'}
+                    aria-label="Message"
                     disabled={isGenerating}
-                    className="flex-1 bg-[#060A10]/95 text-[10.5px] h-8 text-slate-100 placeholder-slate-500 border border-slate-800 flex-shrink focus:border-indigo-500 focus:outline-none rounded-xl py-1 px-2.5 transition-colors disabled:opacity-40"
+                    className={`input flex-1 rounded-full px-3.5 ${inputMode === 'english' ? '' : 'font-code text-xs'}`}
                   />
                   <button
                     type="submit"
                     disabled={!inputText.trim() || isGenerating}
-                    className={`w-8 h-8 items-center justify-center flex rounded-lg disabled:bg-slate-850 disabled:text-slate-600 text-white transition-all cursor-pointer shadow-md shrink-0 ${inputMode === 'english' ? 'bg-indigo-600 hover:bg-indigo-500' : inputMode === 'sql' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-amber-600 hover:bg-amber-500'}`}
+                    aria-label="Send"
+                    className="btn btn-primary w-9 h-9 min-h-0 p-0 rounded-full shrink-0"
                   >
-                    <Send className="w-3.5 h-3.5" />
+                    <Send className="w-4 h-4" />
                   </button>
                 </div>
               </form>

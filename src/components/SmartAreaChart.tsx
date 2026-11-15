@@ -1,3 +1,4 @@
+import { CHART_COLORS } from '../utils/chartTheme';
 import React from 'react';
 import { useDashboardContext } from './DashboardContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -7,16 +8,16 @@ interface SmartAreaChartProps {
   yAxisColumns: string[];
 }
 
-const COLORS = ['#3B82F6', '#10B981', '#F43F5E', '#F59E0B', '#8B5CF6'];
+const COLORS = CHART_COLORS;
 
 export default function SmartAreaChart({ xAxisColumn, yAxisColumns }: SmartAreaChartProps) {
   const { filteredData } = useDashboardContext();
 
   if (!filteredData || filteredData.length === 0) {
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg min-h-[300px] flex flex-col items-center justify-center">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-4">{yAxisColumns.join(' & ')} Area</h3>
-        <p className="text-slate-500 text-xs text-center">No data available.</p>
+      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+        <h3 className="text-sm font-semibold tracking-tight text-label mb-4">{yAxisColumns.join(' & ')} Area</h3>
+        <p className="text-label-3 text-xs text-center">No data available.</p>
       </div>
     );
   }
@@ -30,8 +31,8 @@ export default function SmartAreaChart({ xAxisColumn, yAxisColumns }: SmartAreaC
   });
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg min-h-[300px] flex flex-col">
-       <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-4">
+    <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col">
+       <h3 className="text-sm font-semibold tracking-tight text-label mb-4">
         {yAxisColumns.join(' & ')} Area
       </h3>
       <div className="w-full h-[280px]">
@@ -45,12 +46,10 @@ export default function SmartAreaChart({ xAxisColumn, yAxisColumns }: SmartAreaC
                 </linearGradient>
               ))}
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
-            <XAxis dataKey="x" stroke="#64748B" fontSize={10} minTickGap={30} />
-            <YAxis stroke="#64748B" fontSize={10} width={40} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+            <XAxis dataKey="x" stroke="var(--chart-axis)" fontSize={10} minTickGap={30} />
+            <YAxis stroke="var(--chart-axis)" fontSize={10} width={40} />
             <Tooltip
-              contentStyle={{ backgroundColor: '#0B0E17', borderColor: '#1E293B', color: '#fff', fontSize: '12px' }}
-              itemStyle={{ fontSize: '12px' }}
             />
             <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
             {yAxisColumns.map((col, idx) => (

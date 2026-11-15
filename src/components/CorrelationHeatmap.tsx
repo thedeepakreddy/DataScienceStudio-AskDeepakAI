@@ -57,51 +57,49 @@ export default function CorrelationHeatmap({ columns }: CorrelationHeatmapProps)
 
   if (matrix.length === 0) {
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg min-h-[300px] flex flex-col items-center justify-center">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-4">Correlation Matrix</h3>
-        <p className="text-slate-500 text-xs text-center">No sufficient data for correlation heatmap.</p>
+      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+        <h3 className="text-sm font-semibold tracking-tight text-label mb-4">Correlation</h3>
+        <p className="text-label-3 text-xs text-center">Not enough numeric data to show correlations.</p>
       </div>
     );
   }
 
+  // Diverging scale: blue for positive, red for negative, strength as opacity.
   const getColor = (val: number) => {
-    if (val > 0) {
-      return `rgba(16, 185, 129, ${Math.abs(val)})`; // emerald
-    } else if (val < 0) {
-      return `rgba(244, 63, 94, ${Math.abs(val)})`; // rose
-    }
-    return `rgba(30, 41, 59, 1)`;
+    const strength = Math.round(Math.min(1, Math.abs(val)) * 85);
+    if (val === 0) return 'transparent';
+    return `color-mix(in srgb, var(${val > 0 ? '--chart-1' : '--chart-5'}) ${strength}%, transparent)`;
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col relative overflow-hidden min-h-[300px]">
-       <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-4">Correlation Matrix</h3>
+    <div className="card p-4 sm:p-5 flex flex-col relative overflow-hidden min-h-[300px]">
+       <h3 className="text-sm font-semibold tracking-tight text-label mb-4">Correlation</h3>
        
        <div className="flex-1 overflow-auto custom-scrollbar relative">
          <div className="inline-block min-w-full">
             <div className="flex">
                <div className="w-24 shrink-0"></div>
                {columns.map(c => (
-                 <div key={`header-${c}`} className="w-20 text-center shrink-0 border-b border-slate-800 pb-2">
-                   <span className="text-[10px] font-bold text-slate-400 rotate-[-45deg] inline-block w-full">{c.substring(0, 8)}</span>
+                 <div key={`header-${c}`} className="w-20 text-center shrink-0 border-b border-separator pb-2">
+                   <span className="text-[11px] font-semibold text-label-2 rotate-[-45deg] inline-block w-full">{c.substring(0, 8)}</span>
                  </div>
                ))}
             </div>
 
             {matrix.map((rowItem, rIdx) => (
               <div key={`row-${rIdx}`} className="flex items-center">
-                <div className="w-24 shrink-0 pr-2 text-right border-r border-slate-800">
-                  <span className="text-[10px] font-bold text-slate-400 truncate block">{rowItem.rowCol.substring(0, 10)}</span>
+                <div className="w-24 shrink-0 pr-2 text-right border-r border-separator">
+                  <span className="text-[11px] font-semibold text-label-2 truncate block">{rowItem.rowCol.substring(0, 10)}</span>
                 </div>
                 {rowItem.cells.map((cell, cIdx) => (
                   <div
                     key={`cell-${rIdx}-${cIdx}`}
-                    className="w-20 h-10 shrink-0 border border-slate-900 flex items-center justify-center cursor-pointer transition-transform hover:z-10 hover:scale-110"
+                    className="w-20 h-10 shrink-0 border border-surface rounded-md flex items-center justify-center"
                     style={{ backgroundColor: getColor(cell.val) }}
                     onMouseEnter={() => setHoveredCell(cell)}
                     onMouseLeave={() => setHoveredCell(null)}
                   >
-                    <span className="text-[9px] font-mono text-white mix-blend-difference font-bold">
+                    <span className={`text-[11px] tabular-nums font-medium ${Math.abs(cell.val) > 0.55 ? 'text-white' : 'text-label'}`}>
                       {cell.val.toFixed(2)}
                     </span>
                   </div>
@@ -112,11 +110,9 @@ export default function CorrelationHeatmap({ columns }: CorrelationHeatmapProps)
        </div>
 
        {hoveredCell && (
-         <div className="absolute top-4 right-4 bg-slate-950 border border-slate-800 p-2 rounded-lg text-xs shadow-xl min-w-[120px] pointer-events-none">
-           <div className="font-bold text-slate-300 mb-1">Correlation Detail</div>
-           <div className="text-slate-400"><span className="text-emerald-400">X:</span> {hoveredCell.x}</div>
-           <div className="text-slate-400"><span className="text-blue-400">Y:</span> {hoveredCell.y}</div>
-           <div className="font-mono text-white mt-1 pt-1 border-t border-slate-800 font-bold">{hoveredCell.val.toFixed(3)}</div>
+         <div className="absolute top-4 right-4 bg-raised p-2.5 rounded-lg text-xs shadow-md min-w-[120px] pointer-events-none">
+           <div className="text-label-2">{hoveredCell.x} × {hoveredCell.y}</div>
+           <div className="tabular-nums text-label mt-1 pt-1 border-t border-separator font-semibold">{hoveredCell.val.toFixed(3)}</div>
          </div>
        )}
     </div>

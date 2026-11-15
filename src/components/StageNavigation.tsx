@@ -1,126 +1,56 @@
 import React from 'react';
-import { usePipelineContext, PipelineStage } from '../contexts/PipelineContext';
-import { ChevronLeft, ChevronRight, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { PipelineStage } from '../contexts/PipelineContext';
+import { STAGES, STAGE_ORDER } from '../stages';
 
 interface StageNavigationProps {
   activeTab: PipelineStage;
   setActiveTab: (tab: PipelineStage) => void;
+  /** False until a dataset is loaded — the only hard requirement to move on. */
+  canContinue: boolean;
+  /** Whether the current stage's key action has been done. */
+  stageComplete: boolean;
 }
 
-const STAGES: PipelineStage[] = ['ingest', 'clean', 'eda', 'ml', 'dashboard', 'reports'];
-const STAGE_NAMES = {
-  ingest: 'Data Ingestion',
-  clean: 'Cleaning Studio',
-  eda: 'Exploration (EDA)',
-  ml: 'ML Modeling',
-  dashboard: 'Dashboard',
-  reports: 'Reports Hub'
-};
-
-export default function StageNavigation({ activeTab, setActiveTab }: StageNavigationProps) {
-  const {
-    datasetProfile,
-    businessProblem,
-    hasRunAudit,
-    hasRunEda,
-    mlMetrics,
-    mlSkipped,
-    dashboardRendered
-  } = usePipelineContext();
-
-  const currentIndex = STAGES.indexOf(activeTab);
-  const prevStage = currentIndex > 0 ? STAGES[currentIndex - 1] : null;
-  const nextStage = currentIndex < STAGES.length - 1 ? STAGES[currentIndex + 1] : null;
-
-  const isUnlocked = (stageId: string) => {
-    switch (stageId) {
-      case 'ingest': return true;
-      case 'clean': return !!datasetProfile;
-      case 'eda': return hasRunAudit;
-      case 'ml': return hasRunEda;
-      case 'dashboard': return !!mlMetrics || mlSkipped;
-      case 'reports': return dashboardRendered;
-      default: return false;
-    }
-  };
-
-  const handleNext = () => {
-    if (nextStage && isUnlocked(nextStage)) {
-      setActiveTab(nextStage);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const handlePrev = () => {
-    if (prevStage) {
-      setActiveTab(prevStage);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const nextUnlocked = nextStage ? isUnlocked(nextStage) : false;
+/**
+ * Back / Continue footer. Moving forward is never blocked once data is loaded;
+ * if the stage's key action hasn't been run, a quiet hint says what's worth
+ * doing first.
+ */
+export default function StageNavigation({ activeTab, setActiveTab, canContinue, stageComplete }: StageNavigationProps) {
+  const index = STAGE_ORDER.indexOf(activeTab);
+  const prev = index > 0 ? STAGE_ORDER[index - 1] : null;
+  const next = index < STAGE_ORDER.length - 1 ? STAGE_ORDER[index + 1] : null;
+  const hint = !stageComplete ? STAGES[activeTab].hint : undefined;
 
   return (
-    <div className="mt-12 mb-8 flex items-center justify-between bg-slate-900/50 border border-slate-800 rounded-xl p-4 sm:p-6 backdrop-blur-md">
-      <div>
-        {prevStage ? (
+    <nav
+      aria-label="Step navigation"
+      className="mt-12 pt-6 border-t border-separator flex flex-wrap items-center justify-between gap-x-4 gap-y-3"
+    >
+      {prev ? (
+        <button type="button" onClick={() => setActiveTab(prev)} className="btn btn-plain -ml-2">
+          <ChevronLeft className="w-4 h-4" />
+          {STAGES[prev].label}
+        </button>
+      ) : (
+        <span />
+      )}
+
+      <div className="flex items-center gap-4 ml-auto">
+        {hint && next && <p className="hidden sm:block text-sm text-label-2 text-right">{hint}</p>}
+        {next && (
           <button
-            onClick={handlePrev}
-            className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
+            type="button"
+            onClick={() => setActiveTab(next)}
+            disabled={!canContinue}
+            className={`btn btn-lg ${stageComplete ? 'btn-primary' : 'btn-secondary'}`}
           >
-            <ChevronLeft className="w-5 h-5" />
-            <div className="text-left hidden sm:block">
-              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Previous</div>
-              <div className="text-sm font-medium">{STAGE_NAMES[prevStage]}</div>
-            </div>
-            <span className="sm:hidden text-sm font-medium">Back</span>
+            Continue to {STAGES[next].label}
+            <ChevronRight className="w-4 h-4" />
           </button>
-        ) : (
-          <div className="w-24" /> // Placeholder for spacing
         )}
       </div>
-
-      <div className="flex-1 px-4 text-center">
-         {/* Optional: Add a general hint message based on the current stage if next is locked */}
-         {!nextUnlocked && nextStage === 'clean' && (
-           <p className="text-xs text-slate-500 font-medium">Upload a dataset to unlock the next stage.</p>
-         )}
-         {!nextUnlocked && nextStage === 'eda' && (
-           <p className="text-xs text-slate-500 font-medium">Run a Quality Audit to unlock Exploration.</p>
-         )}
-         {!nextUnlocked && nextStage === 'ml' && (
-           <p className="text-xs text-slate-500 font-medium">Generate EDA scan to unlock ML Modeling.</p>
-         )}
-         {!nextUnlocked && nextStage === 'dashboard' && (
-           <p className="text-xs text-slate-500 font-medium">Run a model or skip ML to unlock the Dashboard.</p>
-         )}
-         {!nextUnlocked && nextStage === 'reports' && (
-           <p className="text-xs text-slate-500 font-medium">Render the Dashboard to unlock Reports.</p>
-         )}
-      </div>
-
-      <div>
-        {nextStage ? (
-          <button
-            onClick={handleNext}
-            disabled={!nextUnlocked}
-            className={`flex items-center gap-2 transition-all px-4 py-2 sm:p-0 sm:bg-transparent rounded-lg sm:rounded-none ${nextUnlocked ? 'text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 sm:hover:bg-transparent' : 'text-slate-600 cursor-not-allowed'}`}
-          >
-            <div className="text-right hidden sm:block">
-              <div className="text-[10px] uppercase font-bold tracking-wider mb-0.5 flex items-center justify-end gap-1">
-                Next Stage {!nextUnlocked && <Lock className="w-3 h-3" />}
-              </div>
-              <div className="text-sm font-medium">{STAGE_NAMES[nextStage]}</div>
-            </div>
-            <span className="sm:hidden text-sm font-medium flex items-center gap-1">
-              Next {!nextUnlocked && <Lock className="w-3 h-3" />}
-            </span>
-            <ChevronRight className="w-5 h-5 hidden sm:block" />
-          </button>
-        ) : (
-          <div className="w-24" /> // Placeholder for spacing
-        )}
-      </div>
-    </div>
+    </nav>
   );
 }

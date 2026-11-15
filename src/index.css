@@ -1,185 +1,545 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;550&family=Outfit:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
 
-/* ============================================================================
-   ASKDEEPAKAI — MINIMAL GLASS DESIGN SYSTEM
-   ----------------------------------------------------------------------------
-   The UI is themed through tokens rather than per-component overrides. Every
-   surface class already used across the app (bg-slate-900, border-slate-800,
-   bg-[#0b0f19], ...) is remapped here onto a single translucent glass scale, so
-   all 40+ components pick up the theme without being rewritten.
+/* `dark:` follows the app's appearance switch, not only the OS setting. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
-   Surface scale (dark):
-     slate-950  recessed well   — inputs, wells, code blocks
-     slate-900  primary pane    — cards, panels, studios
-     slate-850  soft rim        — hairline dividers
-     slate-800  rim / raised chip
-     slate-700  strong rim      — emphasis edges
+/* ============================================================================
+   DESIGN SYSTEM
+   ----------------------------------------------------------------------------
+   A small, semantic token set modelled on Apple's Human Interface Guidelines:
+   system typography, a neutral grouped-background hierarchy, system colors and
+   one accent. Components never reference raw palette shades — only the roles
+   below — so light and dark appearance are a pure token swap.
+
+   Backgrounds   canvas  → page          surface → cards / panels
+                 raised  → popovers      well    → recessed areas inside a card
+                 fill    → chips, secondary buttons, hover states
+   Text          label   → primary       label-2 → secondary   label-3 → tertiary
+   Lines         separator, separator-strong
+   Colors        blue (accent), green, red, orange, yellow, teal, purple, pink
    ========================================================================= */
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  /* Only the semantic palette exists; default Tailwind shades are disabled. */
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
 
-  /* --- Brand accents (indigo namespace maps to AskDeepakAI teal + blue) --- */
-  --color-indigo-50: #e0fbfb;
-  --color-indigo-100: #bbf7f7;
-  --color-indigo-200: #77eeee;
-  --color-indigo-300: #4ce5e5;
-  --color-indigo-350: #3bc8c8;
-  --color-indigo-400: #3bc8c8;
-  --color-indigo-405: #3bc8c8;
-  --color-indigo-500: #2cb2b2;
-  --color-indigo-550: #1b5bd2;
-  --color-indigo-600: #1b5bd2;
-  --color-indigo-650: #1449aa;
-  --color-indigo-700: #0f3885;
-  --color-indigo-800: #0c2b66;
-  --color-indigo-900: #081d45;
-  --color-indigo-950: #061530;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
-  --color-brand-cyan: #3bc8c8;
-  --color-brand-blue: #1b5bd2;
-  --color-brand-orange: #ef7222;
-  --color-brand-yellow: #dfa435;
-  --color-brand-red: #b22038;
+  /* Type scale: 11 / 13 / 15 / 17 mirrors macOS small → body → callout → title. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.385;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.4;
+  --text-base: 1.0625rem;
+  --text-base--line-height: 1.47;
 
-  --color-emerald-300: #57e2e2;
-  --color-emerald-400: #3bc8c8;
-  --color-emerald-405: #3bc8c8;
-  --color-emerald-500: #29bbfd;
-
-  /* --- Glass surface scale ------------------------------------------------
-     Translucent so the ambient backdrop reads through every pane. Opacity
-     modifiers (bg-slate-900/60) compound on top of these base alphas. */
-  --color-slate-950: rgba(6, 9, 16, 0.58);
-  --color-slate-905: rgba(255, 255, 255, 0.06);
-  --color-slate-900: rgba(255, 255, 255, 0.075);
-  --color-slate-850: rgba(255, 255, 255, 0.09);
-  --color-slate-805: rgba(255, 255, 255, 0.12);
-  --color-slate-800: rgba(255, 255, 255, 0.12);
-  --color-slate-755: rgba(255, 255, 255, 0.15);
-  --color-slate-750: rgba(255, 255, 255, 0.15);
-  --color-slate-700: rgba(255, 255, 255, 0.18);
-
-  /* --- Text scale ---------------------------------------------------------
-     The app uses half-steps (slate-450, slate-350, ...) that were never
-     defined, so those classes emitted no CSS at all. Defined here. */
-  --color-slate-205: #e6ecf5;
-  --color-slate-250: #dbe3ef;
-  --color-slate-305: #ccd6e4;
-  --color-slate-350: #b7c3d5;
-  --color-slate-405: #9aa7ba;
-  --color-slate-450: #8f9cb1;
-  --color-slate-455: #8a97ac;
-  --color-slate-505: #7a8698;
-  --color-slate-550: #737f8e;
-  --color-slate-650: #5a6577;
-
-  /* --- Radii: one generous, consistent curve across the product ---------- */
+  /* Continuous-corner radii. */
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.375rem;
-  --radius-3xl: 1.75rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1.125rem;
+  --radius-3xl: 1.5rem;
 
-  /* --- Shadows: soft ambient depth, never hard black boxes --------------- */
-  --shadow-2xs: 0 1px 2px rgba(2, 5, 12, 0.16);
-  --shadow-xs: 0 1px 3px rgba(2, 5, 12, 0.20);
-  --shadow-sm: 0 2px 8px -2px rgba(2, 5, 12, 0.24);
-  --shadow-md: 0 6px 18px -6px rgba(2, 5, 12, 0.32);
-  --shadow-lg: 0 14px 34px -14px rgba(2, 5, 12, 0.42);
-  --shadow-xl: 0 22px 48px -20px rgba(2, 5, 12, 0.48);
-  --shadow-2xl: 0 30px 70px -28px rgba(2, 5, 12, 0.55);
+  --ease-apple: cubic-bezier(0.28, 0.11, 0.32, 1);
 }
 
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-well: var(--well);
+  --color-fill: var(--fill);
+  --color-fill-strong: var(--fill-strong);
+  --color-separator: var(--separator);
+  --color-separator-strong: var(--separator-strong);
+
+  --color-label: var(--label);
+  --color-label-2: var(--label-2);
+  --color-label-3: var(--label-3);
+
+  --color-blue: var(--blue);
+  --color-green: var(--green);
+  --color-red: var(--red);
+  --color-orange: var(--orange);
+  --color-yellow: var(--yellow);
+  --color-teal: var(--teal);
+  --color-purple: var(--purple);
+  --color-pink: var(--pink);
+
+  --shadow-2xs: var(--elevation-1);
+  --shadow-xs: var(--elevation-1);
+  --shadow-sm: var(--elevation-1);
+  --shadow-md: var(--elevation-2);
+  --shadow-lg: var(--elevation-2);
+  --shadow-xl: var(--elevation-3);
+  --shadow-2xl: var(--elevation-3);
+}
+
+/* --- Light appearance (default) ------------------------------------------ */
 :root {
+  color-scheme: light;
+
+  --canvas: #f5f5f7;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --well: rgba(118, 118, 128, 0.08);
+  --fill: rgba(118, 118, 128, 0.12);
+  --fill-strong: rgba(118, 118, 128, 0.2);
+  --separator: rgba(0, 0, 0, 0.08);
+  --separator-strong: rgba(0, 0, 0, 0.16);
+
+  --label: #1d1d1f;
+  --label-2: #6e6e73;
+  --label-3: #86868b;
+
+  /* System colors, tuned so each reads as text on a light surface. */
+  --blue: #0071e3;
+  --green: #248a3d;
+  --red: #d70015;
+  --orange: #c05300;
+  --yellow: #a05a00;
+  --teal: #008299;
+  --purple: #8944ab;
+  --pink: #d30f45;
+
+  /* Vivid series colors for charts (never used for text). */
+  --chart-1: #007aff;
+  --chart-2: #34c759;
+  --chart-3: #ff9500;
+  --chart-4: #af52de;
+  --chart-5: #ff2d55;
+  --chart-6: #30b0c7;
+  --chart-7: #5856d6;
+  --chart-8: #ffcc00;
+  --chart-grid: rgba(0, 0, 0, 0.07);
+  --chart-axis: #86868b;
+
+  --material: rgba(255, 255, 255, 0.72);
+  --scrim: rgba(0, 0, 0, 0.32);
+  --focus-ring: rgba(0, 113, 227, 0.32);
+
+  --elevation-1: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --elevation-2: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.06);
+  --elevation-3: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 12px 32px rgba(0, 0, 0, 0.12), 0 32px 72px rgba(0, 0, 0, 0.14);
+}
+
+/* --- Dark appearance ------------------------------------------------------ */
+:root[data-theme="dark"] {
   color-scheme: dark;
 
-  /* Glass engine */
-  --glass-blur: 18px;
-  --glass-blur-strong: 30px;
-  --glass-saturate: 145%;
-  --glass-rim: rgba(255, 255, 255, 0.10);
-  --glass-rim-soft: rgba(255, 255, 255, 0.06);
-  --glass-highlight: rgba(255, 255, 255, 0.14);
-  --glass-fill: rgba(255, 255, 255, 0.055);
-  --glass-fill-strong: rgba(255, 255, 255, 0.085);
-  --glass-well: rgba(5, 8, 14, 0.42);
+  --canvas: #000000;
+  --surface: #1c1c1e;
+  --raised: #2c2c2e;
+  --well: rgba(118, 118, 128, 0.16);
+  --fill: rgba(118, 118, 128, 0.24);
+  --fill-strong: rgba(118, 118, 128, 0.36);
+  --separator: rgba(255, 255, 255, 0.1);
+  --separator-strong: rgba(255, 255, 255, 0.2);
 
-  --canvas: #070910;
-  --ink: #e8eef7;
+  --label: #f5f5f7;
+  --label-2: #a1a1a6;
+  --label-3: #8e8e93;
+
+  --blue: #0a84ff;
+  --green: #30d158;
+  --red: #ff453a;
+  --orange: #ff9f0a;
+  --yellow: #ffd60a;
+  --teal: #40c8e0;
+  --purple: #bf5af2;
+  --pink: #ff375f;
+
+  --chart-1: #0a84ff;
+  --chart-2: #30d158;
+  --chart-3: #ff9f0a;
+  --chart-4: #bf5af2;
+  --chart-5: #ff375f;
+  --chart-6: #40c8e0;
+  --chart-7: #5e5ce6;
+  --chart-8: #ffd60a;
+  --chart-grid: rgba(255, 255, 255, 0.09);
+  --chart-axis: #8e8e93;
+
+  --material: rgba(28, 28, 30, 0.72);
+  --scrim: rgba(0, 0, 0, 0.56);
+  --focus-ring: rgba(10, 132, 255, 0.45);
+
+  --elevation-1: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --elevation-2: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --elevation-3: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 24px 64px rgba(0, 0, 0, 0.6);
 }
 
 /* ============================================================================
-   1 — AMBIENT CANVAS
-   Glass only reads as glass when there is something behind it. A calm,
-   slow aurora field replaces the previous flat black.
+   BASE
    ========================================================================= */
 
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-padding-top: 7rem;
+  }
+
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--label);
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.47;
+    letter-spacing: -0.011em;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.021em;
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--blue) 24%, transparent);
+  }
+
+  button,
+  [role="button"],
+  summary,
+  label[for],
+  select {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  /* One focus treatment everywhere: the system focus ring. */
+  :is(button, a, [role="button"], input, select, textarea, summary):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 4px var(--focus-ring);
+  }
+
+  input,
+  select,
+  textarea {
+    color: var(--label);
+    accent-color: var(--blue);
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--label-3);
+    opacity: 1;
+  }
+  select option {
+    background-color: var(--raised);
+    color: var(--label);
+  }
+
+  /* Tables: quiet headers, hairline rules, tabular figures. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+  th {
+    font-weight: 500;
+    color: var(--label-2);
+  }
+
+  hr {
+    border-color: var(--separator);
+  }
+
+  /* Monospace is reserved for actual code and logs. */
+  pre,
+  code,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    letter-spacing: 0;
+  }
+
+  /* Thin, unobtrusive scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--fill-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--fill-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  /* Long values wrap; headings and controls do not break mid-word. */
+  p, span, td, blockquote {
+    overflow-wrap: break-word;
+  }
 }
 
-body {
-  background-color: var(--canvas);
-  background-image:
-    radial-gradient(1100px 760px at 8% -12%, rgba(27, 91, 210, 0.22), transparent 62%),
-    radial-gradient(920px 680px at 92% -4%, rgba(59, 200, 200, 0.15), transparent 58%),
-    radial-gradient(1000px 900px at 50% 112%, rgba(59, 200, 200, 0.09), transparent 60%),
-    radial-gradient(700px 600px at 78% 68%, rgba(27, 91, 210, 0.10), transparent 60%);
-  background-attachment: fixed;
-  background-repeat: no-repeat;
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
+/* ============================================================================
+   COMPONENTS
+   ========================================================================= */
+
+@layer components {
+  /* Translucent chrome (toolbars, sheets) — the "material" behind sticky UI. */
+  .material {
+    background-color: var(--material);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+  }
+
+  .card {
+    background-color: var(--surface);
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--elevation-1);
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    min-height: 2.25rem;
+    padding: 0.4rem 1rem;
+    border-radius: 999px;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    user-select: none;
+    transition: background-color 0.2s var(--ease-apple), color 0.2s var(--ease-apple),
+      opacity 0.2s var(--ease-apple), transform 0.2s var(--ease-apple);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    opacity: 0.4;
+  }
+  .btn-lg {
+    min-height: 2.75rem;
+    padding: 0.6rem 1.4rem;
+    font-size: 1.0625rem;
+  }
+  .btn-sm {
+    min-height: 1.875rem;
+    padding: 0.25rem 0.8rem;
+    font-size: 0.8125rem;
+  }
+  .btn-primary {
+    background-color: var(--blue);
+    color: #ffffff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--blue) 88%, white);
+  }
+  .btn-secondary {
+    background-color: var(--fill);
+    color: var(--label);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--fill-strong);
+  }
+  .btn-tinted {
+    background-color: color-mix(in srgb, var(--blue) 12%, transparent);
+    color: var(--blue);
+  }
+  .btn-tinted:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--blue) 18%, transparent);
+  }
+  .btn-plain {
+    color: var(--blue);
+    padding-inline: 0.5rem;
+  }
+  .btn-plain:hover:not(:disabled) {
+    background-color: var(--fill);
+  }
+  .btn-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+    min-height: 0;
+    padding: 0;
+    border-radius: 999px;
+    color: var(--label-2);
+  }
+  .btn-icon:hover:not(:disabled) {
+    background-color: var(--fill);
+    color: var(--label);
+  }
+
+  /* Segmented control */
+  .segmented {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: 9px;
+    background-color: var(--fill);
+  }
+  .segmented > button {
+    padding: 0.3rem 0.85rem;
+    border-radius: 7px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.25;
+    color: var(--label);
+    white-space: nowrap;
+    transition: background-color 0.2s var(--ease-apple), box-shadow 0.2s var(--ease-apple);
+  }
+  .segmented > button[aria-pressed="true"],
+  .segmented > button[aria-selected="true"] {
+    background-color: var(--raised);
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04);
+  }
+  :root[data-theme="dark"] .segmented > button[aria-pressed="true"],
+  :root[data-theme="dark"] .segmented > button[aria-selected="true"] {
+    background-color: #636366;
+  }
+
+  /* Text field */
+  .field {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.55rem 0.9rem;
+    border-radius: var(--radius-xl);
+    background-color: var(--surface);
+    border: 1px solid var(--separator-strong);
+    font-size: 1.0625rem;
+    transition: border-color 0.2s var(--ease-apple), box-shadow 0.2s var(--ease-apple);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 4px var(--focus-ring);
+  }
+
+  /* Compact control used inside cards and forms */
+  .input {
+    width: 100%;
+    min-height: 2.25rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: var(--radius-lg);
+    background-color: var(--well);
+    border: 1px solid transparent;
+    font-size: 0.9375rem;
+    line-height: 1.3;
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+  }
+  .field-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--label-2);
+  }
+
+  /* Headings */
+  .section-title {
+    font-size: 1.375rem;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.022em;
+    color: var(--label);
+  }
+  .card-title {
+    font-size: 1.0625rem;
+    line-height: 1.3;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--label);
+  }
+
+  /* Selectable option tile (radio-style choices) */
+  .option {
+    padding: 0.6rem 0.75rem;
+    border-radius: var(--radius-xl);
+    background-color: var(--well);
+    text-align: left;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+  .option:hover {
+    background-color: var(--fill);
+  }
+  .option[aria-pressed="true"],
+  .option[aria-checked="true"] {
+    background-color: color-mix(in srgb, var(--blue) 10%, transparent);
+    box-shadow: inset 0 0 0 1.5px var(--blue);
+  }
+
+  /* Capsule tag */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    background-color: var(--fill);
+    color: var(--label-2);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  /* Small section label above a group */
+  .eyebrow {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--label-2);
+  }
+
+  /* Real code and logs */
+  .font-code {
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+  }
 }
 
-/* Fine grain keeps large translucent planes from banding. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.5;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px);
-  background-size: 3px 3px;
+/* ============================================================================
+   CONTEXTUAL BEHAVIOUR
+   ========================================================================= */
+
+/* On a solid system-color surface, labels resolve to white — the same way
+   content adapts on a tinted button. Children inherit the swapped tokens. */
+:is(.bg-blue, .bg-green, .bg-red, .bg-orange, .bg-teal, .bg-purple, .bg-pink) {
+  --label: #ffffff;
+  --label-2: rgba(255, 255, 255, 0.82);
+  --label-3: rgba(255, 255, 255, 0.64);
 }
 
-::selection {
-  background: rgba(59, 200, 200, 0.24);
-  color: #ffffff;
+/* Solid buttons brighten slightly on hover instead of changing hue. */
+:is(button, a, [role="button"]):is(.bg-blue, .bg-green, .bg-red, .bg-orange, .bg-teal, .bg-purple, .bg-pink):hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
-/* Thin, unobtrusive scrollbars */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+/* Smooth, restrained state changes for interactive elements. */
+:is(button, a, [role="button"], input, select, textarea) {
+  transition-property: background-color, border-color, color, box-shadow, opacity, transform;
+  transition-timing-function: var(--ease-apple);
+  transition-duration: 200ms;
 }
-::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.26);
-  background-clip: content-box;
-}
+
 .scrollbar-none {
   scrollbar-width: none;
 }
@@ -188,458 +548,118 @@ body::before {
 }
 
 /* ============================================================================
-   2 — GLASS SURFACE ENGINE
-   Panels are identified structurally (a translucent surface class + a panel
-   radius) and given backdrop blur, a hairline rim and a top highlight.
+   CHARTS (Recharts)
    ========================================================================= */
-
-.glass,
-.glass-strong,
-:is(
-  [class*="bg-slate-9"],
-  [class*="bg-slate-85"],
-  [class*="bg-slate-80"],
-  [class*="bg-slate-70"]
-):is(
-  [class*="rounded-lg"],
-  [class*="rounded-xl"],
-  [class*="rounded-2xl"],
-  [class*="rounded-3xl"]
-) {
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-}
-
-/* Hand-applied glass utilities for surfaces authored directly in components. */
-.glass {
-  background-color: var(--glass-fill);
-  border: 1px solid var(--glass-rim);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-lg);
-}
-
-.glass-strong {
-  background-color: var(--glass-fill-strong);
-  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
-  border: 1px solid var(--glass-rim);
-  border-radius: var(--radius-2xl);
-  box-shadow: var(--shadow-xl);
-}
-
-.glass-well {
-  background-color: var(--glass-well);
-  border: 1px solid var(--glass-rim-soft);
-  border-radius: var(--radius-lg);
-}
-
-/* A single specular hairline along the top edge — the cue that reads as
-   "pane of glass" without any additional chrome. */
-.glass-rim {
-  position: relative;
-}
-.glass-rim::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--glass-highlight) 22%,
-    var(--glass-highlight) 78%,
-    transparent
-  );
-  pointer-events: none;
-}
-
-/* --- Legacy arbitrary-hex surfaces --------------------------------------
-   Dozens of components hardcode dark hex panels. Matching the raw class
-   attribute (case-insensitive) folds them into the same glass scale without
-   editing every file. Brand-colored surfaces are deliberately excluded. */
-:is(
-  [class*="bg-[#0b0f19]" i], [class*="bg-[#0b0e17]" i], [class*="bg-[#070a13]" i],
-  [class*="bg-[#0f1524]" i], [class*="bg-[#0d1322]" i], [class*="bg-[#060a10]" i],
-  [class*="bg-[#111625]" i], [class*="bg-[#131b2e]" i], [class*="bg-[#151c30]" i],
-  [class*="bg-[#0e1325]" i], [class*="bg-[#0b1221]" i], [class*="bg-[#1a233c]" i],
-  [class*="bg-[#1a1a2e]" i], [class*="bg-[#141b2e]" i], [class*="bg-[#121c32]" i],
-  [class*="bg-[#121b2a]" i], [class*="bg-[#121927]" i], [class*="bg-[#0f1526]" i],
-  [class*="bg-[#0d162d]" i], [class*="bg-[#0d1220]" i], [class*="bg-[#0c1428]" i],
-  [class*="bg-[#0a0f1d]" i], [class*="bg-[#0e121e]" i], [class*="bg-[#0c111c]" i],
-  [class*="bg-[#0b1220]" i], [class*="bg-[#0a0d14]" i], [class*="bg-[#090e19]" i],
-  [class*="bg-[#090d17]" i], [class*="bg-[#080d1a]" i], [class*="bg-[#080d19]" i],
-  [class*="bg-[#070b16]" i], [class*="bg-[#070b14]" i], [class*="bg-[#070b13]" i],
-  [class*="bg-[#06080c]" i], [class*="bg-[#050a10]" i], [class*="bg-[#050811]" i],
-  [class*="bg-[#07090e]" i], [class*="bg-[#0a0d16]" i], [class*="bg-[#090b12]" i],
-  [class*="bg-[#0e1422]" i], [class*="bg-[#0e162a]" i], [class*="bg-[#12192a]" i],
-  [class*="bg-[#0a0f1d]" i], [class*="bg-[#0b0e17]" i]
-) {
-  background-color: var(--glass-fill) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  border-color: var(--glass-rim);
-}
-
-/* Monospace consoles stay recessed rather than raised — a terminal should read
-   as a cut-out in the glass, not another pane floating above it. */
-:is([class*="bg-[#090d16]" i], [class*="bg-[#06080c]" i]).font-mono,
-pre, code {
-  background-color: var(--glass-well) !important;
-}
-
-/* ============================================================================
-   3 — MINIMAL INTERACTION LANGUAGE
-   Restrained motion, one accent, clear focus. Replaces the previous neon
-   glow + hard scale-punch feedback.
-   ========================================================================= */
-
-#workstation_app *,
-button,
-a,
-[role="button"] {
-  transition-property: background-color, border-color, color, box-shadow, transform, opacity, backdrop-filter;
-  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-  transition-duration: 200ms;
-}
-
-button:active,
-a:active,
-[role="button"]:active {
-  transform: translateY(0.5px) scale(0.985);
-}
-
-:is(button, a, [role="button"], input, select, textarea):focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 1px rgba(7, 9, 16, 0.9),
-    0 0 0 3px rgba(59, 200, 200, 0.55);
-  border-radius: inherit;
-}
-
-/* Inputs read as recessed glass wells. */
-input,
-select,
-textarea {
-  background-color: var(--glass-well);
-  border-color: var(--glass-rim);
-  color: var(--ink);
-}
-input::placeholder,
-textarea::placeholder {
-  color: rgba(232, 238, 247, 0.38);
-}
-select option {
-  background-color: #0b0f19;
-  color: #e8eef7;
-}
-
-/* Tables: hairline rules only, no boxed cells. */
-table {
-  border-color: var(--glass-rim-soft);
-}
-table th {
-  background-color: rgba(255, 255, 255, 0.04);
-  color: #dbe3ef;
-  font-weight: 600;
-}
-table tr,
-table td,
-table th {
-  border-color: var(--glass-rim-soft);
-}
-table tr:hover td {
-  background-color: rgba(255, 255, 255, 0.035);
-}
-
-hr {
-  border-color: var(--glass-rim-soft);
-}
-
-/* Dashed dropzones */
-.border-dashed {
-  border-color: var(--glass-rim);
-}
-.border-dashed:hover {
-  border-color: rgba(59, 200, 200, 0.45);
-  background-color: rgba(59, 200, 200, 0.04);
-}
-
-/* ============================================================================
-   4 — LIGHT THEME
-   The same glass system inverted: white panes over a pale aurora. Achieved by
-   re-pointing the tokens rather than forcing opaque overrides.
-   ========================================================================= */
-
-body:has(.light) {
-  --canvas: #eef2f8;
-  background-color: var(--canvas);
-  background-image:
-    radial-gradient(1100px 760px at 8% -12%, rgba(27, 91, 210, 0.16), transparent 62%),
-    radial-gradient(920px 680px at 92% -4%, rgba(59, 200, 200, 0.16), transparent 58%),
-    radial-gradient(1000px 900px at 50% 112%, rgba(27, 91, 210, 0.08), transparent 60%);
-}
-body:has(.light)::before {
-  opacity: 0.35;
-  background-image: radial-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px);
-}
-
-.light {
-  color-scheme: light;
-
-  --glass-rim: rgba(15, 23, 42, 0.10);
-  --glass-rim-soft: rgba(15, 23, 42, 0.07);
-  --glass-highlight: rgba(255, 255, 255, 0.9);
-  --glass-fill: rgba(255, 255, 255, 0.62);
-  --glass-fill-strong: rgba(255, 255, 255, 0.78);
-  --glass-well: rgba(255, 255, 255, 0.82);
-  --ink: #101828;
-
-  color: var(--ink);
-
-  /* Surfaces */
-  --color-slate-950: rgba(255, 255, 255, 0.80);
-  --color-slate-905: rgba(255, 255, 255, 0.62);
-  --color-slate-900: rgba(255, 255, 255, 0.66);
-  --color-slate-850: rgba(15, 23, 42, 0.08);
-  --color-slate-805: rgba(15, 23, 42, 0.10);
-  --color-slate-800: rgba(15, 23, 42, 0.10);
-  --color-slate-755: rgba(15, 23, 42, 0.13);
-  --color-slate-750: rgba(15, 23, 42, 0.13);
-  --color-slate-700: rgba(15, 23, 42, 0.15);
-
-  /* Text — the same steps flip to dark ink for legibility on light glass. */
-  --color-slate-100: #0d1526;
-  --color-slate-200: #101a2e;
-  --color-slate-205: #16203a;
-  --color-slate-250: #1b2438;
-  --color-slate-300: #1e293b;
-  --color-slate-305: #24304a;
-  --color-slate-350: #33415c;
-  --color-slate-400: #475569;
-  --color-slate-405: #4a5872;
-  --color-slate-450: #51607a;
-  --color-slate-455: #55637d;
-  --color-slate-500: #60708a;
-  --color-slate-505: #647490;
-  --color-slate-550: #6a7994;
-  --color-slate-600: #6b7a90;
-  --color-slate-650: #74839a;
-}
-
-.light input::placeholder,
-.light textarea::placeholder {
-  color: rgba(16, 24, 40, 0.42);
-}
-.light select option {
-  background-color: #ffffff;
-  color: #0f172a;
-}
-.light table th {
-  background-color: rgba(15, 23, 42, 0.04);
-  color: #0f172a;
-}
-.light table tr:hover td {
-  background-color: rgba(15, 23, 42, 0.03);
-}
-
-/* Typography safety net: element+class specificity darkens inherited
-   `text-white` / light utility text inside light glass. */
-.light :is(h1, h2, h3, h4, h5, h6, label, legend) {
-  color: #0d1526;
-}
-.light :is(p, li, blockquote, td) {
-  color: #1e293b;
-}
-.light span {
-  color: #2b3852;
-}
-
-/* ...except on solid accent surfaces, where white text is correct. */
-.light :is(
-  [class*="bg-indigo-5"], [class*="bg-indigo-6"], [class*="bg-indigo-7"],
-  [class*="bg-blue-6"], [class*="bg-emerald-5"], [class*="bg-emerald-6"],
-  [class*="bg-amber-6"], [class*="bg-rose-6"], [class*="bg-red-6"],
-  [class*="bg-[#1b5bd2]" i], [class*="bg-[#1449aa]" i]
-) :is(span, p, h1, h2, h3, h4, h5, h6, label, li, strong, small) {
-  color: #ffffff;
-}
-
-/* Deliberately colored metric cards keep their identity in both themes. */
-.light [class*="bg-[#051c12]" i] { background-color: #04160e !important; }
-.light [class*="bg-[#051c12]" i] * { color: #a7f3d0 !important; }
-.light [class*="bg-[#1f070b]" i] { background-color: #1a0507 !important; }
-.light [class*="bg-[#1f070b]" i] * { color: #fecaca !important; }
-
-.light pre,
-.light code,
-.light :is([class*="bg-[#090d16]" i]).font-mono {
-  background-color: rgba(9, 13, 22, 0.92) !important;
-  color: #cbd5e1 !important;
-}
-
-/* ============================================================================
-   5 — TYPOGRAPHY & LAYOUT SAFETY (preserved behaviour)
-   ========================================================================= */
-
-p, span, select, option, td, blockquote, font {
-  word-break: break-word;
-  overflow-wrap: break-word;
-}
-
-h1, h2, h3, h4, h5, h6, th, button, label {
-  word-break: keep-all;
-  overflow-wrap: normal;
-}
-
-h1, h2, h3, h4 {
-  letter-spacing: -0.015em;
-}
 
 .recharts-responsive-container {
   max-width: 100% !important;
 }
+.recharts-text,
+.recharts-cartesian-axis-tick-value {
+  fill: var(--chart-axis);
+  font-size: 11px;
+}
+.recharts-cartesian-grid line {
+  stroke: var(--chart-grid);
+}
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: var(--separator-strong);
+}
+.recharts-default-tooltip {
+  background-color: var(--raised) !important;
+  border: 0 !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--elevation-2) !important;
+  padding: 0.5rem 0.75rem !important;
+  color: var(--label) !important;
+  font-size: 0.8125rem;
+}
+.recharts-tooltip-label,
+.recharts-tooltip-item {
+  color: var(--label) !important;
+}
+.recharts-legend-item-text {
+  color: var(--label-2) !important;
+  font-size: 0.75rem;
+}
+.recharts-surface:focus,
+.recharts-wrapper:focus,
+.recharts-sector:focus,
+.recharts-rectangle:focus {
+  outline: none;
+}
 
 /* ============================================================================
-   6 — LEAFLET (glass-matched)
+   MAPS (Leaflet)
    ========================================================================= */
 
 .leaflet-container {
-  background: transparent !important;
+  background: var(--well) !important;
   font-family: inherit !important;
 }
-
 .leaflet-bar {
-  border: 1px solid var(--glass-rim) !important;
+  border: 0 !important;
   border-radius: var(--radius-lg) !important;
   overflow: hidden;
-  box-shadow: var(--shadow-md) !important;
+  box-shadow: var(--elevation-2) !important;
 }
-
 .leaflet-bar a {
-  background-color: var(--glass-fill) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
-  color: #3bc8c8 !important;
-  border-bottom: 1px solid var(--glass-rim-soft) !important;
+  background-color: var(--raised) !important;
+  color: var(--label) !important;
+  border-bottom: 1px solid var(--separator) !important;
 }
-
-.leaflet-bar a:hover {
-  background-color: var(--glass-fill-strong) !important;
-}
-
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {
-  background: var(--glass-fill-strong) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
-  border: 1px solid var(--glass-rim) !important;
-  box-shadow: var(--shadow-xl) !important;
-  color: var(--ink) !important;
+  background: var(--raised) !important;
+  color: var(--label) !important;
+  box-shadow: var(--elevation-2) !important;
   border-radius: var(--radius-xl) !important;
 }
-
 .leaflet-popup-content {
   margin: 0 !important;
   padding: 0 !important;
 }
 
 /* ============================================================================
-   7 — MOTION
-   The 3D brand mark keeps its character; the ambient neon pulse is retired in
-   favour of a quiet breathing rim.
+   MOTION
    ========================================================================= */
 
-@keyframes live-3d-spin {
-  0%   { transform: perspective(600px) rotateY(0deg) rotateX(20deg) rotateZ(0deg); }
-  50%  { transform: perspective(600px) rotateY(180deg) rotateX(-20deg) rotateZ(15deg); }
-  100% { transform: perspective(600px) rotateY(360deg) rotateX(20deg) rotateZ(360deg); }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
-@keyframes live-ring-1 {
-  0%   { transform: perspective(600px) rotateX(70deg) rotateY(0deg) rotateZ(0deg); }
-  100% { transform: perspective(600px) rotateX(70deg) rotateY(0deg) rotateZ(360deg); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
 }
-@keyframes live-ring-2 {
-  0%   { transform: perspective(600px) rotateX(-45deg) rotateY(0deg) rotateZ(360deg); }
-  100% { transform: perspective(600px) rotateX(-45deg) rotateY(0deg) rotateZ(0deg); }
+@keyframes bounce-once {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.15); }
+  70% { transform: scale(0.97); }
 }
-@keyframes live-ring-3 {
-  0%   { transform: perspective(600px) rotateX(20deg) rotateY(70deg) rotateZ(0deg); }
-  100% { transform: perspective(600px) rotateX(20deg) rotateY(70deg) rotateZ(360deg); }
-}
-
-@keyframes glass-breath {
-  0%, 100% {
-    border-color: rgba(255, 255, 255, 0.10);
-    box-shadow: 0 0 0 0 rgba(59, 200, 200, 0.00);
-  }
-  50% {
-    border-color: rgba(59, 200, 200, 0.34);
-    box-shadow: 0 0 0 4px rgba(59, 200, 200, 0.06);
-  }
-}
-
-@keyframes shiny-sheen {
-  0%   { left: -150%; }
-  55%  { left: 150%; }
-  100% { left: 150%; }
-}
-
-@keyframes quantum-orbit-pulsar {
-  0%   { transform: scale(0.94) rotate(0deg); opacity: 0.35; }
-  50%  { transform: scale(1.06) rotate(180deg); opacity: 0.6; }
-  100% { transform: scale(0.94) rotate(360deg); opacity: 0.35; }
-}
-
-.animate-live-3d-spin { animation: live-3d-spin 8s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-.animate-live-ring-1 { animation: live-ring-1 6s linear infinite; }
-.animate-live-ring-2 { animation: live-ring-2 5s linear infinite; }
-.animate-live-ring-3 { animation: live-ring-3 7s linear infinite; }
-.animate-neon-breath { animation: glass-breath 5s ease-in-out infinite; }
-.animate-shiny-sheen { animation: shiny-sheen 4.5s ease-in-out infinite; }
-.animate-quantum-pulsar { animation: quantum-orbit-pulsar 5s ease-in-out infinite; }
-
-.preserve-3d { transform-style: preserve-3d; }
-.backface-hidden { backface-visibility: hidden; }
+.animate-fade-in { animation: fade-in 0.4s var(--ease-apple) both; }
+.animate-toast-in { animation: toast-in 0.3s var(--ease-apple) both; }
+.animate-bounce-once { animation: bounce-once 0.6s var(--ease-apple) 1; }
 
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }
-}
-
-/* ============================================================================
-   ENTRANCE ANIMATIONS
-   These classes were referenced across the components but never defined, so
-   result panels and toasts appeared with no transition at all.
-   ========================================================================= */
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes bounce-once {
-  0%, 100% { transform: scale(1); }
-  40% { transform: scale(1.25); }
-  70% { transform: scale(0.95); }
-}
-.animate-fade-in { animation: fade-in 0.45s ease-out both; }
-.animate-toast-in { animation: toast-in 0.3s ease-out both; }
-.animate-bounce-once { animation: bounce-once 0.7s ease-out 1; }
-
-/* Respect the OS "reduce motion" setting: stop looping/decorative motion. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  :root,
+  :root[data-theme="dark"] {
+    --canvas: #ffffff;
+    --surface: #ffffff;
+    --label: #000000;
+    --label-2: #3a3a3c;
+    --label-3: #636366;
   }
 }
