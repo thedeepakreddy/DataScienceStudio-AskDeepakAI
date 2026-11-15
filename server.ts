@@ -123,7 +123,53 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
 // actually fit and evaluated by this service — never from Gemini, and never
 // from a client-side formula. If the service is unreachable, callers must
 // surface a clear error instead of silently substituting fabricated numbers.
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000';
+// ONE ML service for everything: the wake button, the status probe, training,
+// EDA and model downloads all resolve their target through getMlServiceUrl().
+// (They used to disagree: with ML_SERVICE_URL unset, "wake" primed the hosted
+// service while training still called 127.0.0.1:8000 - so the button reported
+// the engine as on and the very next training run failed as "unreachable".)
+//
+//   1. ML_SERVICE_URL, when explicitly configured (production, docker).
+//   2. Otherwise a Python service running on this machine, if one answers.
+//   3. Otherwise the hosted free-tier deployment below.
+const ML_SERVICE_LOCAL_URL = 'http://127.0.0.1:8000';
+const ML_SERVICE_PUBLIC_URL = 'https://askdeepakai-datascientist-mlservice.onrender.com';
+const ML_SERVICE_CONFIGURED_URL = (process.env.ML_SERVICE_URL || '').replace(/\/+$/, '') || null;
+
+// Re-check which service to use now and then, so starting (or stopping) a local
+// uvicorn mid-session is picked up without restarting this server.
+const ML_SERVICE_RESOLVE_TTL_MS = 30000;
+let resolvedMlService: { url: string; at: number } | null = null;
+
+async function isMlServiceListening(url: string, timeoutMs: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${url}/health`, { method: 'GET', signal: controller.signal });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function getMlServiceUrl(): Promise<string> {
+  if (ML_SERVICE_CONFIGURED_URL) return ML_SERVICE_CONFIGURED_URL;
+  if (resolvedMlService && Date.now() - resolvedMlService.at < ML_SERVICE_RESOLVE_TTL_MS) {
+    return resolvedMlService.url;
+  }
+  const localIsUp = await isMlServiceListening(ML_SERVICE_LOCAL_URL, 1500);
+  resolvedMlService = { url: localIsUp ? ML_SERVICE_LOCAL_URL : ML_SERVICE_PUBLIC_URL, at: Date.now() };
+  return resolvedMlService.url;
+}
+
+// A link a person can open in their own browser to wake the service by hand -
+// only meaningful for a public https host, not localhost or a docker hostname.
+function mlServiceOpenUrl(url: string): string | null {
+  return url.startsWith('https://') ? `${url}/health` : null;
+}
+
 // AutoML mode fits 5 real candidate models (with cross-validation refits) on
 // the full dataset; on a free-tier host's slower, shared CPU a several
 // -thousand-row dataset can genuinely take a few minutes, not seconds.
@@ -137,16 +183,9 @@ const ML_SERVICE_TIMEOUT_MS = 240000;
 const GATEWAY_RETRY_STATUSES = new Set([502, 503, 504]);
 const GATEWAY_RETRY_DELAYS_MS = [3000, 5000, 8000, 12000, 18000, 25000]; // ~71s total coverage
 
-// The public free-tier deployment of the Python ML service. Render spins a free
-// instance down after ~15 minutes idle, and the next request then pays a cold
-// start. The /api/ml-service/wake endpoint below lets the UI pay that cost up
-// front, in the background, before the user asks for any real training work.
-// ML_SERVICE_URL wins when it is explicitly configured (production, docker,
-// or a local uvicorn); the public URL is the fallback so the button still does
-// something useful when the app runs locally with no ML service of its own.
-const ML_SERVICE_PUBLIC_URL = 'https://askdeepakai-datascientist-mlservice.onrender.com';
-const ML_SERVICE_WAKE_URL = (process.env.ML_SERVICE_URL || ML_SERVICE_PUBLIC_URL).replace(/\/+$/, '');
-
+// Free-tier hosts spin an idle instance down after ~15 minutes, and the next
+// request then pays a cold start. The /api/ml-service/wake endpoint below lets
+// the UI pay that cost up front, in the background, before any real training.
 // A cold start is ~25-60s, so poll patiently but cap the whole thing well under
 // a browser's patience. Each individual probe gets a short timeout so a hung
 // socket doesn't eat the entire budget.
@@ -163,7 +202,7 @@ type WakeOutcome = {
   service: any;
 };
 
-async function wakeMlService(): Promise<WakeOutcome> {
+async function wakeMlService(baseUrl: string): Promise<WakeOutcome> {
   const startedAt = Date.now();
   let attempts = 0;
   let lastDetail = 'no response';
@@ -173,7 +212,7 @@ async function wakeMlService(): Promise<WakeOutcome> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), WAKE_PROBE_TIMEOUT_MS);
     try {
-      const response = await fetch(`${ML_SERVICE_WAKE_URL}/health`, {
+      const response = await fetch(`${baseUrl}/health`, {
         method: 'GET',
         signal: controller.signal,
       });
@@ -182,7 +221,7 @@ async function wakeMlService(): Promise<WakeOutcome> {
         const service = await response.json().catch(() => null);
         return {
           status: 'awake',
-          url: ML_SERVICE_WAKE_URL,
+          url: baseUrl,
           attempts,
           elapsedMs: Date.now() - startedAt,
           // More than one probe means the first one hit a sleeping instance.
@@ -197,7 +236,7 @@ async function wakeMlService(): Promise<WakeOutcome> {
       if (!GATEWAY_RETRY_STATUSES.has(response.status)) {
         throw new Error(`ML service responded with ${lastDetail}.`);
       }
-      console.log(`[AskDeepakAI ML wake] ${lastDetail} from ${ML_SERVICE_WAKE_URL} - still cold, probe ${attempts}...`);
+      console.log(`[AskDeepakAI ML wake] ${lastDetail} from ${baseUrl} - still cold, probe ${attempts}...`);
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         lastDetail = `probe timed out after ${WAKE_PROBE_TIMEOUT_MS / 1000}s`;
@@ -215,18 +254,19 @@ async function wakeMlService(): Promise<WakeOutcome> {
   }
 
   throw new Error(
-    `The ML service at ${ML_SERVICE_WAKE_URL} did not come up within ${WAKE_TOTAL_BUDGET_MS / 1000}s (last: ${lastDetail}). ` +
+    `The ML service at ${baseUrl} did not come up within ${WAKE_TOTAL_BUDGET_MS / 1000}s (last: ${lastDetail}). ` +
     `Free-tier cold starts are usually under a minute - try once more, or check the host's dashboard.`
   );
 }
 
 
 async function callMlService(path: string, options: { method?: string; body?: any } = {}) {
+  const baseUrl = await getMlServiceUrl();
   for (let attempt = 0; ; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), ML_SERVICE_TIMEOUT_MS);
     try {
-      const response = await fetch(`${ML_SERVICE_URL}${path}`, {
+      const response = await fetch(`${baseUrl}${path}`, {
         method: options.method || 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -254,7 +294,7 @@ async function callMlService(path: string, options: { method?: string; body?: an
       return parsed;
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        throw new Error(`ML compute service timed out after ${ML_SERVICE_TIMEOUT_MS / 1000}s at ${ML_SERVICE_URL}.`, { cause: err });
+        throw new Error(`ML compute service timed out after ${ML_SERVICE_TIMEOUT_MS / 1000}s at ${baseUrl}.`, { cause: err });
       }
       const msg = String(err?.message || err);
       // Node's fetch (undici) wraps connection-level failures in a generic
@@ -279,8 +319,13 @@ async function callMlService(path: string, options: { method?: string; body?: an
         );
       }
       if (/ECONNREFUSED|fetch failed|ENOTFOUND/i.test(msg)) {
+        // The cached choice may be stale (e.g. a local service was just stopped).
+        resolvedMlService = null;
+        const openUrl = mlServiceOpenUrl(baseUrl);
         throw new Error(
-          `ML compute service is unreachable at ${ML_SERVICE_URL}. Start it with: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000`,
+          openUrl
+            ? `The ML engine at ${baseUrl} is not responding - it is probably asleep. Use "Wake ML Engine" in the toolbar, or open ${openUrl} in a new tab and keep it open, then try again.`
+            : `ML compute service is unreachable at ${baseUrl}. Start it with: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000`,
           { cause: err }
         );
       }
@@ -296,15 +341,18 @@ async function callMlService(path: string, options: { method?: string; body?: an
 // without CORS on it, and proxying here also keeps the service URL out of the
 // client bundle. Returns only status metadata - nothing is rendered to the user.
 app.post('/api/ml-service/wake', async (_req, res) => {
+  const url = await getMlServiceUrl();
   try {
-    const outcome = await wakeMlService();
-    console.log(`[AskDeepakAI ML wake] Service awake after ${outcome.attempts} probe(s) in ${outcome.elapsedMs}ms.`);
-    res.json(outcome);
+    const outcome = await wakeMlService(url);
+    console.log(`[AskDeepakAI ML wake] ${url} awake after ${outcome.attempts} probe(s) in ${outcome.elapsedMs}ms.`);
+    res.json({ ...outcome, openUrl: mlServiceOpenUrl(url) });
   } catch (err: any) {
     console.error('[AskDeepakAI ML wake] Failed:', err?.message || err);
     res.status(503).json({
       status: 'unreachable',
-      url: ML_SERVICE_WAKE_URL,
+      url,
+      // Lets the UI offer "open it in a new tab" as a manual way to wake it.
+      openUrl: mlServiceOpenUrl(url),
       error: err?.message || 'Failed to wake the ML service.',
     });
   }
@@ -313,16 +361,9 @@ app.post('/api/ml-service/wake', async (_req, res) => {
 // Lightweight, non-blocking status probe. Unlike /wake this never retries, so
 // the UI can poll it cheaply to show whether the service is still warm.
 app.get('/api/ml-service/status', async (_req, res) => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
-  try {
-    const response = await fetch(`${ML_SERVICE_WAKE_URL}/health`, { method: 'GET', signal: controller.signal });
-    res.json({ status: response.ok ? 'awake' : 'asleep', url: ML_SERVICE_WAKE_URL });
-  } catch {
-    res.json({ status: 'asleep', url: ML_SERVICE_WAKE_URL });
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const url = await getMlServiceUrl();
+  const awake = await isMlServiceListening(url, 5000);
+  res.json({ status: awake ? 'awake' : 'asleep', url, openUrl: mlServiceOpenUrl(url) });
 });
 
 // 1. DATASET ANALYSIS & AUTOMATED MODEL RECOMMENDATION
@@ -2054,7 +2095,7 @@ app.post('/api/drift-metrics', async (req, res) => {
 // Streams the real, genuinely-fitted joblib artifact back from the Python service.
 app.get('/api/ml/download/:modelId', async (req, res) => {
   try {
-    const upstream = await fetch(`${ML_SERVICE_URL}/download/${encodeURIComponent(req.params.modelId)}`);
+    const upstream = await fetch(`${await getMlServiceUrl()}/download/${encodeURIComponent(req.params.modelId)}`);
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => '');
       return res.status(upstream.status).json({ error: text || 'Model not found or expired. Train again.' });
