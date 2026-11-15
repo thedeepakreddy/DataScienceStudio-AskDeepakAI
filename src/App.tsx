@@ -321,7 +321,7 @@ export default function App() {
             id="brand_logo"
             aria-label="Data Science Studio — go to Import"
           >
-            <AppIcon size={28} />
+            <AppIcon size={36} />
             <span className="hidden sm:inline text-[17px] font-semibold tracking-tight text-label truncate">
               Data Science Studio
             </span>
