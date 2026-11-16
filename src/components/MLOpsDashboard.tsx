@@ -128,6 +128,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
         <button
           onClick={handleDeploy}
           disabled={deployStatus !== 'idle'}
+          aria-busy={deployStatus === 'deploying'}
           className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-xl shadow-sm transition-all ${deployStatus === 'online' ? 'bg-green/20 text-green border border-green/50 cursor-default' : 'bg-blue hover:bg-blue text-white active:scale-95'}`}
         >
           {deployStatus === 'idle' && <><Rocket className="w-4 h-4" /> 1-Click Deploy</>}

@@ -539,6 +539,18 @@ export default function App() {
               />
             )}
 
+            {activeTab === 'dashboard' && activeDataset && loadingML && (
+              <div role="status" className="card mb-6 p-4 sm:p-5 flex items-center gap-4 animate-fade-in">
+                <Orb state="solving" size={64} label="Training a model" />
+                <div className="min-w-0">
+                  <p className="card-title">Training a model…</p>
+                  <p className="mt-0.5 text-sm text-label-2">
+                    Model results on this dashboard will update as soon as training finishes.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'dashboard' && activeDataset && (
               <StakeholderDashboard
                 dataset={activeDataset}

@@ -335,6 +335,11 @@
   .btn:disabled {
     opacity: 0.4;
   }
+  /* A button that is busy (showing an orb) stays at full colour so the orb
+     reads clearly; only truly unavailable buttons fade. */
+  button[aria-busy="true"]:disabled {
+    opacity: 1 !important;
+  }
   .btn-lg {
     min-height: 2.75rem;
     padding: 0.6rem 1.4rem;
