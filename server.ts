@@ -7,15 +7,54 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 import { type GeminiFailureKind, classifyGeminiError, describeGeminiFailure, mostTellingFailure, summarizeGeminiError } from './geminiHealth';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from '@google/genai';
 
 const app = express();
+// Render (and most hosts) put the app behind one proxy; trust it so req.ip is the visitor's address.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: '50mb' }));
+
+// --- VISITOR-SUPPLIED GEMINI KEY (optional) ---
+// Visitors can add their own Gemini API key in the app. It is kept in their
+// browser and sent with their own AI requests in the X-Gemini-Api-Key header.
+// The server only holds it in memory for the duration of that request (via
+// AsyncLocalStorage, so background jobs keep it too) and uses it only when
+// the app's own key can't answer - out of quota, rejected or missing. It is
+// never stored, never logged and never sent anywhere except Google.
+type AiKeyContext = {
+  userKey: string | null;
+  /** What happened when this request fell back to the visitor's key, if it did. */
+  visitorKeyResult?: { ok: true } | { ok: false; kind: GeminiFailureKind; detail: string };
+};
+const aiKeyContext = new AsyncLocalStorage<AiKeyContext>();
+const USER_KEY_SHAPE = /^[A-Za-z0-9_\-]{20,200}$/;
+
+app.use('/api', (req, _res, next) => {
+  const raw = req.get('X-Gemini-Api-Key');
+  const userKey = raw && USER_KEY_SHAPE.test(raw.trim()) ? raw.trim() : null;
+  aiKeyContext.run({ userKey }, () => next());
+});
+
+const PLACEHOLDER_KEYS = new Set(['MY_GEMINI_API_KEY', 'DUMMY_KEY_FALLBACK']);
+/** The app owner's key from the environment, if a real one is configured. */
+function ownerGeminiKey(): string | null {
+  const key = process.env.GEMINI_API_KEY;
+  return key && !PLACEHOLDER_KEYS.has(key) ? key : null;
+}
+/** The visitor's own key for the current request, if they supplied one. */
+function visitorGeminiKey(): string | null {
+  return aiKeyContext.getStore()?.userKey ?? null;
+}
+/** True when this request can reach Gemini with either key. */
+function aiKeyAvailable(): boolean {
+  return !!ownerGeminiKey() || !!visitorGeminiKey();
+}
 
 // --- LONG-RUNNING REQUESTS AS BACKGROUND JOBS ---
 // Training, a cold ML-service wake-up or a retried Gemini call can each take
@@ -136,30 +175,27 @@ const geminiHealth: {
   lastFailure: { at: number; kind: GeminiFailureKind; models: string[]; detail: string } | null;
 } = { lastOk: null, lastFailure: null };
 
-// Highly resilient wrapper function to manage transient service errors (503 UNAVAILABLE, 429 timeouts),
-// with automatic backoff retry & seamless fallback to high-availability lite models.
-async function generateContentWithRetry(client: GoogleGenAI, params: {
-  contents: any;
-  config?: any;
-}) {
-  // Ordered newest -> most-available. gemini-2.0-flash was REMOVED here: Google
-  // shut it down on 2026-06-01, so every call to it now fails and only burns a
-  // retry cycle. gemini-3.6-flash is Google's named replacement for it, and
-  // gemini-2.5-flash stays last as the widely-provisioned safety net.
-  const modelsToTry = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'];
-  let lastError: any = null;
-  const failureKinds: GeminiFailureKind[] = [];
+// Ordered newest -> most-available. gemini-2.0-flash was REMOVED here: Google
+// shut it down on 2026-06-01, so every call to it now fails and only burns a
+// retry cycle. gemini-3.6-flash is Google's named replacement for it, and
+// gemini-2.5-flash stays last as the widely-provisioned safety net.
+const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'];
 
-  // Without a key every model would be tried and rejected in turn; say so once.
-  if (!process.env.GEMINI_API_KEY) {
-    geminiHealth.lastFailure = { at: Date.now(), kind: 'no_key', models: [], detail: 'GEMINI_API_KEY is not set.' };
-    throw new Error('GEMINI_API_KEY is not set on the server.');
+class GeminiAttemptError extends Error {
+  constructor(public lastError: any, public kinds: GeminiFailureKind[]) {
+    super(String(lastError?.message || lastError || 'No response from any Gemini model.'));
   }
+}
 
-  for (const model of modelsToTry) {
+// One key, every model in turn, with backoff on temporary errors (503/429).
+async function runAcrossModels(client: GoogleGenAI, params: { contents: any; config?: any }) {
+  let lastError: any = null;
+  const kinds: GeminiFailureKind[] = [];
+
+  for (const model of GEMINI_MODELS) {
     let attempts = 3;
     let delay = 600; // start with 600ms backoff delay
-    
+
     while (attempts > 0) {
       try {
         console.log(`[AskDeepakAI Gemini Client] Querying model "${model}" (retries available: ${attempts})...`);
@@ -170,23 +206,22 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
         });
         if (response) {
           console.log(`[AskDeepakAI Gemini Client] Loaded analytical response successfully from model: "${model}"`);
-          geminiHealth.lastOk = { at: Date.now(), model };
-          return response;
+          return { response, model };
         }
       } catch (err: any) {
         lastError = err;
-        failureKinds.push(classifyGeminiError(err));
+        kinds.push(classifyGeminiError(err));
         const errMsg = (err?.message || String(err)).toLowerCase();
-        
+
         // Match standard highly loaded/throttled or service error patterns
-        const isTemporary = errMsg.includes('503') || 
-                            errMsg.includes('500') || 
-                            errMsg.includes('429') || 
-                            errMsg.includes('unavailable') || 
+        const isTemporary = errMsg.includes('503') ||
+                            errMsg.includes('500') ||
+                            errMsg.includes('429') ||
+                            errMsg.includes('unavailable') ||
                             errMsg.includes('overloaded') ||
                             errMsg.includes('high demand') ||
                             errMsg.includes('rate limit');
-        
+
         if (isTemporary && attempts > 1) {
           console.log(`[AskDeepakAI Gemini Client] Service is busy at peak load. Auto-retrying connection in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
@@ -199,14 +234,61 @@ async function generateContentWithRetry(client: GoogleGenAI, params: {
       }
     }
   }
+  throw new GeminiAttemptError(lastError, kinds);
+}
 
-  geminiHealth.lastFailure = {
-    at: Date.now(),
-    kind: mostTellingFailure(failureKinds),
-    models: modelsToTry,
-    detail: summarizeGeminiError(lastError),
-  };
-  throw lastError || new Error('GenerateContent failed across all primary and secondary fallback models');
+// Every AI call goes through here. The app's own key is used first; a
+// visitor's own key (if they added one) is used only when that fails - out of
+// quota, rejected, missing or unavailable - so visitors' quota is only spent
+// when it is actually needed. geminiHealth tracks the app's own key; the
+// outcome with a visitor key is kept on that visitor's request only.
+// (`_client` is kept for the existing call sites; the key decides the client.)
+async function generateContentWithRetry(_client: GoogleGenAI, params: {
+  contents: any;
+  config?: any;
+}) {
+  const owner = ownerGeminiKey();
+  const visitor = visitorGeminiKey();
+
+  if (!owner && !visitor) {
+    geminiHealth.lastFailure = { at: Date.now(), kind: 'no_key', models: [], detail: 'GEMINI_API_KEY is not set.' };
+    throw new Error('GEMINI_API_KEY is not set on the server.');
+  }
+
+  if (owner) {
+    try {
+      const { response, model } = await runAcrossModels(getGeminiClient(), params);
+      geminiHealth.lastOk = { at: Date.now(), model };
+      return response;
+    } catch (err) {
+      const attempt = err as GeminiAttemptError;
+      geminiHealth.lastFailure = {
+        at: Date.now(),
+        kind: mostTellingFailure(attempt.kinds ?? []),
+        models: GEMINI_MODELS,
+        detail: summarizeGeminiError(attempt.lastError ?? err),
+      };
+      if (!visitor) throw attempt.lastError ?? err;
+      console.log("[AskDeepakAI Gemini Client] The app's key could not answer - trying the visitor's own key.");
+    }
+  }
+
+  const store = aiKeyContext.getStore();
+  try {
+    const { response } = await runAcrossModels(new GoogleGenAI({ apiKey: visitor! }), params);
+    if (store) store.visitorKeyResult = { ok: true };
+    return response;
+  } catch (err) {
+    const attempt = err as GeminiAttemptError;
+    if (store) {
+      store.visitorKeyResult = {
+        ok: false,
+        kind: mostTellingFailure(attempt.kinds ?? []),
+        detail: summarizeGeminiError(attempt.lastError ?? err),
+      };
+    }
+    throw attempt.lastError ?? err;
+  }
 }
 
 // --- REAL ML COMPUTE: PYTHON MLOPS MICROSERVICE CLIENT ---
@@ -477,7 +559,7 @@ let lastAiProbeAt = 0;
 
 function currentAiStatus() {
   const { lastOk, lastFailure } = geminiHealth;
-  const configured = !!process.env.GEMINI_API_KEY;
+  const configured = !!ownerGeminiKey();
   if (!configured) {
     return { state: 'unavailable' as const, reason: 'no_key' as const, message: describeGeminiFailure('no_key', []), detail: null, model: null };
   }
@@ -496,13 +578,64 @@ function currentAiStatus() {
 
 app.get('/api/ai/status', async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  if (req.query.probe === '1' && process.env.GEMINI_API_KEY && Date.now() - lastAiProbeAt > AI_PROBE_MIN_INTERVAL_MS) {
+  if (req.query.probe === '1' && aiKeyAvailable() && Date.now() - lastAiProbeAt > AI_PROBE_MIN_INTERVAL_MS) {
     lastAiProbeAt = Date.now();
     try {
       await generateContentWithRetry(getGeminiClient(), { contents: 'Reply with the single word: OK' });
     } catch { /* the failure is recorded in geminiHealth and reported below */ }
   }
-  res.json(currentAiStatus());
+  const visitorKeyResult = aiKeyContext.getStore()?.visitorKeyResult;
+  res.json({
+    ...currentAiStatus(),
+    // Whether this visitor sent their own key, and - if the probe fell back to
+    // it - whether it worked. The key itself is never echoed back.
+    visitorKey: !!visitorGeminiKey(),
+    visitorKeyOk: visitorKeyResult ? visitorKeyResult.ok : null,
+    visitorKeyMessage: visitorKeyResult && visitorKeyResult.ok === false ? describeVisitorKeyFailure(visitorKeyResult.kind) : null,
+  });
+});
+
+function describeVisitorKeyFailure(kind: GeminiFailureKind): string {
+  switch (kind) {
+    case 'bad_key':
+      return 'Google rejected this key. Check it was copied in full, or create a new one in Google AI Studio.';
+    case 'quota':
+      return 'This key has used up its Gemini quota for now. Free-tier limits reset on their own.';
+    case 'busy':
+      return 'Gemini is overloaded right now. Your key looks fine; try again in a minute.';
+    case 'network':
+      return "The server could not reach Google's Gemini API.";
+    case 'model_unavailable':
+      return 'This key cannot use the Gemini models the app needs.';
+    default:
+      return 'Gemini returned an unexpected error with this key.';
+  }
+}
+
+// Check a visitor's key once, when they save it, using only that key. A
+// cheap one-word request, limited per address so it cannot be used to hammer
+// Google or test keys in bulk.
+const keyTestLastAt = new Map<string, number>();
+app.post('/api/ai/test-key', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const key = visitorGeminiKey();
+  if (!key) return res.status(400).json({ ok: false, message: 'That does not look like a Gemini API key.' });
+
+  const who = req.ip || 'unknown';
+  const last = keyTestLastAt.get(who) ?? 0;
+  if (Date.now() - last < 3000) {
+    return res.status(429).json({ ok: false, message: 'Please wait a few seconds before testing again.' });
+  }
+  keyTestLastAt.set(who, Date.now());
+  if (keyTestLastAt.size > 5000) keyTestLastAt.clear();
+
+  try {
+    await runAcrossModels(new GoogleGenAI({ apiKey: key }), { contents: 'Reply with the single word: OK' });
+    res.json({ ok: true, message: 'Your key works.' });
+  } catch (err) {
+    const kind = mostTellingFailure((err as GeminiAttemptError).kinds ?? []);
+    res.json({ ok: false, reason: kind, message: describeVisitorKeyFailure(kind) });
+  }
 });
 
 // 1. DATASET ANALYSIS & AUTOMATED MODEL RECOMMENDATION
@@ -528,7 +661,7 @@ app.post('/api/analyze-dataset', async (req, res) => {
   };
 
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
     console.log('[AskDeepakAI] No API Key configuration. Using offline dataset analytical falls.');
@@ -592,7 +725,7 @@ app.post('/api/pipeline-intelligence', async (req, res) => {
   const { datasetProfile, businessProblem } = req.body || {};
   
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   const getPipelineIntelligenceFallback = () => ({
     detectedDomain: 'Generic Data',
@@ -743,7 +876,7 @@ app.post('/api/run-ml-prediction', async (req, res) => {
   };
 
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
     console.log('[AskDeepakAI] No API key detected. Using a template narrative built from the real metrics above (no numbers invented).');
@@ -859,7 +992,7 @@ app.post('/api/eda', async (req, res) => {
   }
 
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
     console.log('[AskDeepakAI EDA] No API key detected. Using a template narrative built from the real EDA numbers above.');
@@ -936,7 +1069,7 @@ app.post('/api/chat-bot', async (req, res) => {
   const ds = datasetContext || null;
 
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   // Local state analysis to feed intelligent fallbacks or direct patterns
   const colNames = ds && Array.isArray(ds.columns) ? ds.columns.map((c: any) => c.name) : [];
@@ -1383,10 +1516,10 @@ app.post('/api/log-training-data', async (req, res) => {
 app.post('/api/sql-assistant', async (req, res) => {
   const { schema, question } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
-    return res.status(503).json({ error: 'SQL generation requires a configured GEMINI_API_KEY - there is no honest offline way to translate arbitrary English into SQL, so this feature cannot fall back to a template like the other modules.' });
+    return res.status(503).json({ error: 'SQL generation needs a Gemini API key. Add your own free key with the key button in the toolbar - there is no honest offline way to translate arbitrary English into SQL, so this feature cannot fall back to a template like the other modules.' });
   }
 
   try {
@@ -1425,7 +1558,7 @@ Return strict JSON with exactly this structure:
 app.post('/api/deep-quality-audit', async (req, res) => {
   const { auditSummary } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
     return res.json({ fixes: buildDeepQualityAuditFallback(auditSummary) });
@@ -1483,10 +1616,10 @@ Return strict JSON:
 app.post('/api/hypothesis-lab/generate', async (req, res) => {
   const { columns, dataSample } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
-    return res.status(503).json({ error: 'Hypothesis generation requires a configured GEMINI_API_KEY - proposing meaningful business hypotheses needs real language understanding, not a template. (You can still test any two columns directly - see the "Run This Test" panel, which always uses a real scipy.stats computation.)' });
+    return res.status(503).json({ error: 'Hypothesis generation needs a Gemini API key. Add your own free key with the key button in the toolbar - proposing meaningful business hypotheses needs real language understanding, not a template. (You can still test any two columns directly - see the "Run This Test" panel, which always uses a real scipy.stats computation.)' });
   }
 
   try {
@@ -1539,7 +1672,7 @@ Return strict JSON:
 app.post('/api/hypothesis-lab/interpret', async (req, res) => {
   const { hypothesis, result } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
     const r = result || {};
@@ -1658,8 +1791,8 @@ app.post('/api/agent/run', async (req, res) => {
   if (!Array.isArray(data) || data.length === 0 || !target || !modelKey || typeof primaryMetricValue !== 'number') {
     return res.status(400).json({ error: 'data, target, modelKey, and a real primaryMetricValue are required to start the agent.' });
   }
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(503).json({ error: 'Agentic mode requires a configured GEMINI_API_KEY - there is no honest way to run a reasoning loop without a real LLM to reason with. (Everything else in this app degrades to a template narrative without a key; this feature cannot, because the reasoning itself is the point.)' });
+  if (!aiKeyAvailable()) {
+    return res.status(503).json({ error: 'Agentic mode needs a Gemini API key. Add your own free key with the key button in the toolbar - there is no honest way to run a reasoning loop without a real LLM to reason with. (Everything else in this app degrades to a template narrative without a key; this feature cannot, because the reasoning itself is the point.)' });
   }
 
   const client = getGeminiClient();
@@ -1812,10 +1945,10 @@ Propose the next diagnostic or fix.`,
 app.post('/api/ab-test-interpreter', async (req, res) => {
   const { results } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
-    return res.status(503).json({ error: 'A/B test memo generation requires a configured GEMINI_API_KEY.' });
+    return res.status(503).json({ error: 'A/B test memo generation needs a Gemini API key. Add your own free key with the key button in the toolbar.' });
   }
 
   try {
@@ -1846,7 +1979,7 @@ Return strict JSON: { "memo": "Memo content..." }`;
 app.post('/api/model-explainer', async (req, res) => {
   const { featureImportance, metrics, context } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
     return res.json(buildModelExplainerFallback(featureImportance, metrics));
@@ -1908,10 +2041,10 @@ Return strict JSON:
 app.post('/api/executive-pdf-report', async (req, res) => {
   const { reportData } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
-    return res.json({ executiveSummary: 'Configure GEMINI_API_KEY to generate an AI-written executive summary. All underlying figures in this report are already real, computed values from the pipeline stages above.' });
+    return res.json({ executiveSummary: 'Add a Gemini API key (the key button in the toolbar) to generate an AI-written executive summary. All underlying figures in this report are already real, computed values from the pipeline stages above.' });
   }
 
   try {
@@ -1942,10 +2075,10 @@ Return strict JSON: { "executiveSummary": "Summary here..." }`;
 app.post('/api/etl-script-generator', async (req, res) => {
   const { transformations } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
-    return res.status(503).json({ error: 'ETL script generation requires a configured GEMINI_API_KEY.' });
+    return res.status(503).json({ error: 'ETL script generation needs a Gemini API key. Add your own free key with the key button in the toolbar.' });
   }
 
   try {
@@ -1982,7 +2115,7 @@ Return strict JSON with the python code:
 app.post('/api/dashboard/auto-configure', async (req, res) => {
   const { profile, customProblem } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
     return res.json(buildDashboardAutoConfigFallback(profile, customProblem));
@@ -2055,7 +2188,7 @@ Return strict JSON:
 app.post('/api/dashboard/insight-banner', async (req, res) => {
   const { dataStateSummary } = req.body || {};
   const client = getGeminiClient();
-  const hasKey = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'DUMMY_KEY_FALLBACK';
+  const hasKey = aiKeyAvailable();
 
   if (!hasKey) {
     return res.json({ insights: [] });
