@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { aiKeyHeaders } from './aiKey';
+
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 // Poll quickly at first so fast calls feel instant, then ease off.
@@ -44,7 +46,7 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
   const signal = init.signal;
   const start = await fetch(url, {
     ...init,
-    headers: { ...JSON_HEADERS, ...(init.headers as Record<string, string> | undefined), 'X-Async-Job': '1' },
+    headers: { ...JSON_HEADERS, ...(init.headers as Record<string, string> | undefined), ...aiKeyHeaders(), 'X-Async-Job': '1' },
   });
 
   // Not handed off as a job (e.g. an older server) - the response is the answer.

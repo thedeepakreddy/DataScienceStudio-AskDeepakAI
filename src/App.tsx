@@ -14,6 +14,7 @@ import {
   Linkedin,
   Mail,
   MapPin,
+  KeyRound,
   Moon,
   Sparkles,
   Sun,
@@ -33,6 +34,8 @@ import StageHeader from './components/StageHeader';
 import MLServiceWakeButton from './components/MLServiceWakeButton';
 import AppIcon from './components/AppIcon';
 import Orb from './components/Orb';
+import AiKeySheet from './components/AiKeySheet';
+import { aiKeyHeaders, getUserGeminiKey, AI_KEY_CHANGED_EVENT } from './utils/aiKey';
 import LoadingScreen from './components/LoadingScreen';
 import { usePipelineContext, PipelineStage } from './contexts/PipelineContext';
 import { STAGES, STAGE_ORDER } from './stages';
@@ -133,12 +136,22 @@ export default function App() {
   // Why AI answers are (or aren't) coming from Gemini. The server records the
   // outcome of each real call; this just reads it - on load, and again after
   // any API call settles - so a silent fallback to template answers is visible.
-  const [aiStatus, setAiStatus] = useState<{ state: string; reason: string | null; message: string; detail: string | null } | null>(null);
+  const [aiStatus, setAiStatus] = useState<{
+    state: string; reason: string | null; message: string; detail: string | null;
+    visitorKey?: boolean; visitorKeyOk?: boolean | null; visitorKeyMessage?: string | null;
+  } | null>(null);
+  const [aiKeySheetOpen, setAiKeySheetOpen] = useState(false);
+  const [hasOwnKey, setHasOwnKey] = useState<boolean>(() => !!getUserGeminiKey());
+  useEffect(() => {
+    const onChange = () => setHasOwnKey(!!getUserGeminiKey());
+    window.addEventListener(AI_KEY_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(AI_KEY_CHANGED_EVENT, onChange);
+  }, []);
   const [aiChecking, setAiChecking] = useState(false);
   const [aiNoticeDismissedFor, setAiNoticeDismissedFor] = useState<string | null>(null);
   const refreshAiStatus = useCallback(async (probe = false) => {
     try {
-      const res = await fetch(`/api/ai/status${probe ? '?probe=1' : ''}`, { cache: 'no-store' });
+      const res = await fetch(`/api/ai/status${probe ? '?probe=1' : ''}`, { cache: 'no-store', headers: aiKeyHeaders() });
       if (res.ok) setAiStatus(await res.json());
     } catch { /* status is best-effort */ }
   }, []);
@@ -155,7 +168,13 @@ export default function App() {
     window.addEventListener(API_SETTLED_EVENT, onSettled);
     return () => { clearTimeout(timer); window.removeEventListener(API_SETTLED_EVENT, onSettled); };
   }, [refreshAiStatus]);
-  const showAiNotice = aiStatus?.state === 'unavailable' && aiNoticeDismissedFor !== aiStatus.reason;
+  // The studio's own key is unavailable. With a working key of their own the
+  // visitor's AI features still work, so only say so when their key fails too.
+  const ownKeyFailed = hasOwnKey && aiStatus?.visitorKeyOk === false;
+  const showAiNotice =
+    aiStatus?.state === 'unavailable' &&
+    (!hasOwnKey || ownKeyFailed) &&
+    aiNoticeDismissedFor !== `${aiStatus.reason}:${ownKeyFailed}`;
 
   // AI & ML States
   const [aiAnalysis, setAiAnalysis] = useState<any | null>(null);
@@ -359,6 +378,17 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => setAiKeySheetOpen(true)}
+              className="btn btn-icon relative"
+              aria-label={hasOwnKey ? 'Your Gemini API key (added)' : 'Use your own Gemini API key'}
+              title={hasOwnKey ? 'Your Gemini API key is added' : 'Use your own Gemini API key'}
+            >
+              <KeyRound className="w-[18px] h-[18px]" />
+              {hasOwnKey && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green ring-2 ring-canvas" aria-hidden="true" />}
+            </button>
+
+            <button
+              type="button"
               onClick={toggleTheme}
               className="btn btn-icon"
               aria-label={theme === 'dark' ? 'Switch to light appearance' : 'Switch to dark appearance'}
@@ -447,14 +477,26 @@ export default function App() {
             <div className="flex-1 min-w-[200px]">
               <p className="text-label">
                 <span className="font-semibold">AI answers are unavailable right now.</span>{' '}
-                AI features are using built-in answers instead.
+                {ownKeyFailed
+                  ? 'Your own Gemini key didn’t work either, so AI features are using built-in answers.'
+                  : 'AI features are using built-in answers. You can add your own free Gemini key to keep them working.'}
               </p>
               <details className="mt-1 text-xs text-label-2">
                 <summary className="cursor-pointer w-max">Why?</summary>
                 <p className="mt-1 leading-relaxed">{aiStatus.message}</p>
                 {aiStatus.detail && <p className="mt-1 text-label-3 break-words">Google said: “{aiStatus.detail}”</p>}
+                {ownKeyFailed && aiStatus.visitorKeyMessage && (
+                  <p className="mt-1 leading-relaxed">Your key: {aiStatus.visitorKeyMessage}</p>
+                )}
               </details>
             </div>
+            <button
+              type="button"
+              onClick={() => setAiKeySheetOpen(true)}
+              className="btn btn-sm btn-primary shrink-0"
+            >
+              {ownKeyFailed ? 'Check Your Key' : 'Use Your Own Key'}
+            </button>
             <button
               type="button"
               onClick={recheckAi}
@@ -465,7 +507,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setAiNoticeDismissedFor(aiStatus.reason)}
+              onClick={() => setAiNoticeDismissedFor(`${aiStatus.reason}:${ownKeyFailed}`)}
               className="shrink-0 -m-1 p-1 rounded-full text-label-2 hover:bg-fill"
               aria-label="Hide AI notice"
             >
@@ -604,6 +646,12 @@ export default function App() {
         triggerAIScan={triggerAIScan}
         triggerPrediction={triggerPrediction}
       />
+
+      <AnimatePresence>
+        {aiKeySheetOpen && (
+          <AiKeySheet onClose={() => setAiKeySheetOpen(false)} onChanged={() => refreshAiStatus()} />
+        )}
+      </AnimatePresence>
 
       {/* About the creator — presented as a sheet. */}
       <AnimatePresence>
