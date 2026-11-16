@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Search, Code, CheckCircle, Copy, AlertCircle, Loader2, Table as TableIcon } from 'lucide-react';
+import { Database, Search, Code, CheckCircle, Copy, AlertCircle, Table as TableIcon } from 'lucide-react';
 import alasql from 'alasql';
 import { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface SQLAssistantProps {
   dataset?: Dataset;
@@ -146,7 +147,7 @@ export default function SQLAssistant({ dataset }: SQLAssistantProps) {
           className="w-full bg-blue hover:bg-blue disabled:bg-fill disabled:text-label-3 text-white font-semibold text-sm py-3 px-6 rounded-xl transition-all duration-300"
         >
           {loading ? (
-             <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Analyzing Schema...</span>
+             <span className="flex items-center justify-center gap-2"><Orb state="composing" label="Writing SQL" /> Writing SQL…</span>
           ) : (
              'Generate SQL'
           )}

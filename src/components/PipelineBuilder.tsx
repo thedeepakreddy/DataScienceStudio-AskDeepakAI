@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Clock, Key, CheckCircle2, AlertCircle } from 'lucide-react';
 import { parseCSV } from '../utils/csvParser';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?: (dataset: any) => void }) {
   const [provider, setProvider] = useState<'PostgreSQL' | 'Snowflake'>('PostgreSQL');
@@ -116,7 +117,7 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
           disabled={status === 'loading'}
           className="btn btn-secondary w-full"
         >
-          {status === 'loading' ? 'Connecting…' : 'Connect'}
+          {status === 'loading' ? <><Orb state="connecting" label="Connecting" /> Connecting…</> : 'Connect'}
         </button>
 
         {status === 'success' && (

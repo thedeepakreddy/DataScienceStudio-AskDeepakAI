@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { MLResult } from '../types';
-import { Brain, Loader2, Sparkles, AlertCircle } from 'lucide-react';
+import { Brain, Sparkles, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface ModelExplainerProps {
   result: any;
@@ -112,8 +113,8 @@ export default function ModelExplainer({ result }: ModelExplainerProps) {
            <div>
               {loading ? (
                 <div className="h-full flex flex-col items-center justify-center bg-blue/10 border border-blue/20 rounded-xl p-6 text-center">
-                   <Loader2 className="w-8 h-8 text-blue animate-spin mb-4" />
-                   <h4 className="text-sm font-semibold text-blue">How the model decides</h4>
+                   <Orb state="composing" size={64} label="Writing an explanation" className="mb-4" />
+                   <h4 className="text-sm font-semibold text-label">How the model decides</h4>
                    <p className="text-xs text-label-2 mt-2">Gemini is analyzing decision trees and logistic weights to explain how this model thinks.</p>
                 </div>
               ) : explanation ? (

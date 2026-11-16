@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { jsPDF } from 'jspdf';
-import { BookOpen, Sparkles, Loader2, Download, AlertCircle, FileText } from 'lucide-react';
+import { BookOpen, AlertCircle, FileText } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface ExecutivePDFReportProps {
   dataset: any;
@@ -145,10 +146,10 @@ export default function ExecutivePDFReport({ dataset, aiAnalysis, mlResult }: Ex
        <button
          onClick={generateReport}
          disabled={loading}
-         className="w-full bg-blue hover:bg-blue disabled:bg-fill text-white font-semibold py-4 px-6 rounded-xl transition-all shadow-sm flex items-center justify-center gap-3"
+         className="w-full bg-blue hover:bg-blue disabled:bg-fill disabled:text-label-2 text-white font-semibold py-4 px-6 rounded-xl transition-all shadow-sm flex items-center justify-center gap-3"
        >
-         {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
-         {loading ? 'Synthesizing Report & Calling AI...' : 'Generate Full PDF Report'}
+         {loading ? <Orb state="composing" label="Writing the report" /> : <FileText className="w-5 h-5" />}
+         {loading ? 'Writing the report…' : 'Generate Full PDF Report'}
        </button>
     </div>
   );

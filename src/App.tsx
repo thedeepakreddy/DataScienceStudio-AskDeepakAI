@@ -32,6 +32,7 @@ import StageNavigation from './components/StageNavigation';
 import StageHeader from './components/StageHeader';
 import MLServiceWakeButton from './components/MLServiceWakeButton';
 import AppIcon from './components/AppIcon';
+import Orb from './components/Orb';
 import LoadingScreen from './components/LoadingScreen';
 import { usePipelineContext, PipelineStage } from './contexts/PipelineContext';
 import { STAGES, STAGE_ORDER } from './stages';
@@ -460,7 +461,7 @@ export default function App() {
               disabled={aiChecking}
               className="btn btn-sm btn-secondary shrink-0"
             >
-              {aiChecking ? 'Checking…' : 'Check Again'}
+              {aiChecking ? <><Orb state="listening" label="Checking Gemini" /> Checking…</> : 'Check Again'}
             </button>
             <button
               type="button"

@@ -6,24 +6,17 @@
 import React, { useState } from 'react';
 import {
   AreaChart,
-  Eye,
-  Compass,
   TrendingUp,
   AlertTriangle,
-  Lightbulb,
-  BrainCircuit,
   Sparkles,
   Table,
   Binary,
-  FileQuestion,
   Layers,
   Percent,
   Dot,
   CheckCircle2,
   Info,
-  Calendar,
-  ToggleLeft,
-  Database
+  Database,
 } from 'lucide-react';
 import { Dataset, DatasetColumn, EdaReport as EdaReportType } from '../types';
 import {
@@ -43,6 +36,7 @@ import ABTestInterpreter from './ABTestInterpreter';
 import SQLAssistant from './SQLAssistant';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface EDAReportProps {
   dataset: Dataset;
@@ -194,8 +188,8 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
           <button type="button" onClick={onTriggerAI} disabled={loadingAI} className="btn btn-primary btn-lg shrink-0">
             {loadingAI ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Analyzing…
+                <Orb state="breathing" onAccent label="AI is thinking about your data" />
+                Thinking…
               </>
             ) : (
               'Run AI Advisory'
@@ -1090,7 +1084,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
                 >
                   {loadingDeepEda ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <Orb state="working" onAccent label="Computing statistics" />
                       Computing Real Stats...
                     </>
                   ) : (

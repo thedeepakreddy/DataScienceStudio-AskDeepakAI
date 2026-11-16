@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { AreaChart, BrainCircuit, Loader2, Copy, CheckCircle, AlertCircle } from 'lucide-react';
+import { BrainCircuit, Copy, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 export default function ABTestInterpreter() {
   const [controlSize, setControlSize] = useState(1000);
@@ -157,9 +158,9 @@ export default function ABTestInterpreter() {
              <button
                onClick={generateMemo}
                disabled={loading}
-               className="w-full mt-6 bg-blue hover:bg-blue disabled:bg-fill text-white font-semibold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2"
+               className="w-full mt-6 bg-blue hover:bg-blue disabled:bg-fill disabled:text-label-2 text-white font-semibold py-3 px-4 rounded-xl transition-all flex items-center justify-center gap-2"
              >
-               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
+               {loading ? <Orb state="solving" label="Testing significance" /> : <BrainCircuit className="w-4 h-4" />}
                Generate AI Business Memo
              </button>
           </div>

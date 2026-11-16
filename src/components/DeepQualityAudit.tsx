@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Dataset } from '../types';
-import { Microscope, Loader2, AlertTriangle, Download, Code, ShieldCheck } from 'lucide-react';
+import { Microscope, AlertTriangle, Download, Code, ShieldCheck } from 'lucide-react';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface DeepQualityAuditProps {
   dataset: Dataset;
@@ -150,7 +151,7 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
 
         {loading && (
           <div className="flex flex-col items-center justify-center py-10 text-center">
-            <Loader2 className="w-7 h-7 text-blue animate-spin" />
+            <Orb state="searching" size={64} label="Auditing data quality" />
             <p className="mt-4 text-base font-semibold text-label">Auditing {dataset.columns.length} columns…</p>
             <p className="mt-1 text-sm text-label-2">Checking types, duplicates and unusual values.</p>
           </div>

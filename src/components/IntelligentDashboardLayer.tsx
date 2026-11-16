@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useDashboardContext } from './DashboardContext';
 import { usePipelineContext } from '../contexts/PipelineContext';
-import { Sparkles, Loader2, LayoutGrid, Server, PanelRightClose, PanelRightOpen, RefreshCw, Copy, Check } from 'lucide-react';
+import { Sparkles, LayoutGrid, Server, PanelRightClose, PanelRightOpen, RefreshCw, Copy, Check } from 'lucide-react';
 import KPICard from './KPICard';
 import SmartLineChart from './SmartLineChart';
 import SmartBarChart from './SmartBarChart';
@@ -16,6 +16,7 @@ import FiltersPanel from './FiltersPanel';
 import SlicersPanel from './SlicersPanel';
 import { isIdentifierColumn } from '../utils/csvParser';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -246,7 +247,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
   if (loadingConfig) {
     return (
       <div className="flex flex-col items-center justify-center p-12 bg-surface border border-separator rounded-xl">
-        <Loader2 className="w-8 h-8 text-blue animate-spin mb-4" />
+        <Orb state="shaping" size={64} label="Laying out your dashboard" className="mb-4" />
         <h3 className="text-sm font-semibold text-label">Building your dashboard</h3>
         <p className="text-xs text-label-3 mt-2">AI is analyzing {dataset.columns.length} features to recommend components...</p>
       </div>
@@ -278,7 +279,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
         <div className="card p-5 sm:p-6 mb-6 relative group">
           <div className="absolute top-3 right-3 flex gap-1">
             <button onClick={getInsights} className="btn btn-icon w-8 h-8" title="Refresh insights" aria-label="Refresh insights">
-              {loadingInsights ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {loadingInsights ? <Orb state="composing" label="Writing insights" /> : <RefreshCw className="w-4 h-4" />}
             </button>
             <button onClick={() => { navigator.clipboard.writeText(insightBannerData.join('\n')); setCopiedInsights(true); setTimeout(()=>setCopiedInsights(false), 2000); }} className="bg-fill hover:bg-fill-strong p-1.5 rounded text-blue" title="Copy">
               {copiedInsights ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}

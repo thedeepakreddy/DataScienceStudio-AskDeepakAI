@@ -40,15 +40,13 @@ import {
   Map,
   Globe,
   MapPin,
-  ZoomIn,
-  ZoomOut,
   SlidersHorizontal,
   Plus,
   Trash2,
   LineChart,
   Sparkles,
   Info,
-  BrainCircuit
+  BrainCircuit,
 } from 'lucide-react';
 import { Dataset } from '../types';
 import { isIdentifierColumn } from '../utils/csvParser';
