@@ -247,7 +247,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
   if (loadingConfig) {
     return (
       <div className="flex flex-col items-center justify-center p-12 bg-surface border border-separator rounded-xl">
-        <Orb state="shaping" size={64} label="Laying out your dashboard" className="mb-4" />
+        <Orb state="solving" size={64} label="Building your dashboard" className="mb-4" />
         <h3 className="text-sm font-semibold text-label">Building your dashboard</h3>
         <p className="text-xs text-label-3 mt-2">AI is analyzing {dataset.columns.length} features to recommend components...</p>
       </div>

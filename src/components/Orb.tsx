@@ -14,13 +14,13 @@ import type { OrbState } from 'thinking-orbs';
  *
  *   working     agent analysis, model download, server-side statistics
  *   searching   quality audit, AI hunting for hypotheses
- *   solving     model training, statistical tests
+ *   solving     model training, statistical tests, building the dashboard
  *   listening   waiting to hear back from the ML engine or Gemini
  *   connecting  waking the ML engine, connecting a database
  *   weaving     combining data + goal into a plan, assembling a pipeline
  *   composing   AI writing text: replies, explanations, reports, SQL
  *   breathing   AI thinking about the dataset; the idle assistant
- *   shaping     laying out the dashboard
+ *   shaping     adding columns or rows from the assistant
  *
  * Sizes are the two hand-tuned designs the package ships: 20 sits inline
  * with text and buttons, 64 is the large standalone indicator.
