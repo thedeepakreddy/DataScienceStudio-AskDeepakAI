@@ -588,6 +588,7 @@ export default function MLPipeline({
               type="button"
               onClick={handleLaunchPipeline}
               disabled={loadingML || selectedFeatures.length === 0}
+              aria-busy={loadingML}
               className="btn btn-primary btn-lg w-full mt-5"
             >
               {loadingML ? (

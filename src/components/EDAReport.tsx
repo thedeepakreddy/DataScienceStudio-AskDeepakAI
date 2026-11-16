@@ -185,7 +185,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
               the data.
             </p>
           </div>
-          <button type="button" onClick={onTriggerAI} disabled={loadingAI} className="btn btn-primary btn-lg shrink-0">
+          <button type="button" onClick={onTriggerAI} disabled={loadingAI} aria-busy={loadingAI} className="btn btn-primary btn-lg shrink-0">
             {loadingAI ? (
               <>
                 <Orb state="breathing" onAccent label="AI is thinking about your data" />
@@ -1080,6 +1080,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
                 <button
                   onClick={runDeepEda}
                   disabled={loadingDeepEda}
+                  aria-busy={loadingDeepEda}
                   className="relative z-10 bg-blue hover:bg-blue text-white font-semibold text-xs py-3 px-6 rounded-xl flex items-center justify-center gap-2.5 transition-all duration-300 shadow-sm border-0 cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed shrink-0"
                 >
                   {loadingDeepEda ? (

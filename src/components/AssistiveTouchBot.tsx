@@ -5,7 +5,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, animate } from 'motion/react';
-import { Send, X, Check, Code } from 'lucide-react';
+import { Send, X, Check, Code, AlertTriangle } from 'lucide-react';
+import type { OrbState } from 'thinking-orbs';
 import { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
@@ -33,6 +34,39 @@ interface ChatMessage {
   executedCommands?: string[];
 }
 
+// What the assistant is doing right now, shown live in the chat so the user can
+// follow along: thinking (waiting for the AI to decide), acting (carrying out each
+// action it chose, one line per action) and writing (the reply appearing).
+type ActivityStep = { label: string; orb: OrbState; status: 'running' | 'done' | 'failed' };
+type Activity = { phase: 'thinking' | 'acting' | 'writing'; steps: ActivityStep[] };
+
+const FAILED_ACTION = /not found|couldn’t|could not|error|invalid|already exists|incomplete|failed/i;
+
+/** A present-tense label and matching orb for an action the assistant is about to run. */
+function describeAction(cmd: any): { label: string; orb: OrbState } {
+  switch (cmd?.type) {
+    case 'SELECT_TAB': return { label: `Opening the ${cmd.tab || 'requested'} step`, orb: 'connecting' };
+    case 'RESET_DATASET': return { label: 'Restoring the original dataset', orb: 'working' };
+    case 'DROP_COLUMN': return { label: `Removing column “${cmd.column}”`, orb: 'working' };
+    case 'FILL_MISSING': return { label: `Filling missing values in “${cmd.column}”`, orb: 'weaving' };
+    case 'RUN_EDA_SCAN': return { label: 'Analyzing the dataset', orb: 'searching' };
+    case 'RUN_ML': return { label: `Training a model to predict “${cmd.targetColumn}”`, orb: 'solving' };
+    case 'FILTER_ROWS': return { label: `Filtering rows by “${cmd.column}”`, orb: 'searching' };
+    case 'ADD_COLUMN': return { label: `Adding column “${cmd.columnName || cmd.column || 'new'}”`, orb: 'shaping' };
+    case 'ADD_ROW': return { label: 'Adding a row', orb: 'shaping' };
+    case 'DELETE_ROW': return { label: `Deleting row ${cmd.rowIndex ?? cmd.index ?? ''}`.trim(), orb: 'working' };
+    case 'EXECUTE_DATASET_JS': return { label: 'Running your query on the data', orb: 'solving' };
+    default: return { label: 'Working on your request', orb: 'working' };
+  }
+}
+
+/** Width of the visible page, excluding a vertical scrollbar. */
+const viewportWidth = () =>
+  (typeof document !== 'undefined' && document.documentElement.clientWidth) || window.innerWidth;
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
 export default function AssistiveTouchBot({
   activeDataset,
   onUpdateDataset,
@@ -43,6 +77,8 @@ export default function AssistiveTouchBot({
   triggerPrediction
 }: AssistiveTouchBotProps) {
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const isChatOpenRef = useRef(false);
+  useEffect(() => { isChatOpenRef.current = isChatOpen; }, [isChatOpen]);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome-msg',
@@ -59,6 +95,9 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
   const [inputText, setInputText] = useState('');
   const [inputMode, setInputMode] = useState<'english' | 'sql' | 'python'>('english');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [activity, setActivity] = useState<Activity | null>(null);
+  // The reply currently being written out on screen, and how much of it shows.
+  const [reveal, setReveal] = useState<{ id: string; shown: number } | null>(null);
   const [lastExecutedTaskMsg, setLastExecutedTaskMsg] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -72,7 +111,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
 
   // 1. Force position to the absolute right side of the actual browser screen on mount
   useEffect(() => {
-    const w = window.innerWidth;
+    const w = viewportWidth();
     const h = window.innerHeight;
     if (w > 50 && h > 50) {
       const buttonSize = 64;
@@ -84,7 +123,10 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
   // 2. Continuous smart clamping to keep the button fully visible and snapped to the nearest edge
   useEffect(() => {
     const clampToVisibleScreen = () => {
-      const w = window.innerWidth;
+      // Snapping applies to the closed button only - never pull an open chat
+      // panel to the edge (that pushed it off-screen on load or resize).
+      if (isChatOpenRef.current) return;
+      const w = viewportWidth();
       const h = window.innerHeight;
       
       if (w > 50 && h > 50) {
@@ -148,7 +190,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     setIsDraggingState(false);
     
     // Snapping logic (Always snap to left or right edges like native iOS AssistiveTouch)
-    const w = window.innerWidth;
+    const w = viewportWidth();
     const h = window.innerHeight;
     const buttonSize = 64;
     const margin = 16;
@@ -186,7 +228,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     const targetY = my.get();
 
     // Boundary constraints matching the UI viewport bounds perfectly
-    const finalX = Math.max(pad, Math.min(window.innerWidth - chatWidth - pad, targetX));
+    const finalX = Math.max(pad, Math.min(viewportWidth() - chatWidth - pad, targetX));
     const finalY = Math.max(80, Math.min(window.innerHeight - footerLimit - chatHeight, targetY));
 
     animate(mx, finalX, { type: 'spring', stiffness: 350, damping: 25 });
@@ -202,7 +244,8 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     if (isChatOpen) {
       setTimeout(scrollToBottom, 60);
     }
-  }, [messages, isChatOpen]);
+    // Also follow the live status as it changes, so the current step stays in view.
+  }, [messages, isChatOpen, activity, reveal?.shown]);
 
   // Execute API commands returned from Gemini in real-time
   const executeCommandsList = async (commands: any[]): Promise<string[]> => {
@@ -210,6 +253,12 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     if (!commands || commands.length === 0) return executedLogs;
 
     for (const cmd of commands) {
+      const { label, orb } = describeAction(cmd);
+      setActivity(prev => ({
+        phase: 'acting',
+        steps: [...(prev?.steps ?? []), { label, orb, status: 'running' }],
+      }));
+      const logsBefore = executedLogs.length;
       try {
         switch (cmd.type) {
           case 'SELECT_TAB':
@@ -297,9 +346,9 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
             break;
 
           case 'RUN_EDA_SCAN':
-            // Async background call
-            triggerAIScan();
-            executedLogs.push('Started the AI analysis');
+            // Wait for the analysis, so the chat shows it running until it is done.
+            await triggerAIScan();
+            executedLogs.push('Analyzed the dataset');
             break;
 
           case 'RUN_ML':
@@ -315,8 +364,9 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
               const modelType = cmd.modelType || (foundTarget.toLowerCase().includes('churn') ? 'classification' : 'regression');
               const hParams = cmd.hyperparameters || { n_estimators: 100, max_depth: 8 };
 
-              triggerPrediction(foundTarget, featCols, modelType, hParams);
-              executedLogs.push(`Machine Learning pipeline trained on "${foundTarget}" using features [${featCols.join(', ')}]`);
+              // Wait for the real training run; report it only once it has finished.
+              await triggerPrediction(foundTarget, featCols, modelType, hParams);
+              executedLogs.push(`Trained a model to predict "${foundTarget}" using ${featCols.join(', ')}`);
             }
             break;
 
@@ -476,6 +526,12 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
       } catch (err: any) {
         executedLogs.push(`Error executing command [${cmd.type}]: ${err.message || String(err)}`);
       }
+      const newLogs = executedLogs.slice(logsBefore);
+      const failed = newLogs.some(l => FAILED_ACTION.test(l));
+      setActivity(prev => prev && ({
+        ...prev,
+        steps: prev.steps.map((st, i) => i === prev.steps.length - 1 ? { ...st, status: failed ? 'failed' : 'done' } : st),
+      }));
     }
 
     return executedLogs;
@@ -507,6 +563,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
 
     setMessages(prev => [...prev, newMsg]);
     setIsGenerating(true);
+    setActivity({ phase: 'thinking', steps: [] });
 
     try {
       // Build dataset context schema to share with the Gemini Bot
@@ -567,6 +624,11 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
         executedCommands: executedLogs
       };
 
+      // Write the reply out on screen (skipped for reduced motion).
+      if (!prefersReducedMotion()) {
+        setActivity(prev => ({ phase: 'writing', steps: prev?.steps ?? [] }));
+        setReveal({ id: botMsg.id, shown: 0 });
+      }
       setMessages(prev => [...prev, botMsg]);
 
       // Trigger temporary glowing system overlay notification on screen
@@ -586,8 +648,38 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
       setMessages(prev => [...prev, errorMsg]);
     } finally {
       setIsGenerating(false);
+      setActivity(prev => (prev?.phase === 'writing' ? prev : null));
     }
   };
+
+  // Writes the newest reply out a few characters at a time (about a second in
+  // total, whatever its length), then clears the activity status.
+  useEffect(() => {
+    if (!reveal) return;
+    const msg = messages.find(m => m.id === reveal.id);
+    if (!msg) return;
+    const finished = reveal.shown >= msg.content.length;
+    const step = Math.max(2, Math.ceil(msg.content.length / 45));
+    const timer = setTimeout(() => {
+      if (finished) {
+        setReveal(null);
+        setActivity(null);
+      } else {
+        setReveal(r => r && { ...r, shown: r.shown + step });
+      }
+    }, 22);
+    return () => clearTimeout(timer);
+  }, [reveal, messages]);
+
+  const currentStep = activity?.steps.find(st => st.status === 'running');
+  const activityOrb: OrbState =
+    activity?.phase === 'thinking' ? 'breathing'
+    : activity?.phase === 'writing' ? 'composing'
+    : currentStep?.orb ?? 'working';
+  const activityLabel =
+    activity?.phase === 'thinking' ? 'Thinking…'
+    : activity?.phase === 'writing' ? 'Writing…'
+    : currentStep ? `${currentStep.label}…` : 'Working…';
 
   const handleSuggestedPromptClick = (promptStr: string) => {
     handleSendMessage(promptStr);
@@ -643,8 +735,8 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                 let cx = mx.get();
                 let cy = my.get();
 
-                if (cx + chatWidth > window.innerWidth) {
-                  cx = window.innerWidth - chatWidth - pad;
+                if (cx + chatWidth > viewportWidth()) {
+                  cx = viewportWidth() - chatWidth - pad;
                 }
                 if (cx < pad) cx = pad;
 
@@ -704,12 +796,14 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
               <div className="px-4 py-3 border-b border-separator flex items-center justify-between shrink-0 cursor-move select-none">
                 <div className="flex items-center gap-2.5">
                   <span className="w-8 h-8 rounded-full bg-fill flex items-center justify-center shrink-0">
-                    {/* Breathes while idle, composes while it writes a reply. */}
-                    <Orb state={isGenerating ? 'composing' : 'breathing'} label={isGenerating ? 'Writing a reply' : 'AI assistant'} />
+                    {/* Breathes while idle; otherwise shows what it is doing right now. */}
+                    <Orb state={activity ? activityOrb : 'breathing'} label={activity ? activityLabel : 'AI assistant'} />
                   </span>
                   <div>
                     <h4 className="text-sm font-semibold text-label leading-tight">Ask AI</h4>
-                    <p className="text-xs text-label-2 leading-tight">Works on your data and every step</p>
+                    <p className="text-xs text-label-2 leading-tight truncate max-w-[220px]" aria-live="polite">
+                      {activity ? activityLabel : 'Works on your data and every step'}
+                    </p>
                   </div>
                 </div>
                 <button
@@ -719,10 +813,10 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                     // Close the chat and snap the AssistiveTouch button back to nearest screen edge
                     setIsChatOpen(false);
                     setTimeout(() => {
-                      const midX = window.innerWidth / 2;
+                      const midX = viewportWidth() / 2;
                       const paddingX = 16;
                       const buttonSize = 64;
-                      const snapX = mx.get() < midX ? paddingX : window.innerWidth - buttonSize - paddingX;
+                      const snapX = mx.get() < midX ? paddingX : viewportWidth() - buttonSize - paddingX;
                       animate(mx, snapX, { type: 'spring', stiffness: 400, damping: 30 });
                     }, 50);
                   }}
@@ -752,7 +846,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                           }`}
                         >
                           <div className="whitespace-pre-wrap font-sans">
-                            {m.content.split('\n').map((line, idx) => {
+                            {(reveal?.id === m.id ? m.content.slice(0, reveal.shown) : m.content).split('\n').map((line, idx) => {
                               const formatted = line;
                               
                               // Translate markdowns bold text **abc** inside scaled thread
@@ -804,7 +898,9 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                               <span className="block font-medium text-label-2">Actions applied</span>
                               {m.executedCommands.map((log, lIdx) => (
                                 <div key={lIdx} className="flex items-start gap-1 text-label">
-                                  <Check className="w-3 h-3 text-green shrink-0 mt-0.5" />
+                                  {FAILED_ACTION.test(log)
+                                    ? <AlertTriangle className="w-3 h-3 text-orange shrink-0 mt-0.5" />
+                                    : <Check className="w-3 h-3 text-green shrink-0 mt-0.5" />}
                                   <span>{log}</span>
                                 </div>
                               ))}
@@ -819,12 +915,39 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                   );
                 })}
 
-                {isGenerating && (
-                  <div className="flex justify-start">
-                    <div className="bg-fill rounded-2xl rounded-bl-md px-3 py-2 flex items-center gap-2 text-xs text-label-2">
-                      <Orb state="composing" label="Assistant is writing a reply" />
-                      Writing…
+                {activity && activity.phase !== 'writing' && (
+                  <div className="flex justify-start" aria-live="polite">
+                    <div className="bg-fill rounded-2xl rounded-bl-md px-3 py-2 text-xs text-label-2 space-y-1.5 max-w-[85%]">
+                      {activity.phase === 'thinking' ? (
+                        <div className="flex items-center gap-2">
+                          <Orb state="breathing" label="Thinking" />
+                          Thinking…
+                        </div>
+                      ) : (
+                        activity.steps.map((st, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            {st.status === 'running' ? (
+                              <Orb state={st.orb} label={st.label} />
+                            ) : (
+                              <span className="w-5 h-5 flex items-center justify-center shrink-0">
+                                {st.status === 'done'
+                                  ? <Check className="w-3.5 h-3.5 text-green" />
+                                  : <AlertTriangle className="w-3.5 h-3.5 text-orange" />}
+                              </span>
+                            )}
+                            <span className={st.status === 'running' ? 'text-label' : ''}>
+                              {st.label}{st.status === 'running' ? '…' : ''}
+                            </span>
+                          </div>
+                        ))
+                      )}
                     </div>
+                  </div>
+                )}
+                {activity?.phase === 'writing' && (
+                  <div className="flex items-center gap-2 text-xs text-label-3 pl-1" aria-hidden="true">
+                    <Orb state="composing" label="Writing" />
+                    Writing…
                   </div>
                 )}
                 <div ref={messagesEndRef} />
