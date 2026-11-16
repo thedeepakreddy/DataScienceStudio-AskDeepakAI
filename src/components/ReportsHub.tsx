@@ -6,29 +6,12 @@
 import React, { useState } from 'react';
 import { jsPDF } from 'jspdf';
 import {
-  FileText,
   Download,
-  CheckCircle,
-  Award,
-  Scroll,
-  Terminal,
   Cpu,
-  Sparkles,
-  BookOpen,
-  Layers,
-  ChevronRight,
   TrendingUp,
-  Workflow,
-  HelpCircle,
-  Clock,
   Printer,
-  BadgeAlert,
   BarChart4,
-  Code,
-  Copy,
   Check,
-  Play,
-  BrainCircuit
 } from 'lucide-react';
 import AppIcon from './AppIcon';
 import { Dataset, MLResult } from '../types';

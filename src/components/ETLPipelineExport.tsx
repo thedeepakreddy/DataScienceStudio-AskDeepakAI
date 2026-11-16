@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Download, Terminal, Loader2, Workflow, AlertCircle } from 'lucide-react';
+import { Download, Terminal, Workflow, AlertCircle } from 'lucide-react';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { describeCleaningOperation } from '../utils/cleaningOperations';
 import { CleaningOperation } from '../types';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 export default function ETLPipelineExport() {
   const { cleaningSteps } = usePipelineContext();
@@ -91,8 +92,8 @@ export default function ETLPipelineExport() {
 
        {loading && (
           <div className="py-8 flex flex-col items-center justify-center">
-             <Loader2 className="w-8 h-8 text-green animate-spin mb-4" />
-             <p className="text-sm font-semibold text-green">Writing pandas and SQLAlchemy code...</p>
+             <Orb state="weaving" size={64} label="Assembling the pipeline script" className="mb-4" />
+             <p className="text-sm font-semibold text-label">Writing pandas and SQLAlchemy code...</p>
           </div>
        )}
 

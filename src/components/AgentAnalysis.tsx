@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Bot, Loader2, AlertCircle, CheckCircle2, XCircle, Sparkles, ShieldCheck, ArrowRight } from 'lucide-react';
+import { Bot, AlertCircle, CheckCircle2, XCircle, Sparkles, ShieldCheck, ArrowRight } from 'lucide-react';
 import { Dataset, AgentRunResult, AgentStep } from '../types';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface AgentAnalysisProps {
   dataset: Dataset;
@@ -92,8 +93,8 @@ export default function AgentAnalysis({ dataset, target, features, championModel
 
         {loading && (
           <div className="py-8 flex flex-col items-center justify-center">
-            <Loader2 className="w-8 h-8 text-blue animate-spin mb-4" />
-            <p className="text-sm font-semibold text-blue">Agent is reasoning and executing real diagnostic steps...</p>
+            <Orb state="working" size={64} label="Agent working" className="mb-4" />
+            <p className="text-sm font-semibold text-label">Agent is reasoning and executing real diagnostic steps...</p>
             <p className="text-xs text-label-3 mt-1">This runs several real retrains — it can take up to a minute.</p>
           </div>
         )}

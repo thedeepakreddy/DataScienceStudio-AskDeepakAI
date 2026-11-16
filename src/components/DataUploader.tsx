@@ -4,12 +4,13 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Upload, FileSpreadsheet, AlertTriangle, Sparkles, ArrowRight, ChevronRight, Users, TrendingUp, Activity, Loader2, type LucideIcon } from 'lucide-react';
+import { Upload, FileSpreadsheet, AlertTriangle, Sparkles, ArrowRight, ChevronRight, Users, TrendingUp, Activity, type LucideIcon } from 'lucide-react';
 import { Dataset } from '../types';
 import { parseCSV, loadSampleDataset } from '../utils/csvParser';
 import PipelineBuilder from './PipelineBuilder';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface DataUploaderProps {
   onDatasetLoaded: (dataset: Dataset) => void;
@@ -249,7 +250,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
 
           {isGeneratingIntel ? (
             <p className="mt-4 flex items-center gap-2 text-sm text-label-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> Analyzing your dataset…
+              <Orb state="weaving" label="Building a recommendation" /> Combining your data and goal into a plan…
             </p>
           ) : pipelineIntelligence && (
             <dl className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-5 text-sm">
@@ -303,7 +304,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
             <button type="submit" disabled={isGeneratingIntel} className="btn btn-secondary btn-lg shrink-0">
               {isGeneratingIntel ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Analyzing…
+                  <Orb state="weaving" label="Building a recommendation" /> Analyzing…
                 </>
               ) : (
                 'Update Recommendation'

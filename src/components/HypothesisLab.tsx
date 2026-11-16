@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Dataset } from '../types';
-import { Lightbulb, FlaskConical, Play, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Lightbulb, FlaskConical, Play, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface HypothesisLabProps {
   dataset: Dataset;
@@ -151,10 +152,10 @@ export default function HypothesisLab({ dataset }: HypothesisLabProps) {
             <button
               onClick={generateHypotheses}
               disabled={loading}
-              className="bg-blue hover:bg-blue disabled:bg-fill text-white font-semibold py-3 px-6 rounded-xl transition-all inline-flex items-center justify-center gap-2 w-full text-sm"
+              className="bg-blue hover:bg-blue disabled:bg-fill disabled:text-label-2 text-white font-semibold py-3 px-6 rounded-xl transition-all inline-flex items-center justify-center gap-2 w-full text-sm"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lightbulb className="w-4 h-4" />}
-              {loading ? 'Generating...' : 'Generate Deep Hypotheses'}
+              {loading ? <Orb state="searching" label="Looking for patterns" /> : <Lightbulb className="w-4 h-4" />}
+              {loading ? 'Looking for patterns…' : 'Generate Deep Hypotheses'}
             </button>
           </div>
 
@@ -220,7 +221,7 @@ export default function HypothesisLab({ dataset }: HypothesisLabProps) {
                    disabled={testingHypothesisIdx === idx}
                    className="w-full flex justify-center items-center gap-2 py-2 bg-blue/10 hover:bg-blue/20 text-blue rounded-lg text-xs font-semibold transition-all"
                  >
-                   {testingHypothesisIdx === idx ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                   {testingHypothesisIdx === idx ? <Orb state="solving" label="Running the test" /> : <Play className="w-3.5 h-3.5" />}
                    {testingHypothesisIdx === idx ? 'Running Test...' : 'Run This Test'}
                  </button>
                ) : testResults[idx].error ? (
@@ -239,8 +240,8 @@ export default function HypothesisLab({ dataset }: HypothesisLabProps) {
                     {interpretations[idx] ? (
                        <p className="text-sm text-label leading-relaxed">{interpretations[idx]}</p>
                     ) : (
-                       <div className="flex items-center gap-2 text-blue text-xs">
-                         <Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating AI Interpretation...
+                       <div className="flex items-center gap-2 text-label-2 text-xs">
+                         <Orb state="composing" label="Writing an interpretation" /> Writing an interpretation…
                        </div>
                     )}
                  </div>

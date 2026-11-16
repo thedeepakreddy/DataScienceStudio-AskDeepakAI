@@ -6,28 +6,21 @@
 import React, { useState, useEffect } from 'react';
 import {
   Play,
-  Settings,
-  Cpu,
   LineChart,
   BarChart2,
   CheckCircle,
   CheckCircle2,
-  Terminal,
   Sparkles,
   Download,
   Table,
   ChevronRight,
   Info,
   Workflow,
-  Brain,
   GitBranch,
   Database,
-  BrainCircuit,
   ShieldCheck,
   ShieldAlert,
   Trophy,
-  Loader2,
-  Bot
 } from 'lucide-react';
 import {
   BarChart,
@@ -58,6 +51,7 @@ import ModelExplainer from './ModelExplainer';
 import MLOpsDashboard from './MLOpsDashboard';
 import AgentAnalysis from './AgentAnalysis';
 import { usePipelineContext } from '../contexts/PipelineContext';
+import Orb from './Orb';
 
 interface MLPipelineProps {
   dataset: Dataset;
@@ -583,8 +577,8 @@ export default function MLPipeline({
                 ))
               )}
               {loadingML && (
-                <div className="flex items-center gap-1.5 text-blue">
-                  <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                <div className="flex items-center gap-2 text-label-2 font-sans">
+                  <Orb state="listening" label="Waiting for the ML engine" />
                   <span>Waiting for the ML engine…</span>
                 </div>
               )}
@@ -598,7 +592,7 @@ export default function MLPipeline({
             >
               {loadingML ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <Orb state="solving" onAccent label="Training" />
                   Training…
                 </>
               ) : (
@@ -720,7 +714,7 @@ export default function MLPipeline({
                 className="w-full bg-fill hover:bg-fill bg-surface border border-separator hover:border-separator-strong text-label font-semibold text-xs py-3 rounded-xl flex items-center justify-center gap-2 cursor-pointer mt-5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {downloadingModel ? (
-                  <Loader2 className="w-4 h-4 text-green shrink-0 animate-spin" />
+                  <Orb state="working" label="Downloading model" />
                 ) : (
                   <Download className="w-4 h-4 text-green shrink-0" />
                 )}

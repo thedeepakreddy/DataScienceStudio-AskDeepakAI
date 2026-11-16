@@ -4,7 +4,8 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Power, Loader2, CheckCircle2, AlertTriangle, ExternalLink, X } from 'lucide-react';
+import { Power, CheckCircle2, AlertTriangle, ExternalLink, X } from 'lucide-react';
+import Orb from './Orb';
 import { apiFetch } from '../utils/api';
 
 type WakeState = 'idle' | 'waking' | 'online' | 'error';
@@ -152,7 +153,7 @@ export default function MLServiceWakeButton() {
 
   const view = {
     idle:   { Icon: Power,         label: 'Wake ML Engine',      cls: 'bg-fill hover:bg-fill-strong text-label' },
-    waking: { Icon: Loader2,       label: `Waking… ${elapsed}s`, cls: 'bg-orange/12 text-orange' },
+    waking: { Icon: null,          label: `Waking… ${elapsed}s`, cls: 'bg-orange/12 text-orange' },
     online: { Icon: CheckCircle2,  label: 'ML Engine On',        cls: 'bg-green/12 text-green' },
     error:  { Icon: AlertTriangle, label: 'Wake Failed',         cls: 'bg-red/12 text-red' },
   }[state];
@@ -178,7 +179,7 @@ export default function MLServiceWakeButton() {
         }
         className={`btn btn-sm ${view.cls}`}
       >
-        <Icon className={`w-3.5 h-3.5 shrink-0 ${state === 'waking' ? 'animate-spin' : ''}`} />
+        {Icon ? <Icon className="w-3.5 h-3.5 shrink-0" /> : <Orb state="connecting" label="Waking the ML engine" />}
         <span className="hidden md:inline">{view.label}</span>
         {state !== 'error' && <span className="sr-only" aria-live="polite">{detail}</span>}
       </button>
@@ -233,8 +234,8 @@ export default function MLServiceWakeButton() {
             </button>
           </div>
 
-          <p className="mt-3 flex items-center gap-1.5 text-[11px] text-label-3">
-            <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+          <p className="mt-3 flex items-center gap-2 text-[11px] text-label-3">
+            <Orb state="listening" label="Checking for the engine" />
             Checking for the engine every few seconds…
           </p>
           {detail && (

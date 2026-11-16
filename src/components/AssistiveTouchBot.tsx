@@ -5,9 +5,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, animate } from 'motion/react';
-import { Sparkles, MessageSquare, Send, X, Trash2, Cpu, BarChart2, Check, RefreshCw, Layers, Compass, Code, Play } from 'lucide-react';
+import { Send, X, Check, Code } from 'lucide-react';
 import { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface AssistiveTouchBotProps {
   activeDataset: Dataset | null;
@@ -74,7 +75,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     const w = window.innerWidth;
     const h = window.innerHeight;
     if (w > 50 && h > 50) {
-      const buttonSize = 56;
+      const buttonSize = 64;
       mx.set(w - buttonSize); // force right edge on initial mount
       my.set(Math.max(0, Math.min(h - buttonSize, h - 185))); // safe bottom right
     }
@@ -87,7 +88,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
       const h = window.innerHeight;
       
       if (w > 50 && h > 50) {
-        const buttonSize = 56;
+        const buttonSize = 64;
 
         const cx = mx.get();
         const cy = my.get();
@@ -149,7 +150,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     // Snapping logic (Always snap to left or right edges like native iOS AssistiveTouch)
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const buttonSize = 56;
+    const buttonSize = 64;
     const margin = 16;
     
     // Header spacing and footer spacing limits
@@ -661,12 +662,13 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
             >
               {/* Floating assistant button */}
               <div
-                className="material w-14 h-14 rounded-full shadow-xl flex items-center justify-center select-none"
+                className="material w-16 h-16 rounded-full shadow-xl flex items-center justify-center select-none"
                 role="button"
                 aria-label="Open the AI assistant"
                 title="Ask AI"
               >
-                <Sparkles className="w-6 h-6 text-blue" />
+                {/* The assistant's face: calm while idle. */}
+                <Orb state="breathing" size={64} label="AI assistant" />
               </div>
             </motion.div>
           ) : (
@@ -701,8 +703,9 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
               {/* Header — also the drag handle */}
               <div className="px-4 py-3 border-b border-separator flex items-center justify-between shrink-0 cursor-move select-none">
                 <div className="flex items-center gap-2.5">
-                  <span className="w-8 h-8 rounded-full bg-blue/12 text-blue flex items-center justify-center shrink-0">
-                    <Sparkles className="w-4 h-4" />
+                  <span className="w-8 h-8 rounded-full bg-fill flex items-center justify-center shrink-0">
+                    {/* Breathes while idle, composes while it writes a reply. */}
+                    <Orb state={isGenerating ? 'composing' : 'breathing'} label={isGenerating ? 'Writing a reply' : 'AI assistant'} />
                   </span>
                   <div>
                     <h4 className="text-sm font-semibold text-label leading-tight">Ask AI</h4>
@@ -718,7 +721,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                     setTimeout(() => {
                       const midX = window.innerWidth / 2;
                       const paddingX = 16;
-                      const buttonSize = 56;
+                      const buttonSize = 64;
                       const snapX = mx.get() < midX ? paddingX : window.innerWidth - buttonSize - paddingX;
                       animate(mx, snapX, { type: 'spring', stiffness: 400, damping: 30 });
                     }, 50);
@@ -818,10 +821,9 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
 
                 {isGenerating && (
                   <div className="flex justify-start">
-                    <div className="bg-fill rounded-2xl rounded-bl-md px-3 py-2.5 flex items-center gap-1" aria-label="Assistant is thinking">
-                      <span className="w-1.5 h-1.5 rounded-full bg-label-3 animate-bounce" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-label-3 animate-bounce [animation-delay:120ms]" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-label-3 animate-bounce [animation-delay:240ms]" />
+                    <div className="bg-fill rounded-2xl rounded-bl-md px-3 py-2 flex items-center gap-2 text-xs text-label-2">
+                      <Orb state="composing" label="Assistant is writing a reply" />
+                      Writing…
                     </div>
                   </div>
                 )}

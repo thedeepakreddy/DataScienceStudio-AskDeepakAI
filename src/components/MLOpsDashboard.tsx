@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { usePipelineContext } from '../contexts/PipelineContext';
-import { Rocket, Activity, CheckCircle, ShieldAlert, Cpu, AlertCircle } from 'lucide-react';
+import { Rocket, CheckCircle, ShieldAlert, Cpu, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
+import Orb from './Orb';
 
 interface DriftMetrics {
   [feature: string]: {
@@ -130,7 +131,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
           className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-xl shadow-sm transition-all ${deployStatus === 'online' ? 'bg-green/20 text-green border border-green/50 cursor-default' : 'bg-blue hover:bg-blue text-white active:scale-95'}`}
         >
           {deployStatus === 'idle' && <><Rocket className="w-4 h-4" /> 1-Click Deploy</>}
-          {deployStatus === 'deploying' && <><Activity className="w-4 h-4 animate-spin" /> Training on Real Data...</>}
+          {deployStatus === 'deploying' && <><Orb state="solving" onAccent label="Training" /> Training on Real Data...</>}
           {deployStatus === 'online' && <><CheckCircle className="w-4 h-4" /> Live Deployment Online</>}
         </button>
       </div>
