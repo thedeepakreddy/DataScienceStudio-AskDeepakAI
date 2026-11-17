@@ -15,6 +15,7 @@ const RUN_KIND_LABEL: Record<RunRecord['kind'], string> = {
   'hypothesis-test': 'Statistics',
   'ab-test': 'A/B test',
   'quality-audit': 'Quality audit',
+  'sql-query': 'SQL',
   other: 'Run',
 };
 

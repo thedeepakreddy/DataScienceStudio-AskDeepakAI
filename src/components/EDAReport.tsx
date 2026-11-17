@@ -38,6 +38,8 @@ import Orb from './Orb';
 
 interface EDAReportProps {
   dataset: Dataset;
+  /** Makes a SQL query result the working data. */
+  onUseQueryResult?: (dataset: Dataset, summary: string) => void;
   aiAnalysis: {
     /** 'rules' when built from column statistics because AI was unavailable. */
     source?: 'rules';
@@ -54,7 +56,7 @@ interface EDAReportProps {
   onTriggerAI: () => void;
 }
 
-export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI }: EDAReportProps) {
+export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI, onUseQueryResult }: EDAReportProps) {
   const { expertMode } = usePipelineContext();
   // State for Sub-Workspaces
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'sql' | 'deepeda'>('overview');
@@ -1047,7 +1049,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
 
         {/* 10. SQL ASSISTANT */}
         {activeSubTab === 'sql' && (
-          <SQLAssistant dataset={dataset} />
+          <SQLAssistant dataset={dataset} onUseResult={onUseQueryResult} />
         )}
 
         {/* 11. DEEP EDA — REAL SERVER-SIDE PANDAS/NUMPY COMPUTATION */}

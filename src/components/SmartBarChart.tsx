@@ -12,7 +12,8 @@ interface SmartBarChartProps {
 const COLORS = CHART_COLORS;
 
 export default function SmartBarChart({ categoryColumn, valueColumn }: SmartBarChartProps) {
-  const { filteredData } = useDashboardContext();
+  const { filteredData, categoryFilters, toggleCategoryFilter } = useDashboardContext();
+  const selected = categoryFilters[categoryColumn] ?? [];
   const [layout, setLayout] = useState<'horizontal' | 'vertical'>('horizontal');
   // Average is the safer default: summing age, tenure, price or a rating is rarely meaningful.
   const [aggregation, setAggregation] = useState<'avg' | 'sum'>('avg');
@@ -90,9 +91,22 @@ export default function SmartBarChart({ categoryColumn, valueColumn }: SmartBarC
             <Tooltip
               cursor={{ fill: 'var(--fill)' }}
             />
-            <Bar dataKey="value" radius={[4, 4, 4, 4]} label={{ position: layout === 'horizontal' ? 'top' : 'right', fill: 'var(--chart-axis)', fontSize: 10 }}>
+            <Bar
+              dataKey="value"
+              radius={[4, 4, 4, 4]}
+              label={{ position: layout === 'horizontal' ? 'top' : 'right', fill: 'var(--chart-axis)', fontSize: 10 }}
+              cursor="pointer"
+              onClick={(entry: any) => {
+                const name = String(entry?.payload?.name ?? entry?.name ?? '');
+                if (name) toggleCategoryFilter(categoryColumn, name);
+              }}
+            >
               {chartData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                <Cell
+                  key={`cell-${index}`}
+                  fill={COLORS[index % COLORS.length]}
+                  fillOpacity={selected.length && !selected.includes(entry.name) ? 0.35 : 1}
+                />
               ))}
             </Bar>
           </BarChart>

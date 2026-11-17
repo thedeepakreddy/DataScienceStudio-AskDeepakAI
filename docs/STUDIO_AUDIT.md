@@ -242,6 +242,14 @@ pull requests of about the size of the recent ones.
 - Undo steps back to the previous version; versions are labelled with the operation's own description.
 - Vitest: 44 tests.
 
+**Phase 3 status: done.**
+- SQL editor in Explore (Expert): write SQL or have AI write it; every query passes a read-only check (one SELECT over `dataset`; no INTO, file/URL functions, writes, `->`, backticks or parameters) and runs in a fresh in-browser database. Shows the first 1,000 rows with the true total, keeps recent queries in History, and can make a result the working data (as a new version). Previously AI-written SQL ran unchecked.
+- Dashboard: click a bar or pie slice to filter every chart; filters in effect are shown as removable chips with the row count.
+- KPI formulas (e.g. `SUM(revenue) / COUNT()`), parsed by a small dedicated parser (no code execution), computed on the filtered rows.
+- Save, reopen, update and delete named dashboards per dataset (charts, layout, filters, KPIs); the latest one reopens automatically instead of asking AI again.
+- Fixed: pie chart dropped every category after the 8th, so its percentages were wrong (now an "Other" slice); built-in insights now follow the filters, and AI insights say when they were written for a different number of rows.
+- Vitest: 61 tests.
+
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the
 foundation is stable, as the plan itself recommends.

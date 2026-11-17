@@ -869,6 +869,7 @@ export default function App() {
                 aiAnalysis={aiAnalysis}
                 loadingAI={loadingAI}
                 onTriggerAI={triggerAIScan}
+                onUseQueryResult={(ds, summary) => handleUpdateDataset(ds, undefined, summary)}
               />
             )}
 
@@ -906,6 +907,7 @@ export default function App() {
                 strategicSlicer={aiAnalysis?.strategicSlicer}
                 mlResult={mlResult}
                 aiAnalysis={aiAnalysis}
+                datasetId={datasetId}
               />
             )}
 

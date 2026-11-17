@@ -6,6 +6,7 @@
 import type { Dataset } from '../types';
 import type { AppliedOperation } from '../operations/registry';
 import type { QualityRule } from '../operations/qualityRules';
+import type { KpiDefinition } from './kpiFormula';
 
 // The studio's saved work, kept in this browser's IndexedDB. The servers are
 // stateless (free hosting loses its disk on restart), so the browser is where
@@ -13,7 +14,7 @@ import type { QualityRule } from '../operations/qualityRules';
 // every analysis run is recorded against the version it ran on.
 
 const DB_NAME = 'askdeepak-studio';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 /** Versions kept per dataset; the oldest unpinned ones are pruned past this. */
 export const MAX_VERSIONS_PER_DATASET = 25;
 
@@ -33,7 +34,7 @@ export interface DatasetVersion {
   dataset: Dataset;
 }
 
-export type RunKind = 'ai-advisory' | 'model-training' | 'hypothesis-test' | 'ab-test' | 'quality-audit' | 'other';
+export type RunKind = 'ai-advisory' | 'model-training' | 'hypothesis-test' | 'ab-test' | 'quality-audit' | 'sql-query' | 'other';
 
 export interface RunRecord {
   id: string;
@@ -97,6 +98,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('rules')) {
         db.createObjectStore('rules');
+      }
+      if (!db.objectStoreNames.contains('dashboards')) {
+        const s = db.createObjectStore('dashboards', { keyPath: 'id' });
+        s.createIndex('datasetId', 'datasetId');
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -257,6 +262,44 @@ export async function loadRules(datasetId: string): Promise<QualityRule[]> {
   return ((await promisify(db.transaction('rules').objectStore('rules').get(datasetId))) as QualityRule[] | undefined) ?? [];
 }
 
+// --- Saved dashboards ---------------------------------------------------------
+
+export interface SavedDashboard {
+  id: string;
+  datasetId: string;
+  name: string;
+  savedAt: number;
+  activeComponents: string[];
+  layout: string;
+  config: unknown;
+  categoryFilters: Record<string, string[]>;
+  numericSlicers: Record<string, unknown>;
+  kpis: KpiDefinition[];
+}
+
+export async function saveDashboard(d: Omit<SavedDashboard, 'savedAt'>): Promise<SavedDashboard> {
+  const db = await openDb();
+  const record = { ...d, savedAt: nextTimestamp() };
+  const tx = db.transaction('dashboards', 'readwrite');
+  tx.objectStore('dashboards').put(record);
+  await done(tx);
+  return record;
+}
+
+/** A dataset's saved dashboards, most recently saved first. */
+export async function listDashboards(datasetId: string): Promise<SavedDashboard[]> {
+  const db = await openDb();
+  const all = await promisify(db.transaction('dashboards').objectStore('dashboards').index('datasetId').getAll(datasetId)) as SavedDashboard[];
+  return all.sort((a, b) => b.savedAt - a.savedAt);
+}
+
+export async function deleteDashboard(id: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('dashboards', 'readwrite');
+  tx.objectStore('dashboards').delete(id);
+  await done(tx);
+}
+
 // --- Session ----------------------------------------------------------------
 
 export async function saveSession(session: Omit<WorkspaceSession, 'savedAt'>): Promise<void> {
@@ -274,7 +317,8 @@ export async function loadSession(): Promise<WorkspaceSession | undefined> {
 /** Deletes every saved version, run, model file and the session. */
 export async function clearWorkspace(): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules'], 'readwrite');
+  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards'], 'readwrite');
+  tx.objectStore('dashboards').clear();
   tx.objectStore('models').clear();
   tx.objectStore('rules').clear();
   tx.objectStore('versions').clear();
@@ -299,6 +343,7 @@ interface WorkspaceFile {
   runs: RunRecord[];
   models: (Omit<SavedModelFile, 'bytes'> & { bytesBase64: string })[];
   rules?: Record<string, QualityRule[]>;
+  dashboards?: SavedDashboard[];
 }
 
 const toBase64 = (buf: ArrayBuffer) => {
@@ -316,14 +361,15 @@ const fromBase64 = (b64: string) => {
 
 export async function exportWorkspace(): Promise<string> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules']);
-  const [versions, runs, models, session, ruleKeys, ruleValues] = await Promise.all([
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards']);
+  const [versions, runs, models, session, ruleKeys, ruleValues, dashboards] = await Promise.all([
     promisify(tx.objectStore('versions').getAll()),
     promisify(tx.objectStore('runs').getAll()),
     promisify(tx.objectStore('models').getAll()),
     promisify(tx.objectStore('session').get('current')),
     promisify(tx.objectStore('rules').getAllKeys()),
     promisify(tx.objectStore('rules').getAll()),
+    promisify(tx.objectStore('dashboards').getAll()),
   ]);
   const file: WorkspaceFile = {
     format: WORKSPACE_FORMAT,
@@ -334,6 +380,7 @@ export async function exportWorkspace(): Promise<string> {
     runs: runs as RunRecord[],
     models: (models as SavedModelFile[]).map(({ bytes, ...m }) => ({ ...m, bytesBase64: toBase64(bytes) })),
     rules: Object.fromEntries((ruleKeys as string[]).map((k, i) => [k, (ruleValues as QualityRule[][])[i]])),
+    dashboards: dashboards as SavedDashboard[],
   };
   return JSON.stringify(file);
 }
@@ -358,8 +405,9 @@ export async function importWorkspace(text: string): Promise<{ versions: number;
   if (!file.versions.every(validVersion)) throw new Error('The workspace file has a damaged dataset version.');
 
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules'], 'readwrite');
-  ['versions', 'runs', 'models', 'session', 'rules'].forEach(n => tx.objectStore(n).clear());
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards'], 'readwrite');
+  ['versions', 'runs', 'models', 'session', 'rules', 'dashboards'].forEach(n => tx.objectStore(n).clear());
+  (file.dashboards ?? []).forEach(d => { if (d && typeof d.id === 'string') tx.objectStore('dashboards').put(d); });
   Object.entries(file.rules ?? {}).forEach(([k, r]) => { if (Array.isArray(r)) tx.objectStore('rules').put(r, k); });
   file.versions.forEach(v => tx.objectStore('versions').put(v));
   file.runs.forEach(r => tx.objectStore('runs').put(r));

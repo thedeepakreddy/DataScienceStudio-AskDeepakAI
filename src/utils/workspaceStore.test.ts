@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   MAX_VERSIONS_PER_DATASET, _resetConnectionForTests, clearWorkspace, getVersion, listRuns,
   listVersions, loadSession, recordRun, saveSession, saveVersion,
-  MAX_SAVED_MODELS, exportWorkspace, getModelFile, importWorkspace, saveModelFile, loadRules, saveRules,
+  MAX_SAVED_MODELS, exportWorkspace, getModelFile, importWorkspace, saveModelFile, loadRules, saveRules, saveDashboard, listDashboards,
 } from './workspaceStore';
 import type { Dataset } from '../types';
 
@@ -85,6 +85,7 @@ describe('workspace store', () => {
     await saveModelFile({ modelId: 'm1', filename: 'm.joblib', bytes: new Uint8Array([7, 8, 9]).buffer, versionId: child.id });
     await saveSession({ activeVersionId: child.id, originalVersionId: v.id, activeTab: 'stats', mlResult: null, aiAnalysis: null });
     await saveRules(v.datasetId, [{ id: 'r', column: 'id', kind: 'unique' }]);
+    await saveDashboard({ id: 'd1', datasetId: v.datasetId, name: 'Main', activeComponents: ['Bar Chart'], layout: '2-col', config: null, categoryFilters: { region: ['N'] }, numericSlicers: {}, kpis: [] });
     const text = await exportWorkspace();
 
     await clearWorkspace();
@@ -96,6 +97,7 @@ describe('workspace store', () => {
     expect(new Uint8Array((await getModelFile('m1'))!.bytes)).toEqual(new Uint8Array([7, 8, 9]));
     expect((await listRuns())[0].versionId).toBe(child.id);
     expect(await loadRules(v.datasetId)).toEqual([{ id: 'r', column: 'id', kind: 'unique' }]);
+    expect((await listDashboards(v.datasetId)).map(d => d.categoryFilters)).toEqual([{ region: ['N'] }]);
   });
 
   it('rejects files that are not workspace exports', async () => {

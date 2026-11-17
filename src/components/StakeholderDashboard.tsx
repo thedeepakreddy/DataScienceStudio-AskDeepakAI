@@ -57,6 +57,8 @@ interface StakeholderDashboardProps {
   strategicSlicer?: string;
   mlResult?: any;
   aiAnalysis?: any;
+  /** Saved dataset id, for saving and reopening dashboards. */
+  datasetId?: string | null;
 }
 
 // Stylized continent coordinates & paths for an executive World Map representation
@@ -1806,7 +1808,7 @@ export default function StakeholderDashboard(props: StakeholderDashboardProps) {
   const { expertMode } = usePipelineContext();
   return (
     <DashboardProvider initialData={props.dataset.rows}>
-      <IntelligentDashboardLayer dataset={props.dataset} mlResult={props.mlResult} />
+      <IntelligentDashboardLayer dataset={props.dataset} mlResult={props.mlResult} datasetId={props.datasetId ?? null} />
       {expertMode && (
       <div className="mt-12 animate-fade-in relative z-0">
          <h2 className="section-title">Advanced analysis</h2>
