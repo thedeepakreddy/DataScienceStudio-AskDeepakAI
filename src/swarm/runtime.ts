@@ -10,6 +10,7 @@ import { LIMITS, TaskSpec, TaskStatus } from './plan';
 import { Driver } from './interaction';
 import { needsReview } from './review';
 import { Incident, IncidentState, RECOVERY_LIMITS, diagnose, fingerprint } from './recovery';
+import { MAX_FIXES, OrchestratorReview, auditRun } from './orchestratorReview';
 
 // The swarm's durable runtime (blueprint 7). Every state change is saved, so
 // a run survives a page reload; tasks start only when their dependencies are
@@ -38,6 +39,8 @@ export interface TaskState extends TaskSpec {
   timeBoost?: number;
   /** Whether it was carried out through the controls on the page. */
   usedPage?: boolean;
+  /** The task that redid this one after the Orchestrator's review. */
+  supersededBy?: string;
 }
 
 export type BusMessageType = 'assignment' | 'status' | 'finding' | 'handoff' | 'approval_request' | 'failure' | 'recovery' | 'challenge';
@@ -73,6 +76,9 @@ export interface CompletionReport {
   /** Independent reviews and any contradictions they found. */
   reviews: { label: string; agrees: boolean; detail: string }[];
   incidents: { diagnosis: string; state: IncidentState; repair?: string }[];
+  orchestrator?: OrchestratorReview;
+  /** Completed work per step, in workflow order (long runs read by step). */
+  bySteps?: { step: string; count: number }[];
   data: { startVersionId: string | null; endVersionId: string | null; rows?: number; columns?: number };
   limitations: string[];
   telemetry: Telemetry;
@@ -96,6 +102,8 @@ export interface SwarmRun {
   /** Self-healing incidents opened during the run. */
   incidents?: Incident[];
   reviews?: number;
+  /** The Orchestrator's final review: issues found and the fixes it ran. */
+  orchestratorReview?: OrchestratorReview;
   report?: CompletionReport;
 }
 
@@ -133,6 +141,10 @@ export interface RuntimeOptions {
   pace?: number;
   /** Wakes the ML service (a recovery repair). */
   wakeMl?: () => Promise<boolean>;
+  /** The Orchestrator's final review runs before reporting (default true). */
+  finalReview?: boolean;
+  /** Optional AI check of the results against the request (one call). */
+  aiReview?: (run: SwarmRun) => Promise<{ summary: string; issues: string[]; tasks: TaskSpec[]; inputTokens?: number; outputTokens?: number } | null>;
 }
 
 export class SwarmRuntime {
@@ -449,7 +461,7 @@ export class SwarmRuntime {
   // --- Independent review (9.3) -------------------------------------------------
 
   private addReview(t: TaskState, before: Dataset | null, after: Dataset | null) {
-    if (t.capability === 'verify.review' || (this.run.reviews ?? 0) >= 6 || !needsReview(t.capability, before, after)) return;
+    if (t.capability === 'verify.review' || (this.run.reviews ?? 0) >= 8 || !needsReview(t.capability, before, after)) return;
     const id = `${t.id}.review`;
     if (this.run.tasks.some(x => x.id === id)) return;
     const review: TaskState = {
@@ -558,14 +570,92 @@ export class SwarmRuntime {
     if (!['running', 'awaiting_approval'].includes(this.run.status)) return;
     const open = this.run.tasks.filter(t => !TERMINAL.includes(t.status));
     if (open.length === 0) {
+      // Before reporting, the Orchestrator reviews the run and fixes what it can.
+      if (this.opts.finalReview !== false && !this.run.orchestratorReview) { void this.finalReview(); return; }
+      const review = this.run.orchestratorReview;
+      if (review?.verdict === 'fixing') {
+        const failed = review.fixIds.filter(id => this.task(id)?.status !== 'completed');
+        // A fix only counts if its own independent review (if any) agrees.
+        const stillContradicted = review.fixIds.filter(id => this.run.tasks.some(t => t.capability === 'verify.review' && t.dependsOn.includes(id) && t.status === 'completed' && !(t.result?.data as any)?.agrees));
+        const ok = !failed.length && !stillContradicted.length;
+        this.run.orchestratorReview = {
+          ...review,
+          verdict: ok ? 'fixed' : 'needs_you',
+          summary: ok
+            ? `Fixed: ${review.fixes.join('; ')}.`
+            : failed.length
+              ? `${failed.length} fix(es) didn’t succeed; they need you.`
+              : `Tried ${review.fixes.join('; ')}, but the independent review still disagrees — the data may not hold enough signal for this. Treat that result with caution.`,
+        };
+      }
+      // A task that was redone successfully counts as done.
+      const resolved = (t: TaskState) => t.status === 'completed' || (!!t.supersededBy && this.task(t.supersededBy)?.status === 'completed');
       const anyDone = this.run.tasks.some(t => t.status === 'completed');
-      const allDone = this.run.tasks.every(t => t.status === 'completed');
+      const allDone = this.run.tasks.every(resolved);
       this.run.status = allDone ? 'completed' : anyDone ? 'partial' : 'failed';
       this.finish();
       this.save();
     } else if (open.every(t => t.status === 'awaiting_approval') && this.run.status !== 'awaiting_approval') {
       this.run.status = 'awaiting_approval';
       this.save();
+    }
+  }
+
+  private reviewing = false;
+
+  /** The Orchestrator's final review (orchestratorReview.ts): audit, optional AI check, one round of fixes. */
+  private async finalReview() {
+    if (this.reviewing) return;
+    this.reviewing = true;
+    try {
+      const ds = this.port.getDataset();
+      const audit = auditRun(this.run, ds);
+      this.say('orchestrator', 'user', 'status', audit.issues.length ? `Reviewing the results: ${audit.issues.length} issue(s) found.` : 'Reviewing the results before reporting.');
+      this.save();
+      let ai: Awaited<ReturnType<NonNullable<RuntimeOptions['aiReview']>>> = null;
+      if (this.opts.aiReview && (this.run.tasks.length >= 3 || audit.issues.length)) {
+        ai = await this.opts.aiReview(this.run).catch(() => null);
+        if (ai) this.run.telemetry = { ...this.run.telemetry, aiCalls: this.run.telemetry.aiCalls + 1, inputTokens: this.run.telemetry.inputTokens + (ai.inputTokens ?? 0), outputTokens: this.run.telemetry.outputTokens + (ai.outputTokens ?? 0) };
+      }
+      const issues = [...audit.issues, ...(ai?.issues ?? [])];
+      const fixes = [
+        ...audit.fixes,
+        ...(ai?.tasks ?? []).map(t => ({ capability: t.capability, params: t.params, reason: t.why || 'Suggested by the Orchestrator’s review.', dependsOn: [] as string[] })),
+      ].filter((f, i, a) => a.findIndex(x => x.capability === f.capability && JSON.stringify(x.params) === JSON.stringify(f.params)) === i).slice(0, MAX_FIXES);
+
+      // Turn the fixes into tasks (each checked against the data as it is now).
+      const ids: string[] = [];
+      const added: TaskState[] = [];
+      fixes.forEach((f, i) => {
+        const cap = CAPABILITIES[f.capability];
+        const redoOf = (f as { redoOf?: string }).redoOf;
+        const id = redoOf ? `${redoOf}.redo` : `review.${i + 1}`;
+        ids.push(id);
+        const invalid = !cap ? `Unknown capability “${f.capability}”.` : cap.approval === 'prohibited' ? 'Not allowed.' : cap.validate(f.params, ds);
+        if (invalid) { issues.push(`Couldn’t fix with “${cap?.label(f.params) ?? f.capability}”: ${invalid}`); return; }
+        const deps = (f.dependsOn ?? []).map(d => (d.startsWith('fix:') ? ids[Number(d.slice(4))] ?? '' : d)).filter(d => d && (this.run.tasks.some(t => t.id === d) || added.some(t => t.id === d)));
+        added.push({ id, capability: f.capability, params: f.params, role: cap.defaultRole, dependsOn: deps, why: f.reason, dynamic: true, status: 'pending', attempts: 0, approved: cap.approval === 'autonomous' });
+        if (redoOf) this.patch(redoOf, { supersededBy: id });
+      });
+
+      if (added.length) {
+        this.run.orchestratorReview = { verdict: 'fixing', summary: ai?.summary ?? `Fixing ${added.length} issue(s).`, issues, fixes: added.map(t => this.cap(t).label(t.params)), fixIds: added.map(t => t.id), usedAi: !!ai };
+        this.run.tasks = [...this.run.tasks, ...added];
+        this.run.dynamicAdded += added.length;
+        this.say('orchestrator', 'user', 'recovery', `Redoing what went wrong: ${added.map(t => `${this.cap(t).label(t.params)} (${t.why})`).join('; ')}.`);
+        this.save();
+        // The review can run inside the scheduler's own loop; start the fixes after it.
+        setTimeout(() => void this.tick(), 0);
+        return;
+      }
+      this.run.orchestratorReview = {
+        verdict: issues.length ? 'needs_you' : 'complete',
+        summary: ai?.summary ?? (issues.length ? `${issues.length} issue(s) couldn’t be fixed automatically.` : 'Everything that was planned was delivered and checked.'),
+        issues, fixes: [], fixIds: [], usedAi: !!ai,
+      };
+      this.maybeFinish();
+    } finally {
+      this.reviewing = false;
     }
   }
 
@@ -583,12 +673,17 @@ export function buildReport(run: SwarmRun, ds: Dataset | null): CompletionReport
   const reviews = run.tasks.filter(t => isReview(t) && t.status === 'completed').map(t => ({
     label: String((t.params as any)?.target?.label ?? ''), agrees: !!(t.result?.data as any)?.agrees, detail: t.result?.summary ?? '',
   }));
-  const problems = run.tasks.filter(t => t.status !== 'completed').map(t => ({ label: label(t), role: t.role, status: t.status, reason: t.error ?? t.note ?? t.status }));
+  // Work the Orchestrator redid successfully isn't a problem any more.
+  const redoneOk = (t: TaskState) => !!t.supersededBy && run.tasks.find(x => x.id === t.supersededBy)?.status === 'completed';
+  const problems = run.tasks.filter(t => t.status !== 'completed' && !redoneOk(t)).map(t => ({ label: label(t), role: t.role, status: t.status, reason: t.error ?? t.note ?? t.status }));
   const versions = run.tasks.map(t => t.outputVersionId).filter(Boolean) as string[];
   const status = run.status;
   const contradictions = reviews.filter(r => !r.agrees).length;
+  const fixedNote = run.orchestratorReview?.verdict === 'fixed'
+    ? ` The Orchestrator found and fixed ${run.orchestratorReview.fixIds.length} issue${run.orchestratorReview.fixIds.length === 1 ? '' : 's'}.`
+    : run.orchestratorReview?.verdict === 'needs_you' && run.orchestratorReview.fixIds.length ? ' The Orchestrator tried a fix; see its review.' : '';
   const headline = status === 'completed'
-    ? `Done: all ${done.length} task${done.length === 1 ? '' : 's'} completed and self-checked${reviews.length ? `; ${reviews.length} independently reviewed${contradictions ? `, ${contradictions} with a contradiction` : ''}` : ''}.`
+    ? `Done: all ${done.length} task${done.length === 1 ? '' : 's'} completed and self-checked${reviews.length ? `; ${reviews.length} independently reviewed${contradictions ? `, ${contradictions} with a contradiction` : ''}` : ''}.${fixedNote}`
     : status === 'cancelled'
     ? `Cancelled after ${done.length} of ${run.tasks.length} tasks.`
     : `${done.length} of ${run.tasks.length} tasks completed; ${problems.length} did not.`;
@@ -599,8 +694,11 @@ export function buildReport(run: SwarmRun, ds: Dataset | null): CompletionReport
     ...(problems.length ? [`Not delivered: ${problems.map(p => p.label).join('; ')}.`] : []),
   ];
   const times = run.tasks.map(t => t.endedAt ?? 0).filter(Boolean);
+  const STEPS: [string, string][] = [['ingest', 'Import'], ['clean', 'Clean'], ['eda', 'Explore'], ['stats', 'Statistics'], ['ml', 'Model'], ['dashboard', 'Dashboard'], ['reports', 'Report']];
+  const doneTasks = run.tasks.filter(t => t.status === 'completed' && !isReview(t) && t.capability !== 'nav.open_step');
+  const bySteps = STEPS.map(([id, name]) => ({ step: name, count: doneTasks.filter(t => CAPABILITIES[t.capability]?.step === id).length })).filter(x => x.count > 0);
   return {
-    status, headline, done, problems, reviews,
+    status, headline, done, problems, reviews, bySteps, orchestrator: run.orchestratorReview,
     incidents: (run.incidents ?? []).map(i => ({ diagnosis: i.diagnosis, state: i.state, repair: i.repairLabel })),
     data: { startVersionId: run.startVersionId, endVersionId: versions[versions.length - 1] ?? run.startVersionId, rows: ds?.rows.length, columns: ds?.columns.length },
     limitations, telemetry: run.telemetry,

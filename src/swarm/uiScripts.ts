@@ -7,6 +7,26 @@ import type { Dataset } from '../types';
 import { OperationId, applyOperation } from '../operations/registry';
 import { Driver, UiError, findTarget, waitForLoggedRun } from './interaction';
 import type { CapabilityResult, StudioPort } from './catalog';
+import { deepEdaResult } from './findings';
+import { designDashboard } from './dashboardDesign';
+
+export const DASHBOARD_APPLY_EVENT = 'studio:dashboard-apply';
+export const DASHBOARD_APPLIED_EVENT = 'studio:dashboard-applied';
+
+/** Sends a design or filters to the dashboard and waits for its reply (what rendered). */
+function applyToDashboard(detail: unknown, signal: AbortSignal): Promise<{ rendered: string[]; expected: string[] }> {
+  return new Promise((resolve, reject) => {
+    const done = (e: Event) => { cleanup(); resolve((e as CustomEvent).detail); };
+    const timer = setTimeout(() => { cleanup(); reject(new UiError('The dashboard didn’t respond (is it open?).')); }, 15_000);
+    const onAbort = () => { cleanup(); reject(Object.assign(new Error('Cancelled.'), { cancelled: true })); };
+    const cleanup = () => { clearTimeout(timer); window.removeEventListener(DASHBOARD_APPLIED_EVENT, done); signal.removeEventListener('abort', onAbort); };
+    window.addEventListener(DASHBOARD_APPLIED_EVENT, done);
+    signal.addEventListener('abort', onAbort, { once: true });
+    window.dispatchEvent(new CustomEvent(DASHBOARD_APPLY_EVENT, { detail }));
+  });
+}
+
+const SAMPLE_MATCH: Record<string, string> = { churn: 'churn', saas: 'saas', hardware: 'hardware' };
 
 // How each capability is done on the user's page: open the step, claim the
 // card, set the real fields, press the real button, then read the outcome
@@ -170,6 +190,9 @@ export const UI_SCRIPTS: Record<string, UiScript> = {
     await d.navigate('ml', 'Opening Model');
     await d.select('ml-target', p.target, `Predict: ${p.target}`);
     if (p.algorithm && p.algorithm !== 'auto') await d.select('ml-algorithm', p.algorithm, `Algorithm: ${p.algorithm}`);
+    // Tuning lives in the Expert settings; if it isn't on the page the task
+    // falls back to the direct operation (self-healing), which tunes the same way.
+    if (p.tune) await d.check('ml-tune', true, 'Tune with cross-validated search');
     const result = waitForLoggedRun('model-training', signal, 600_000);
     await d.click('ml-train', 'Train Model');
     d.release('Waiting for training');
@@ -181,9 +204,79 @@ export const UI_SCRIPTS: Record<string, UiScript> = {
     const m = run.result?.metrics ?? {};
     d.done(run.summary);
     return {
-      summary: `${run.result?.algorithm ?? 'Model'}: ${run.summary} on held-out rows.`,
+      summary: `${run.result?.algorithm ?? 'Model'}: ${run.summary} on held-out rows${run.result?.tuning?.tuned ? ' (tuned)' : ''}.`,
       data: { algorithm: run.result?.algorithm, metrics: m, cv: run.result?.cv, modelId: run.result?.modelId, leakage: run.result?.leakageWarnings ?? [] },
+      followUps: [{ capability: 'models.explain', params: {}, reason: 'Read what the model learned and check for leakage.' }],
     };
+  },
+
+  'explore.deep_eda': async (p, d, _port, signal) => {
+    await d.navigate('eda', 'Opening Explore');
+    await d.click('eda-tab-deepeda', 'Deep Analysis');
+    const result = waitForLoggedRun('deep-eda', signal, 180_000);
+    await d.click('eda-deep-run', 'Run the pandas analysis');
+    d.release('Waiting for the analysis');
+    const run: any = await result;
+    const r = deepEdaResult(run.result, !!p?.planModel);
+    d.done(r.summary.slice(0, 80));
+    return r;
+  },
+
+  'import.sample': async (p, d, port, signal) => {
+    await d.navigate('ingest', 'Opening Import');
+    await d.claim('area-samples', 'Samples');
+    const before = port.getDataset();
+    await d.click(`sample-${p.name}`, `Load the ${p.name} sample`);
+    d.wait('Loading the sample');
+    for (let i = 0; i < 150; i++) {
+      if (signal.aborted) throw Object.assign(new Error('Cancelled.'), { cancelled: true });
+      const ds = port.getDataset();
+      if (ds && ds !== before && ds.filename.toLowerCase().includes(SAMPLE_MATCH[p.name])) {
+        await port.settle();
+        d.done(`${ds.rows.length} rows loaded`);
+        return { summary: `Loaded ${ds.filename}: ${ds.rows.length.toLocaleString()} rows × ${ds.columns.length} columns.`, data: { filename: ds.filename, rows: ds.rows.length, columns: ds.columns.length } };
+      }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    throw new UiError('The sample didn’t load.');
+  },
+
+  'dashboard.design': async (p, d, port, signal) => {
+    await d.navigate('dashboard', 'Opening Dashboard');
+    const ds = port.getDataset()!;
+    // The playbook: the user's words and the data decide the charts (no AI call).
+    const design = designDashboard(ds, p, port.getModel());
+    d.wait(`Designing: ${design.recommendedComponents.filter(c => c.type !== 'Filters Panel').length} components`);
+    const reply = await applyToDashboard({ design }, signal);
+    // Visit every chart that was placed, with what it answers.
+    const charts = design.recommendedComponents.filter(c => c.type !== 'Filters Panel');
+    const seen = new Map<string, number>();
+    for (const c of charts) {
+      const n = (seen.get(c.type) ?? 0) + 1;
+      seen.set(c.type, n);
+      const id = (n === 1 ? c.type : `${c.type}#${n}`).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      if (findTarget(`dash-chart-${id}`)) await d.claim(`dash-chart-${id}`, `${c.type}: ${c.columnsToUse.slice(0, 2).join(' × ')}`);
+    }
+    d.done(`${reply.rendered.length} components on the dashboard`);
+    return {
+      summary: `Built a ${design.detectedProblem.toLowerCase()} dashboard: ${charts.map(c => `${c.type} (${c.columnsToUse.slice(0, 2).join(', ')})`).join('; ')}.`,
+      data: { ...design, rendered: reply.rendered, expected: reply.expected },
+    };
+  },
+
+  'dashboard.filter': async (p, d, port, signal) => {
+    await d.navigate('dashboard', 'Opening Dashboard');
+    const ds = port.getDataset()!;
+    const column = ds.columns.find(c => c.name.toLowerCase() === String(p.column).toLowerCase())!.name;
+    // Values are matched to the data's own spelling.
+    const present = new Set(ds.rows.map(r => String(r[column] ?? 'Unknown')));
+    const values = (p.values as unknown[]).map(v => [...present].find(x => x.toLowerCase() === String(v).toLowerCase())).filter((v): v is string => !!v);
+    if (p.values.length && !values.length) throw Object.assign(new Error(`None of ${p.values.join(', ')} appear in “${column}”.`), { permanent: true });
+    d.wait(values.length ? `Filter: ${column} = ${values.join(', ')}` : `Clear the ${column} filter`);
+    await applyToDashboard({ filters: { [column]: values } }, signal);
+    const kept = values.length ? ds.rows.filter(r => values.includes(String(r[column] ?? 'Unknown'))).length : ds.rows.length;
+    d.done(`${kept.toLocaleString()} rows in view`);
+    return { summary: values.length ? `Showing ${kept.toLocaleString()} rows where ${column} is ${values.join(' or ')}.` : `Cleared the ${column} filter.`, data: { column, values, rows: kept } };
   },
 
   'models.forecast': async (p, d, _port, signal) => {

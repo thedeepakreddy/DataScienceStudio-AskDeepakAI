@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dataset } from '../types';
 import { listSwarmRuns, saveSwarmRun } from '../utils/workspaceStore';
 import { apiFetch } from '../utils/api';
-import { ChatTurn, planRequest, PlanOutcome } from './gateway';
+import { ChatTurn, aiReviewRun, planRequest, PlanOutcome } from './gateway';
 import { TaskSpec, validatePlan } from './plan';
 import { RuntimeOptions, RuntimePort, SwarmRun, SwarmRuntime, newRun } from './runtime';
 
@@ -57,7 +57,7 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
   }));
 
   const attach = useCallback((r: SwarmRun) => {
-    runtime.current = new SwarmRuntime(r, stablePort, saveSwarmRun, next => setRun(next), RUNTIME_OPTIONS);
+    runtime.current = new SwarmRuntime(r, stablePort, saveSwarmRun, next => setRun(next), { ...RUNTIME_OPTIONS, aiReview: run => aiReviewRun(run, stablePort.getDataset()) });
     setRun(r);
     return runtime.current;
   }, [stablePort]);
@@ -90,7 +90,7 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
     try {
       // An unapproved plan is replaced by the new request.
       if (runtime.current?.run.status === 'awaiting_approval') runtime.current.cancel();
-      const outcome = await planRequest(request, dataset, { history });
+      const outcome = await planRequest(request, dataset, { history, hasModel: !!portRef.current.getModel() });
       setLastPlan(outcome);
       if (outcome.tasks.length && outcome.problems.length === 0) {
         const r = newRun({

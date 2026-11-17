@@ -142,6 +142,20 @@
   --agent-research-analyst: #4c7136;
   --agent-data-quality: #8c6a1e;
   --agent-verifier: #873838;
+  --agent-dashboard-designer: #b85a48;
+  --agent-feature-engineer: #b07a2a;
+  --agent-time-series: #4a4f96;
+  --agent-segmentation: #2f7550;
+  --agent-explainability: #9b4a74;
+  --agent-experimentation: #7a4f96;
+  --agent-mlops: #3c5568;
+  --agent-data-steward: #5f6a2c;
+  --agent-sql: #555c68;
+  --agent-regression: #7a6a3a;
+  --agent-insights: #4f6fa8;
+  --agent-publishing: #6e4a3c;
+  --agent-automation: #3e7f88;
+  --agent-code: #8a3f2f;
 }
 :root[data-theme="dark"] {
   --agent-orchestrator: #5b78b3;
@@ -153,6 +167,20 @@
   --agent-research-analyst: #6b9152;
   --agent-data-quality: #a88634;
   --agent-verifier: #a85656;
+  --agent-dashboard-designer: #cf7564;
+  --agent-feature-engineer: #c4953f;
+  --agent-time-series: #6f74be;
+  --agent-segmentation: #4f9a72;
+  --agent-explainability: #bd6a95;
+  --agent-experimentation: #9b72b8;
+  --agent-mlops: #6185a0;
+  --agent-data-steward: #86924a;
+  --agent-sql: #848c99;
+  --agent-regression: #a8955a;
+  --agent-insights: #7590c8;
+  --agent-publishing: #9a6e5c;
+  --agent-automation: #5fa3ab;
+  --agent-code: #b5604c;
 }
 
 :root[data-theme="dark"] {
@@ -214,6 +242,8 @@
   body {
     max-width: 100vw;
     overflow-x: hidden;
+    /* clip (where supported) also stops code from scrolling the page sideways. */
+    overflow-x: clip;
   }
 
   body {
@@ -437,6 +467,12 @@
   .segmented > button[aria-selected="true"] {
     background-color: var(--raised);
     box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04);
+  }
+  @media (max-width: 639px) {
+    .segmented-compact > button { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+  }
+  @media (max-width: 379px) {
+    .segmented-compact > button { padding: 0.3rem 0.45rem; font-size: 0.72rem; }
   }
   :root[data-theme="dark"] .segmented > button[aria-pressed="true"],
   :root[data-theme="dark"] .segmented > button[aria-selected="true"] {

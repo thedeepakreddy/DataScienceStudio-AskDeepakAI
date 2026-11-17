@@ -7,6 +7,8 @@ import type { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
 import { getCachedPlan, setCachedPlan } from '../utils/workspaceStore';
 import { CATALOG_VERSION, catalogForPlanner } from './catalog';
+import { skillsForPlanner } from './skills';
+import { reviewInput } from './orchestratorReview';
 import { PlanProblem, TaskSpec, mentionedColumns, normaliseAiTasks, rulePlan, validatePlan } from './plan';
 
 // Planning with as few AI calls as possible (blueprint 6.1): the built-in
@@ -87,9 +89,9 @@ export function planCacheKey(request: string, ds: Dataset) {
   return `v${CATALOG_VERSION}::${normaliseRequest(request)}::${schemaKey(ds)}`;
 }
 
-export async function planRequest(request: string, ds: Dataset | null, opts: { allowAi?: boolean; history?: ChatTurn[] } = {}): Promise<PlanOutcome> {
+export async function planRequest(request: string, ds: Dataset | null, opts: { allowAi?: boolean; history?: ChatTurn[]; hasModel?: boolean } = {}): Promise<PlanOutcome> {
   const empty = { aiCalls: 0, inputTokens: 0, outputTokens: 0, cacheHit: false };
-  const rules = rulePlan(request, ds);
+  const rules = rulePlan(request, ds, { hasModel: opts.hasModel });
   if (rules.tasks.length || !ds) {
     return { ...empty, tasks: rules.tasks, reply: rules.reply, plannedBy: 'rules', problems: rules.tasks.length ? validatePlan(rules.tasks, ds) : [], answer: !rules.tasks.length };
   }
@@ -110,6 +112,7 @@ export async function planRequest(request: string, ds: Dataset | null, opts: { a
     body: JSON.stringify({
       request,
       catalog: catalogForPlanner(),
+      skills: skillsForPlanner(),
       dataset: datasetContext(ds),
       history: (opts.history ?? []).slice(-8).map(h => ({ role: h.role, content: h.content.slice(0, 600) })),
     }),
@@ -134,4 +137,26 @@ export async function planRequest(request: string, ds: Dataset | null, opts: { a
     tasks, reply: body.reply || '', plannedBy: 'ai', problems,
     aiCalls: 1, inputTokens: body.usage?.inputTokens ?? 0, outputTokens: body.usage?.outputTokens ?? 0, cacheHit: false,
   };
+}
+
+/** The Orchestrator's AI check of a finished run (one call); null when AI is unavailable. */
+export async function aiReviewRun(run: import('./runtime').SwarmRun, ds: Dataset | null) {
+  try {
+    const res = await apiFetch('/api/swarm/review', {
+      method: 'POST',
+      body: JSON.stringify({ ...reviewInput(run), catalog: catalogForPlanner(), dataset: ds ? { columns: ds.columns.map(c => ({ name: c.name, type: c.type })) } : null }),
+    });
+    if (!res.ok) return null;
+    const body = await res.json().catch(() => null);
+    if (!body) return null;
+    return {
+      summary: String(body.summary ?? ''),
+      issues: Array.isArray(body.issues) ? body.issues.map(String) : [],
+      tasks: normaliseAiTasks(body.tasks).slice(0, 4),
+      inputTokens: body.usage?.inputTokens ?? 0,
+      outputTokens: body.usage?.outputTokens ?? 0,
+    };
+  } catch {
+    return null;
+  }
 }

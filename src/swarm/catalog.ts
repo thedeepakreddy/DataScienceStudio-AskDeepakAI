@@ -18,13 +18,16 @@ import type { AgentRole } from './agents';
 import { abTest } from '../utils/abTest';
 import { UI_SCRIPTS, type UiScript } from './uiScripts';
 import { reviewDataChange, reviewModel, reviewTest } from './review';
+import { adjustPValues } from '../utils/pAdjust';
+import { computeClusterQuality, runKMeans } from '../utils/mlEngine';
+import { clusterColumns, deepEdaResult, fmtNum, mean, rel, screenCandidates } from './findings';
 
 // The capability catalog: every studio action the swarm may take (blueprint
 // 5.3). Each one calls the same code the studio's own buttons use - the
 // operation registry, the Python service or the shared analysis utilities -
 // so there is no agent-only version of any feature (2.4, 5.5).
 
-export const CATALOG_VERSION = 1;
+export const CATALOG_VERSION = 2;
 
 /** How much an action changes, which decides whether it needs approval (10.1). */
 export type ApprovalClass = 'autonomous' | 'batch' | 'separate' | 'prohibited';
@@ -108,7 +111,12 @@ const DATA_OPS: Partial<Record<OperationId, { label: (p: any) => string; params:
   add_column: { label: p => `Add a column “${p.name}”`, params: '{ name: string, type: "numeric"|"categorical"|"boolean", value: string|number|boolean|null }', columns: () => [] },
   add_row: { label: () => 'Add a row', params: '{ values?: { [column]: value } }', columns: () => [] },
   delete_rows: { label: p => `Delete ${p.indices?.length === 1 ? `row ${Number(p.indices[0]) + 1}` : `${p.indices?.length} rows`}`, params: '{ indices: number[] }  // 0-based', columns: () => [] },
+  group_aggregate: { label: p => `Summarise by ${(p.by ?? []).map((b: string) => `“${b}”`).join(', ')}`, params: '{ by: string[], aggregations: { column: string, fn: "count"|"count_distinct"|"sum"|"mean"|"median"|"min"|"max" }[] }  // replaces the table with the summary (undoable)', columns: p => [...(p.by ?? []), ...(p.aggregations ?? []).map((a: any) => a.column)] },
+  pivot: { label: p => `Pivot “${p.values}” by “${p.index}” and “${p.columns}”`, params: '{ index: string, columns: string, values: string, fn: "count"|"sum"|"mean"|"median"|"min"|"max" }  // replaces the table (undoable)', columns: p => [p.index, p.columns, p.values] },
 };
+
+/** Feature work belongs to the Feature Engineer; the rest of the data operations to the Data Engineer. */
+const FEATURE_OPS: OperationId[] = ['derive_column', 'one_hot_encode', 'convert_type'];
 
 function dataCapability(op: OperationId): Capability {
   const meta = DATA_OPS[op]!;
@@ -116,7 +124,7 @@ function dataCapability(op: OperationId): Capability {
     id: `data.${op}`,
     studio: 'Data',
     label: meta.label,
-    defaultRole: 'data_engineer',
+    defaultRole: FEATURE_OPS.includes(op) ? 'feature_engineer' : 'data_engineer',
     // Every change makes a new version that Undo can return from, so a group
     // of them can be approved together (10.1 batch-approvable).
     approval: 'batch',
@@ -252,7 +260,7 @@ const OTHER: Capability[] = [
     },
   },
   {
-    id: 'stats.regression', studio: 'Statistics', label: p => `Regress “${p.outcome}” on ${p.predictors?.length ?? 0} columns`, defaultRole: 'statistician',
+    id: 'stats.regression', studio: 'Statistics', label: p => `Regress “${p.outcome}” on ${p.predictors?.length ?? 0} columns`, defaultRole: 'regression_analyst',
     approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'stats', timeoutMs: 90_000,
     params: '{ outcome: string, predictors: string[], kind?: "linear"|"logistic" }',
     validate: (p, ds) => requireCols(ds, [p?.outcome, ...(p?.predictors ?? [])]) ?? (!p.predictors?.length ? 'Choose at least one predictor.' : null),
@@ -270,18 +278,23 @@ const OTHER: Capability[] = [
   {
     id: 'models.train', studio: 'Models', label: p => `Train a model to predict “${p.target}”`, defaultRole: 'ml_engineer',
     approval: 'autonomous', sideEffect: 'model', backend: true, idempotent: true, step: 'ml', timeoutMs: 600_000,
-    params: '{ target: string, features?: string[], algorithm?: "auto"|"random_forest"|"gradient_boosting"|"xgboost"|"linear"|"mlp", seed?: number }',
-    validate: (p, ds) => requireCols(ds, [p?.target, ...(p?.features ?? [])]),
+    params: '{ target: string, features?: string[], algorithm?: "auto"|"random_forest"|"gradient_boosting"|"xgboost"|"linear"|"mlp", tune?: boolean /* needs a named algorithm */, seed?: number }',
+    validate: (p, ds) => requireCols(ds, [p?.target, ...(p?.features ?? [])]) ?? (p?.tune && (!p.algorithm || p.algorithm === 'auto') ? 'Tuning needs one named algorithm (e.g. random_forest).' : null),
     run: async (p, port) => {
       const ds = port.getDataset()!;
       const target = col(ds, p.target)!;
       const tcol = ds.columns.find(c => c.name === target)!;
       const features = (p.features?.length ? p.features.map((f: string) => col(ds, f)!) : ds.columns.filter(c => c.name !== target && !isIdentifierColumn(c, ds.rowCount) && c.type !== 'datetime').map(c => c.name)) as string[];
       const modelType = tcol.type === 'numeric' && tcol.distinctCount > 15 ? 'regression' : 'classification';
-      const result = await port.train(target, features, modelType, { selectedAlgorithmId: p.algorithm ?? 'auto', seed: p.seed ?? 42 });
+      const result = await port.train(target, features, modelType, { selectedAlgorithmId: p.algorithm ?? 'auto', seed: p.seed ?? 42, ...(p.tune ? { tune: true, tune_iterations: 12 } : {}) });
       const m = result.metrics || {};
       const score = modelType === 'classification' ? `accuracy ${((m.accuracy ?? 0) * 100).toFixed(1)}%` : `R² ${(m.r2Score ?? 0).toFixed(3)}`;
-      return { summary: `${result.modelAlgorithm}: ${score} on held-out rows.`, data: { algorithm: result.modelAlgorithm, metrics: m, cv: result.cv, modelId: result.modelId, leakage: result.leakageWarnings ?? [] } };
+      return {
+        summary: `${result.modelAlgorithm}: ${score} on held-out rows${result.tuning?.tuned ? ' (tuned)' : ''}.`,
+        data: { algorithm: result.modelAlgorithm, metrics: m, cv: result.cv, modelId: result.modelId, leakage: result.leakageWarnings ?? [] },
+        // The Explainability Analyst reads what the model learned.
+        followUps: [{ capability: 'models.explain', params: {}, reason: 'Read what the model learned and check for leakage.' }],
+      };
     },
     selfCheck: (_p, _b, _a, r) => {
       const d = r.data as any;
@@ -291,7 +304,7 @@ const OTHER: Capability[] = [
     },
   },
   {
-    id: 'models.forecast', studio: 'Models', label: p => `Forecast “${p.valueColumn}” ${p.horizon ?? 6} periods ahead`, defaultRole: 'data_scientist',
+    id: 'models.forecast', studio: 'Models', label: p => `Forecast “${p.valueColumn}” ${p.horizon ?? 6} periods ahead`, defaultRole: 'time_series_analyst',
     approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'ml', timeoutMs: 120_000,
     params: '{ dateColumn: string, valueColumn: string, horizon?: number }',
     validate: (p, ds) => requireCols(ds, [p?.dateColumn, p?.valueColumn]),
@@ -305,7 +318,7 @@ const OTHER: Capability[] = [
     selfCheck: (_p, _b, _a, r) => ((r.data as any)?.forecast?.length ? { ok: true, detail: 'Forecast and backtest returned.' } : { ok: false, detail: 'No forecast returned.' }),
   },
   {
-    id: 'sql.query', studio: 'Explore', label: () => 'Run a read-only SQL query', defaultRole: 'data_scientist',
+    id: 'sql.query', studio: 'Explore', label: () => 'Run a read-only SQL query', defaultRole: 'sql_analyst',
     approval: 'autonomous', sideEffect: 'none', backend: false, idempotent: true, step: 'eda', timeoutMs: 20_000,
     params: '{ sql: string }  // one SELECT over the table named dataset',
     validate: (p, ds) => {
@@ -357,7 +370,7 @@ const OTHER: Capability[] = [
     selfCheck: (_p, _b, after) => (after ? { ok: true, detail: `${after.rows.length} rows × ${after.columns.length} columns.` } : { ok: false, detail: 'No data.' }),
   },
   {
-    id: 'data.custom_code', studio: 'Data', label: p => `Run custom transformation code${p.explanation ? `: ${p.explanation}` : ''}`, defaultRole: 'data_engineer',
+    id: 'data.custom_code', studio: 'Data', label: p => `Run custom transformation code${p.explanation ? `: ${p.explanation}` : ''}`, defaultRole: 'code_specialist',
     // Code isn't a known operation, so every run needs its own approval.
     approval: 'separate', sideEffect: 'new-version', backend: false, idempotent: false, step: 'clean', timeoutMs: 15_000,
     params: '{ code: string /* (dataset) => dataset, runs in a sandbox */, explanation?: string }',
@@ -371,7 +384,7 @@ const OTHER: Capability[] = [
     selfCheck: (_p, before, after) => (after && after !== before ? { ok: true, detail: 'A new data version was produced.' } : { ok: false, detail: 'The data didn’t change.' }),
   },
   {
-    id: 'stats.power', studio: 'Statistics', label: p => `Plan the sample size (${p.test}, effect ${p.effect})`, defaultRole: 'statistician',
+    id: 'stats.power', studio: 'Statistics', label: p => `Plan the sample size (${p.test}, effect ${p.effect})`, defaultRole: 'experimentation_scientist',
     approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'stats', timeoutMs: 60_000,
     params: '{ test: "two-sample-t"|"paired-t"|"anova"|"correlation"|"two-proportions", effect: number, power?: number, n?: number }',
     validate: p => (typeof p?.effect !== 'number' || !p.effect ? 'Give a non-zero effect size.' : !['two-sample-t', 'paired-t', 'anova', 'correlation', 'two-proportions'].includes(p.test) ? 'Unknown design.' : null),
@@ -382,7 +395,7 @@ const OTHER: Capability[] = [
     selfCheck: passthroughCheck,
   },
   {
-    id: 'stats.ab_test', studio: 'Statistics', label: p => `A/B test: ${(p.controlRate * 100).toFixed(1)}% vs ${(p.treatmentRate * 100).toFixed(1)}%`, defaultRole: 'statistician',
+    id: 'stats.ab_test', studio: 'Statistics', label: p => `A/B test: ${(p.controlRate * 100).toFixed(1)}% vs ${(p.treatmentRate * 100).toFixed(1)}%`, defaultRole: 'experimentation_scientist',
     approval: 'autonomous', sideEffect: 'none', backend: false, idempotent: true, step: 'stats', timeoutMs: 5_000,
     params: '{ controlSize: number, controlRate: number /* 0-1 */, treatmentSize: number, treatmentRate: number, confidence?: number }',
     validate: p => ([p?.controlSize, p?.treatmentSize].some(n => !(n > 1)) || [p?.controlRate, p?.treatmentRate].some(r => !(r >= 0 && r <= 1)) ? 'Sizes must be over 1 and rates between 0 and 1.' : null),
@@ -393,7 +406,7 @@ const OTHER: Capability[] = [
     selfCheck: passthroughCheck,
   },
   {
-    id: 'explore.ai_advisory', studio: 'Explore', label: () => 'Get the AI advisory on the dataset', defaultRole: 'data_scientist',
+    id: 'explore.ai_advisory', studio: 'Explore', label: () => 'Get the AI advisory on the dataset', defaultRole: 'insights_strategist',
     approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'eda', timeoutMs: 120_000, params: '{}  // uses one AI call',
     validate: (_p, ds) => (ds ? null : 'No dataset is loaded.'),
     run: async (_p, port) => {
@@ -403,16 +416,180 @@ const OTHER: Capability[] = [
     },
     selfCheck: passthroughCheck,
   },
+  {
+    id: 'explore.deep_eda', studio: 'Explore', label: () => 'Run the deep analysis on the full data', defaultRole: 'data_scientist',
+    approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'eda', timeoutMs: 180_000, params: '{ planModel?: boolean }',
+    validate: (_p, ds) => (ds ? null : 'No dataset is loaded.'),
+    run: async (p, port, signal) => {
+      const ds = port.getDataset()!;
+      const body = await port.api('/api/eda', { datasetRows: ds.rows }, signal);
+      return deepEdaResult(body, !!p?.planModel);
+    },
+    selfCheck: (_p, _b, _a, r) => ((r.data as any)?.rowCount ? { ok: true, detail: 'Computed by the pandas engine on every row.' } : { ok: false, detail: 'No analysis returned.' }),
+  },
+  {
+    id: 'stats.screen', studio: 'Statistics', label: p => `Find what drives “${p.target}”`, defaultRole: 'statistician',
+    approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'stats', timeoutMs: 300_000,
+    params: '{ target: string, columns?: string[] /* default: every informative column, up to 12 */, alpha?: number }',
+    validate: (p, ds) => requireCols(ds, [p?.target, ...(p?.columns ?? [])]) ?? (screenCandidates(ds!, col(ds, p.target)!, p.columns).length ? null : 'There are no other informative columns to test.'),
+    run: async (p, port, signal) => {
+      const ds = port.getDataset()!;
+      const target = col(ds, p.target)!;
+      const alpha = p.alpha ?? 0.05;
+      const tested: { column: string; test: string; pValue: number; effect: { name?: string; value?: number; magnitude?: string } | null }[] = [];
+      const skipped: { column: string; reason: string }[] = [];
+      for (const c of screenCandidates(ds, target, p.columns)) {
+        if (signal.aborted) throw Object.assign(new Error('Cancelled.'), { cancelled: true });
+        try {
+          const body = await port.api('/api/stats/compare', { data: ds.rows.map(r => ({ [c]: r[c], [target]: r[target] })), columnA: c, columnB: target, alpha }, signal);
+          if (typeof body?.pValue === 'number') tested.push({ column: c, test: body.test, pValue: body.pValue, effect: body.effectSize ?? null });
+          else skipped.push({ column: c, reason: 'No p-value returned.' });
+        } catch (err: any) {
+          // A column the engine can't test (e.g. too few rows per group) is skipped, not fatal…
+          if (/not responding|HTTP 5|unreachable|fetch failed|timed out/i.test(String(err?.message))) throw err; // …but an outage is.
+          skipped.push({ column: c, reason: String(err?.message ?? err) });
+        }
+      }
+      if (!tested.length) throw new Error('None of the columns could be tested against the target.');
+      // Holm correction across every test in the screen.
+      const adjusted = adjustPValues(tested.map(t => t.pValue), 'holm');
+      const rows = tested.map((t, i) => ({ ...t, adjustedP: adjusted[i], significant: adjusted[i] < alpha }));
+      const strength = (r: typeof rows[number]) => Math.abs(Number(r.effect?.value ?? 0));
+      rows.sort((a, b) => Number(b.significant) - Number(a.significant) || strength(b) - strength(a) || a.adjustedP - b.adjustedP);
+      const drivers = rows.filter(r => r.significant);
+      // Follow-up: a regression on the numeric drivers shows their combined effect.
+      const tcol = ds.columns.find(c => c.name === target)!;
+      const numericDrivers = drivers.map(d => d.column).filter(n => ds.columns.find(c => c.name === n)?.type === 'numeric').slice(0, 4);
+      const binary = tcol.distinctCount === 2;
+      const followUps: CapabilityResult['followUps'] = numericDrivers.length && (binary || (tcol.type === 'numeric' && tcol.distinctCount > 2))
+        ? [{ capability: 'stats.regression', params: { outcome: target, predictors: numericDrivers }, reason: `See the combined effect of ${numericDrivers.join(', ')} on ${target}.` }]
+        : [];
+      const top = drivers.slice(0, 4).map(d => `${d.column}${d.effect?.magnitude ? ` (${d.effect.magnitude})` : ''}`).join(', ');
+      return {
+        summary: drivers.length
+          ? `${drivers.length} of ${rows.length} columns relate to “${target}” after Holm correction: ${top}${drivers.length > 4 ? '…' : ''}.`
+          : `None of the ${rows.length} columns relate to “${target}” after Holm correction.`,
+        data: { target, alpha, correction: 'holm', results: rows, skipped, drivers: drivers.map(d => d.column) },
+        followUps,
+      };
+    },
+    selfCheck: (_p, _b, _a, r) => {
+      const d = r.data as any;
+      const ok = d?.results?.every((x: any) => x.adjustedP >= x.pValue - 1e-12);
+      return ok ? { ok: true, detail: `${d.results.length} tests, each adjusted p ≥ its raw p (Holm).` } : { ok: false, detail: 'The correction is inconsistent.' };
+    },
+  },
+  {
+    id: 'models.cluster', studio: 'Models', label: p => `Find segments${p?.columns?.length ? ` in ${p.columns.length} columns` : ''}`, defaultRole: 'segmentation_analyst',
+    approval: 'autonomous', sideEffect: 'none', backend: false, idempotent: true, step: 'ml', timeoutMs: 60_000,
+    params: '{ columns?: string[] /* numeric; default: informative numeric columns */, k?: number /* 2-6; default: chosen by silhouette */ }',
+    validate: (p, ds) => requireCols(ds, p?.columns ?? []) ?? (clusterColumns(ds!, p?.columns).length >= 2 ? null : 'Segments need at least two informative numeric columns.'),
+    run: async (p, port) => {
+      const ds = port.getDataset()!;
+      const cols = clusterColumns(ds, p.columns);
+      // Bounded, evenly spaced sample keeps the silhouette search fast on big data.
+      const rows = ds.rows.length > 4000 ? ds.rows.filter((_, i) => i % Math.ceil(ds.rows.length / 4000) === 0) : ds.rows;
+      const ks = p.k ? [Math.min(6, Math.max(2, p.k))] : [2, 3, 4, 5, 6];
+      let best: { k: number; silhouette: number; assign: number[] } | null = null;
+      const tried: { k: number; silhouette: number }[] = [];
+      for (const k of ks) {
+        if (rows.length < k * 5) break;
+        const r = runKMeans(rows, cols, k);
+        const q = computeClusterQuality(rows, cols, r.clusterAssignments);
+        tried.push({ k, silhouette: q.silhouetteScore });
+        if (!best || q.silhouetteScore > best.silhouette) best = { k, silhouette: q.silhouetteScore, assign: r.clusterAssignments };
+      }
+      if (!best) throw new Error('Too few rows to find segments.');
+      const overall = Object.fromEntries(cols.map(c => [c, mean(rows.map(r => Number(r[c])))]));
+      const segments = Array.from({ length: best.k }, (_, s) => {
+        const members = rows.filter((_, i) => best!.assign[i] === s);
+        const means = Object.fromEntries(cols.map(c => [c, mean(members.map(r => Number(r[c])))]));
+        // What sets this segment apart: the two columns furthest from the overall average.
+        const distinct = [...cols].sort((a, b) => Math.abs(rel(means[b], overall[b])) - Math.abs(rel(means[a], overall[a]))).slice(0, 2);
+        const standsOut = distinct.map(c => `${c} ${rel(means[c], overall[c]) >= 0 ? 'high' : 'low'} (${fmtNum(means[c])} vs ${fmtNum(overall[c])})`).join(', ');
+        return { segment: s + 1, size: members.length, share: members.length / rows.length, means, standsOut };
+      });
+      const small = segments.filter(g => g.share < 0.05).length;
+      return {
+        summary: `${best.k} segments (silhouette ${best.silhouette.toFixed(2)}${best.silhouette < 0.25 ? ', weak structure' : ''}) on ${cols.length} columns: ${segments.map(g => `#${g.segment} ${Math.round(g.share * 100)}% — ${g.standsOut}`).join('; ')}.${small ? ` ${small} segment(s) under 5% of rows — treat with caution.` : ''}`,
+        data: { k: best.k, silhouette: best.silhouette, tried, columns: cols, segments, sampledRows: rows.length },
+      };
+    },
+    selfCheck: (_p, _b, _a, r) => {
+      const d = r.data as any;
+      const total = d?.segments?.reduce((a: number, g: any) => a + g.size, 0);
+      return total === d?.sampledRows ? { ok: true, detail: `Every row is in exactly one of ${d.k} segments.` } : { ok: false, detail: 'Segment sizes don’t add up.' };
+    },
+  },
+  {
+    id: 'models.explain', studio: 'Models', label: () => 'Explain what the model learned', defaultRole: 'explainability_analyst',
+    approval: 'autonomous', sideEffect: 'none', backend: false, idempotent: true, step: 'ml', timeoutMs: 10_000, params: '{}',
+    validate: (_p, ds) => (ds ? null : 'No dataset is loaded.'),
+    run: async (_p, port) => {
+      const model = port.getModel();
+      if (!model) throw Object.assign(new Error('There is no trained model to explain yet.'), { permanent: true });
+      const ds = port.getDataset()!;
+      const imp = [...(model.featureImportance ?? [])].sort((a, b) => b.score - a.score);
+      const total = imp.reduce((a, f) => a + Math.abs(f.score), 0) || 1;
+      const top = imp.slice(0, 5).map(f => ({ ...f, share: Math.abs(f.score) / total }));
+      const idCols = ds.columns.filter(c => isIdentifierColumn(c, ds.rowCount)).map(c => c.name.toLowerCase());
+      const t = String(model.target ?? '').toLowerCase();
+      // One column dominating is suspicious only when there are several inputs to share the weight.
+      const dominant = (f: { share: number }) => imp.length >= 4 && f.share > 0.75;
+      const alarms = top.filter(f => idCols.includes(f.feature.toLowerCase()) || (t && f.feature.toLowerCase().includes(t)) || dominant(f))
+        .map(f => `${f.feature} carries ${Math.round(f.share * 100)}% of the importance${idCols.includes(f.feature.toLowerCase()) ? ' and looks like an ID' : dominant(f) ? ' — one column dominating can mean leakage' : ' and resembles the target'}`);
+      const leaks = (model.leakageWarnings ?? []).map((l: any) => l.column ?? String(l));
+      // Structured, so the Orchestrator's review can retrain without an ID that dominates.
+      const alarmFeatures = top.filter(f => idCols.includes(f.feature.toLowerCase())).map(f => f.feature);
+      return {
+        summary: top.length
+          ? `Top drivers of ${model.target ?? 'the prediction'}: ${top.map(f => `${f.feature} (${Math.round(f.share * 100)}%)`).join(', ')}.${alarms.length ? ` Check: ${alarms.join('; ')}.` : ' No sign of leakage in the top features.'}`
+          : 'The model returned no feature importances to explain.',
+        data: { target: model.target, algorithm: model.modelAlgorithm, top, alarms, alarmFeatures, leakageWarnings: leaks },
+      };
+    },
+    // A model without importances (some algorithms report none) isn't a failure of the explanation.
+    selfCheck: (_p, _b, _a, r) => ({ ok: true, detail: (r.data as any)?.top?.length ? 'Explained from the model’s own SHAP importances.' : 'This model reported no importances, so there was nothing to explain.' }),
+  },
+  {
+    id: 'dashboard.design', studio: 'Research', label: p => `Design the dashboard${p?.focus ? ` for “${String(p.focus).slice(0, 60)}”` : ''}`, defaultRole: 'dashboard_designer',
+    approval: 'autonomous', sideEffect: 'none', backend: false, idempotent: true, step: 'dashboard', timeoutMs: 120_000, uiOnly: true,
+    params: '{ focus?: string /* the user\'s words */, metrics?: string[], dimensions?: string[], time?: string, charts?: ("line"|"bar"|"pie"|"scatter"|"histogram"|"box"|"heatmap"|"area"|"table")[], target?: string }',
+    validate: (p, ds) => (!ds ? 'No dataset is loaded.' : requireCols(ds, [...(p?.metrics ?? []), ...(p?.dimensions ?? []), ...(p?.time ? [p.time] : []), ...(p?.target ? [p.target] : [])])),
+    run: async () => { throw new Error('Dashboards are designed on the studio page.'); },
+    selfCheck: (_p, _b, _a, r) => {
+      const d = r.data as any;
+      const missing = (d?.expected ?? []).filter((e: string) => !(d?.rendered ?? []).includes(e));
+      return missing.length ? { ok: false, detail: `Not rendered: ${missing.join(', ')}.` } : { ok: true, detail: `All ${d?.expected?.length ?? 0} components rendered with the chosen columns.` };
+    },
+  },
+  {
+    id: 'dashboard.filter', studio: 'Research', label: p => `Filter the dashboard to ${p.column} = ${(p.values ?? []).join(', ')}`, defaultRole: 'bi_analyst',
+    approval: 'autonomous', sideEffect: 'none', backend: false, idempotent: true, step: 'dashboard', timeoutMs: 60_000, uiOnly: true,
+    params: '{ column: string, values: string[] }  // empty values clears the filter',
+    validate: (p, ds) => requireCols(ds, [p?.column]) ?? (!Array.isArray(p?.values) ? 'Give the values to keep.' : null),
+    run: async () => { throw new Error('Filters are set on the studio page.'); },
+    selfCheck: passthroughCheck,
+  },
+  {
+    id: 'import.sample', studio: 'Data', label: p => `Load the ${p.name} sample dataset`, defaultRole: 'data_engineer',
+    // Replaces the working dataset, so it gets its own approval.
+    approval: 'separate', sideEffect: 'new-version', backend: false, idempotent: true, step: 'ingest', timeoutMs: 60_000, uiOnly: true,
+    params: '{ name: "churn"|"saas"|"hardware" }',
+    validate: p => (['churn', 'saas', 'hardware'].includes(p?.name) ? null : 'Choose churn, saas or hardware.'),
+    run: async () => { throw new Error('Samples are loaded on the Import step.'); },
+    selfCheck: (_p, _b, after) => (after ? { ok: true, detail: `${after.rows.length} rows × ${after.columns.length} columns loaded.` } : { ok: false, detail: 'No data after loading.' }),
+  },
   ...([
     ['dashboard.add_kpi', 'Research', p => `Add the KPI “${p.name}”`, 'bi_analyst', 'dashboard', '{ name: string, formula: string /* e.g. SUM(revenue) / COUNT() */, format?: "number"|"percent"|"currency" }', (p: any) => (!p?.name || !p?.formula ? 'A KPI needs a name and a formula.' : null)],
-    ['dashboard.save', 'Research', p => `Save the dashboard as “${p.name}”`, 'bi_analyst', 'dashboard', '{ name: string }', (p: any) => (!p?.name ? 'Give the dashboard a name.' : null)],
-    ['quality.add_rule', 'Data', p => `Add a ${String(p.kind).replace(/_/g, ' ')} rule for “${p.column}”`, 'data_quality', 'clean', '{ column: string, kind: "not_empty"|"unique"|"range"|"allowed_values"|"pattern", min?: number, max?: number, allowed?: string[], pattern?: string }', (p: any, ds: Dataset | null) => requireCols(ds, [p?.column])],
-    ['workflow.save', 'Data', p => `Save the cleaning steps as “${p.name}”`, 'data_engineer', 'clean', '{ name: string }', (p: any) => (!p?.name ? 'Give the workflow a name.' : null)],
-    ['workflow.apply', 'Data', p => `Run the workflow “${p.name}”`, 'data_engineer', 'clean', '{ name: string }', (p: any) => (!p?.name ? 'Name the workflow to run.' : null)],
-    ['report.pdf', 'Research', () => 'Download the report PDF', 'research_analyst', 'reports', '{}', () => null],
-    ['report.package', 'Research', () => 'Download the reproducibility package', 'research_analyst', 'reports', '{}', () => null],
-    ['deploy.register', 'Deploy', p => `Register the current model${p.name ? ` as “${p.name}”` : ''}`, 'ml_engineer', 'ml', '{ name?: string, intendedUse?: string }', () => null],
-    ['deploy.predict', 'Deploy', () => 'Predict with the active model', 'ml_engineer', 'ml', '{ values: { [feature]: value } }', (p: any) => (!p?.values ? 'Give the input values.' : null)],
+    ['dashboard.save', 'Research', p => `Save the dashboard as “${p.name}”`, 'dashboard_designer', 'dashboard', '{ name: string }', (p: any) => (!p?.name ? 'Give the dashboard a name.' : null)],
+    ['quality.add_rule', 'Data', p => `Add a ${String(p.kind).replace(/_/g, ' ')} rule for “${p.column}”`, 'data_steward', 'clean', '{ column: string, kind: "not_empty"|"unique"|"range"|"allowed_values"|"pattern", min?: number, max?: number, allowed?: string[], pattern?: string }', (p: any, ds: Dataset | null) => requireCols(ds, [p?.column])],
+    ['workflow.save', 'Data', p => `Save the cleaning steps as “${p.name}”`, 'automation_engineer', 'clean', '{ name: string }', (p: any) => (!p?.name ? 'Give the workflow a name.' : null)],
+    ['workflow.apply', 'Data', p => `Run the workflow “${p.name}”`, 'automation_engineer', 'clean', '{ name: string }', (p: any) => (!p?.name ? 'Name the workflow to run.' : null)],
+    ['report.pdf', 'Research', () => 'Download the report PDF', 'publishing_agent', 'reports', '{}', () => null],
+    ['report.package', 'Research', () => 'Download the reproducibility package', 'publishing_agent', 'reports', '{}', () => null],
+    ['deploy.register', 'Deploy', p => `Register the current model${p.name ? ` as “${p.name}”` : ''}`, 'mlops_engineer', 'ml', '{ name?: string, intendedUse?: string }', () => null],
+    ['deploy.predict', 'Deploy', () => 'Predict with the active model', 'mlops_engineer', 'ml', '{ values: { [feature]: value } }', (p: any) => (!p?.values ? 'Give the input values.' : null)],
   ] as [string, Capability['studio'], (p: any) => string, AgentRole, PipelineStage, string, Capability['validate']][]).map(([id, studio, label, role, step, params, validate]): Capability => ({
     id, studio, label, defaultRole: role, step, params, validate,
     // Registering a model makes it the one used for predictions, so it has its own approval.

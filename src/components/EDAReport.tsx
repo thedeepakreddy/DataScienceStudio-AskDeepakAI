@@ -34,6 +34,7 @@ import {
 import SQLAssistant from './SQLAssistant';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
+import { useLogRun } from '../contexts/WorkspaceContext';
 import Orb from './Orb';
 
 interface EDAReportProps {
@@ -58,6 +59,7 @@ interface EDAReportProps {
 
 export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI, onUseQueryResult }: EDAReportProps) {
   const { expertMode } = usePipelineContext();
+  const logRun = useLogRun();
   // State for Sub-Workspaces
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'sql' | 'deepeda'>('overview');
 
@@ -80,8 +82,17 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
       try { body = text ? JSON.parse(text) : null; } catch { /* host returned a non-JSON gateway page */ }
       if (!res.ok) throw new Error(body?.error || body?.hint || `EDA request failed (HTTP ${res.status}). The ML compute service may still be waking up from an idle sleep — try again in a moment.`);
       setDeepEdaResult(body);
+      logRun({
+        kind: 'deep-eda',
+        title: 'Deep analysis (pandas, full data)',
+        summary: `${Number(body?.rowCount ?? 0).toLocaleString()} rows × ${body?.columnCount ?? 0} columns analysed`,
+        status: 'succeeded',
+        params: { rows: dataset.rows.length },
+        result: body,
+      });
     } catch (err: any) {
       setDeepEdaError(err.message || 'Real EDA computation failed — is the ML compute service running?');
+      logRun({ kind: 'deep-eda', title: 'Deep analysis (pandas, full data)', summary: 'Failed', status: 'failed', error: err.message || String(err) });
     } finally {
       setLoadingDeepEda(false);
     }
@@ -264,6 +275,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
               key={tab.id}
               type="button"
               role="tab"
+              data-agent={`eda-tab-${tab.id}`}
               aria-selected={activeSubTab === tab.id}
               onClick={() => setActiveSubTab(tab.id as any)}
             >
@@ -1069,6 +1081,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
                   </p>
                 </div>
                 <button
+                  data-agent="eda-deep-run"
                   onClick={runDeepEda}
                   disabled={loadingDeepEda}
                   aria-busy={loadingDeepEda}

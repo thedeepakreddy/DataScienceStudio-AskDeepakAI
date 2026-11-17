@@ -68,12 +68,16 @@ interface MLPipelineProps {
   loadingML: boolean;
 }
 
+// Continuous numeric targets must be regression: sklearn classifiers reject them outright.
+const inferModelType = (col?: { type: string; distinctCount: number }): 'classification' | 'regression' =>
+  col && (col.type === 'categorical' || col.type === 'boolean' || col.distinctCount < 10) ? 'classification' : 'regression';
+
 const REAL_ALGORITHM_OPTIONS = ['auto', 'linear', 'random_forest', 'xgboost', 'mlp'];
 
 export default function MLPipeline({
   dataset,
   aiSuggestedTarget = '',
-  aiSuggestedType = 'classification',
+  aiSuggestedType,
   aiSuggestedFeatures = [],
   onTriggerPrediction,
   mlResult,
@@ -82,7 +86,9 @@ export default function MLPipeline({
   const { expertMode } = usePipelineContext();
   const [target, setTarget] = useState(aiSuggestedTarget || dataset.columns[dataset.columns.length - 1]?.name || '');
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
-  const [modelType, setModelType] = useState<'classification' | 'regression' | 'timeseries'>('classification');
+  const [modelType, setModelType] = useState<'classification' | 'regression' | 'timeseries'>(() =>
+    inferModelType(dataset.columns.find(c => c.name === (aiSuggestedTarget || dataset.columns[dataset.columns.length - 1]?.name)))
+  );
 
   // Real model selector — trimmed to algorithms this app can genuinely train
   // (scikit-learn Linear/Logistic Regression, Random Forest, XGBoost, MLP).
@@ -136,9 +142,10 @@ export default function MLPipeline({
     if (aiSuggestedTarget) {
       setTarget(aiSuggestedTarget);
     }
-    if (aiSuggestedType) {
-      setModelType(aiSuggestedType as any);
-    }
+    // Only trust the advisor's type if it matches the target's data; otherwise follow the data.
+    const targetName = aiSuggestedTarget || dataset.columns[dataset.columns.length - 1]?.name;
+    const inferredType = inferModelType(dataset.columns.find(c => c.name === targetName));
+    setModelType(aiSuggestedType === 'timeseries' ? 'timeseries' : inferredType);
     if (aiSuggestedFeatures && aiSuggestedFeatures.length > 0) {
       setSelectedFeatures(aiSuggestedFeatures.filter(f => usableFeatureNames.has(f)));
     } else {
@@ -616,7 +623,7 @@ export default function MLPipeline({
                     </select>
                   </div>
                   <label className="col-span-2 flex items-start gap-2 text-sm text-label">
-                    <input type="checkbox" className="mt-1" checked={tune} disabled={selectedAlgorithmId === 'auto'} onChange={e => setTune(e.target.checked)} />
+                    <input type="checkbox" data-agent="ml-tune" className="mt-1" checked={tune} disabled={selectedAlgorithmId === 'auto'} onChange={e => setTune(e.target.checked)} />
                     <span>
                       Tune the settings automatically
                       <span className="block text-xs text-label-2">

@@ -7,15 +7,16 @@ import type { Dataset } from '../types';
 import { isIdentifierColumn } from '../utils/csvParser';
 import { AgentRole, isAgentRole } from './agents';
 import { CAPABILITIES } from './catalog';
+import { clusterColumns } from './findings';
 
 // Task plans (blueprint 5): a request becomes a graph of tasks with
 // dependencies, each a contract naming the one capability it may use.
 
 export const LIMITS = {
   /** Most tasks in one plan, including ones added while running. */
-  maxTasks: 20,
+  maxTasks: 40,
   /** Most tasks the swarm may add on its own while running (bounded, 4.2). */
-  maxDynamicTasks: 8,
+  maxDynamicTasks: 14,
   /** Backend jobs running at once (the free ML service is small). */
   maxConcurrentBackend: 2,
   maxRetries: 2,
@@ -79,26 +80,8 @@ export function validatePlan(tasks: TaskSpec[], ds: Dataset | null): PlanProblem
 
 // --- Rule planner: common requests planned without an AI call (6.1) --------
 
-// Lower case, camelCase split, punctuation to spaces: "MonthlyCharges" -> "monthly charges".
-const norm = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
-/** Columns named in the request, longest names first so "monthly charges" beats "charges". */
-export function mentionedColumns(request: string, ds: Dataset): string[] {
-  const text = ` ${norm(request)} `;
-  const found: { name: string; at: number }[] = [];
-  const names = [...ds.columns.map(c => c.name)].sort((a, b) => b.length - a.length);
-  let masked = text;
-  for (const name of names) {
-    const variants = [` ${norm(name)} `, ` ${name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `];
-    const n = variants.find(v => v.trim() && masked.includes(v)) ?? variants[0];
-    const at = n.trim() ? masked.indexOf(n) : -1;
-    if (at >= 0) {
-      found.push({ name, at });
-      masked = masked.slice(0, at) + ' '.repeat(n.length) + masked.slice(at + n.length);
-    }
-  }
-  return found.sort((a, b) => a.at - b.at).map(f => f.name);
-}
+export { mentionedColumns } from './text';
+import { mentionedColumns } from './text';
 
 const has = (text: string, ...words: string[]) => words.some(w => new RegExp(`\\b${w}`, 'i').test(text));
 
@@ -108,7 +91,8 @@ export interface RulePlan { tasks: TaskSpec[]; reply: string }
  * Plans common requests from keywords and the data's columns. Returns no tasks
  * when it can't tell what is wanted, so the AI planner (or the user) decides.
  */
-export function rulePlan(request: string, ds: Dataset | null): RulePlan {
+export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?: boolean } = {}): RulePlan {
+  const hasModel = !!opts.hasModel;
   const text = request.toLowerCase();
   if (!ds) return { tasks: [], reply: 'Import a dataset first, then tell me what you need.' };
   const cols = mentionedColumns(request, ds);
@@ -126,62 +110,122 @@ export function rulePlan(request: string, ds: Dataset | null): RulePlan {
     return { tasks, reply: tasks.length === 1 ? `I’ll ${tasks[0].why.charAt(0).toLowerCase()}${tasks[0].why.slice(1)}` : `I’ve planned ${tasks.length} tasks.` };
   }
 
-  const everything = has(text, 'everything', 'full analysis', 'end to end', 'end-to-end', 'complete analysis', 'whole pipeline', 'analy[sz]e (this|the|my) data');
+  const everything = has(text, 'everything', 'full analysis', 'end to end', 'end-to-end', 'complete analysis', 'whole pipeline', 'all (the )?steps', 'analy[sz]e (this|the|my) data');
+  const wants = {
+    clean: everything || has(text, 'clean', 'prepare', 'tidy', 'fix (the )?data', 'quality'),
+    profile: everything || has(text, 'profile', 'overview', 'describe', 'explore'),
+    deepEda: everything || has(text, 'deep analysis', 'in depth', 'pandas', 'skew', 'outliers?', 'correlation matrix', 'distributions?'),
+    drivers: has(text, 'drives?', 'drivers', 'what (affects|influences|explains|predicts)', 'which (factors|columns|features|variables)', 'key factors', 'why do'),
+    test: has(text, 'test', 'significan', 'relationship', 'correlat', 'compare', 'differ', 'associat', 'hypothes'),
+    regression: has(text, 'regress'),
+    train: everything || has(text, 'train', 'model', 'predict', 'classif'),
+    tune: has(text, 'tune', 'tuning', 'optimi[sz]e', 'improve the model', 'hyperparameter'),
+    explain: has(text, 'explain', 'feature importance', 'shap', 'what did the model learn'),
+    forecast: has(text, 'forecast', 'predict next', 'future', 'next (month|week|quarter|year)'),
+    cluster: has(text, 'segment', 'cluster', 'personas', 'groups of (customers|users|people)'),
+    dashboard: everything || has(text, 'dashboard', 'visuali[sz]', 'charts?'),
+    report: everything || has(text, 'report', 'write.?up', 'findings'),
+    pdf: everything || has(text, 'pdf'),
+    pack: has(text, 'package', 'zip', 'reproducib'),
+  };
 
-  const wantsClean = everything || has(text, 'clean', 'prepare', 'tidy', 'fix (the )?data', 'quality');
-  const wantsProfile = everything || has(text, 'profile', 'explore', 'overview', 'describe', 'eda');
-  const wantsTest = has(text, 'test', 'significan', 'relationship', 'correlat', 'compare', 'differ', 'associat', 'hypothes');
-  const wantsTrain = everything || has(text, 'train', 'model', 'predict', 'classif');
-  const wantsForecast = has(text, 'forecast', 'predict next', 'future');
-  const wantsReport = everything || has(text, 'report', 'summar');
-  const wantsDashboard = has(text, 'dashboard');
-
-  // Target: the column named after "predict"/"target"/"for", else an
-  // outcome-like mentioned column, else an outcome-like column, else the last.
-  const outcomeRe = /(target|label|churn|outcome|default|fraud|converted|survived|y)$/i;
-  const afterPredict = (() => {
-    const m = request.match(/\b(?:predict(?:s|ing)?|target|forecast(?:ing)?)\b(.*)$/i);
-    return m ? mentionedColumns(m[1], ds)[0] : undefined;
-  })();
-  const outcomeLike = ds.columns.find(c => outcomeRe.test(c.name));
-  const target = afterPredict ?? cols.find(c => outcomeRe.test(c)) ?? cols[0] ?? outcomeLike?.name ?? ds.columns[ds.columns.length - 1]?.name;
+  // The outcome: only when the user names it or a column clearly is one —
+  // a confident model of the wrong column is worse than none.
+  const target = chooseTarget(request, ds, cols);
+  const tcol = target ? ds.columns.find(c => c.name === target) : undefined;
+  const skipped: string[] = [];
 
   let cleanDone: string | undefined;
-  if (wantsClean) cleanDone = add('quality.check', {}, 'Find missing values, duplicates and constant columns; fixes are added as follow-up tasks.');
+  if (wants.clean) cleanDone = add('quality.check', {}, 'Find missing values, duplicates, constant and ID columns; fixes are added as tasks for you to approve.');
   const afterClean = cleanDone ? [cleanDone] : [];
-
-  if (wantsProfile) add('explore.profile', {}, 'Summarise the data.', afterClean);
-
   const analyses: string[] = [];
-  if (wantsTest && !wantsForecast) {
-    if (cols.length >= 2) {
-      analyses.push(add('stats.compare', { columnA: cols[0], columnB: cols[1] }, `Test whether “${cols[0]}” and “${cols[1]}” are related.`, afterClean));
-    } else if (target) {
-      // Test the outcome against up to three other informative columns.
-      const others = ds.columns
-        .filter(c => c.name !== target && !isIdentifierColumn(c, ds.rowCount) && c.type !== 'datetime' && c.distinctCount > 1)
-        .slice(0, 3);
-      for (const o of others) analyses.push(add('stats.compare', { columnA: o.name, columnB: target }, `Test whether “${o.name}” relates to “${target}”.`, afterClean));
-    }
-  } else if (everything && target) {
-    const other = ds.columns.find(c => c.name !== target && c.type === 'numeric' && !isIdentifierColumn(c, ds.rowCount));
-    if (other) analyses.push(add('stats.compare', { columnA: other.name, columnB: target }, `Test whether “${other.name}” relates to “${target}”.`, afterClean));
+
+  if (wants.profile) add('explore.profile', {}, 'Summarise size, types, missing cells and outlying values.', afterClean);
+  if (wants.deepEda) analyses.push(add('explore.deep_eda', { planModel: !!target && wants.train }, 'Skew, outliers and correlations from the pandas engine on every row.', afterClean));
+
+  // Statistics.
+  const numericMentioned = cols.filter(c => ds.columns.find(x => x.name === c)?.type === 'numeric');
+  if (wants.regression && cols.length >= 2) {
+    analyses.push(add('stats.regression', { outcome: cols[0], predictors: cols.slice(1, 6) }, `Model “${cols[0]}” on ${cols.slice(1, 6).join(', ')} with a regression.`, afterClean));
+  } else if (wants.test && !wants.forecast && !wants.drivers && cols.length >= 2) {
+    analyses.push(add('stats.compare', { columnA: cols[0], columnB: cols[1] }, `Test whether “${cols[0]}” and “${cols[1]}” are related.`, afterClean));
+  } else if ((wants.drivers || everything || (wants.test && !wants.forecast)) && target) {
+    analyses.push(add('stats.screen', { target }, `Test “${target}” against every informative column, Holm-corrected, and rank the drivers.`, afterClean));
+  } else if (wants.drivers || (wants.test && !wants.forecast)) {
+    skipped.push('the drivers screen (name the outcome, e.g. “what drives churn”)');
   }
 
-  if (wantsForecast) {
+  // Models.
+  let trainId: string | undefined;
+  if (wants.forecast || everything) {
     const dateCol = ds.columns.find(c => c.type === 'datetime');
-    const value = cols.find(c => ds.columns.find(x => x.name === c)?.type === 'numeric') ?? ds.columns.find(c => c.type === 'numeric')?.name;
-    if (dateCol && value) analyses.push(add('models.forecast', { dateColumn: dateCol.name, valueColumn: value, horizon: 6 }, `Forecast “${value}” from “${dateCol.name}”.`, afterClean));
-  } else if (wantsTrain && target) {
-    analyses.push(add('models.train', { target }, `Train and compare models that predict “${target}”.`, afterClean));
+    const value = numericMentioned[0] ?? ds.columns.find(c => c.type === 'numeric' && !isIdentifierColumn(c, ds.rowCount))?.name;
+    if (dateCol && value) analyses.push(add('models.forecast', { dateColumn: dateCol.name, valueColumn: value, horizon: 6 }, `Forecast “${value}” from “${dateCol.name}” with backtested methods.`, afterClean));
+    else if (wants.forecast) skipped.push('the forecast (it needs a date column and a number)');
+  }
+  if ((wants.train || wants.tune || (wants.explain && !hasModel)) && !(wants.forecast && !everything && !wants.train)) {
+    if (target) {
+      const algorithm = /random forest/.test(text) ? 'random_forest' : /xgboost/.test(text) ? 'xgboost' : /gradient boost/.test(text) ? 'gradient_boosting' : /\b(linear|logistic)\b/.test(text) ? 'linear' : /\b(mlp|neural)\b/.test(text) ? 'mlp' : wants.tune ? 'random_forest' : undefined;
+      trainId = add('models.train', { target, ...(algorithm ? { algorithm } : {}), ...(wants.tune ? { tune: true } : {}) },
+        wants.tune ? `Tune ${algorithm?.replace('_', ' ')} with cross-validated search to predict “${target}”.` : `Train and compare models that predict “${target}”; the winner is chosen by cross-validation.`, afterClean);
+      analyses.push(trainId);
+    } else if (wants.train || wants.tune) {
+      skipped.push('modelling (no column looks like an outcome — add “predict <column>”)');
+    }
+  }
+  // Training adds the explanation itself; explain on its own reads the current model.
+  if (wants.explain && !trainId && hasModel) analyses.push(add('models.explain', {}, 'Read what the current model learned and check for leakage.'));
+  if (wants.cluster || everything) {
+    const ccols = clusterColumns(ds, numericMentioned.length >= 2 ? numericMentioned : undefined);
+    if (ccols.length >= 2) analyses.push(add('models.cluster', numericMentioned.length >= 2 ? { columns: numericMentioned } : {}, `Find natural segments in ${ccols.slice(0, 4).join(', ')}${ccols.length > 4 ? '…' : ''}; the number is chosen by silhouette.`, afterClean));
+    else if (wants.cluster) skipped.push('segments (they need at least two informative numeric columns)');
   }
 
-  if (wantsReport) add('report.build', {}, 'Compile findings, risks and recommendations from the results.', [...afterClean, ...analyses]);
-  if (wantsDashboard) add('nav.open_step', { step: 'dashboard' }, 'Open the dashboard.', tasks.map(t => t.id));
+  // Dashboard: designed from the user's words, after the analyses it can draw on.
+  if (wants.dashboard) {
+    const design = add('dashboard.design', { focus: request, ...(target ? { target } : {}) }, 'Choose charts, KPIs and filters from your request and the data (chart grammar, no AI call).', [...afterClean, ...analyses]);
+    let last = design;
+    if (tcol?.type === 'boolean' && (everything || /\bkpis?\b/.test(text) || cols.includes(target!))) {
+      const ref = /^[A-Za-z_][A-Za-z0-9_]*$/.test(target!) ? target : `[${target}]`;
+      last = add('dashboard.add_kpi', { name: `${target} rate`, formula: `AVG(${ref})`, format: 'percent' }, `Track the ${target} rate as a KPI.`, [design]);
+    }
+    if (everything || has(text, 'save')) add('dashboard.save', { name: `${titleCase(target ?? ds.filename.replace(/\.[^.]+$/, ''))} — agents` }, 'Save the dashboard so it reopens with this data.', [last]);
+  }
 
-  if (tasks.length === 0) return { tasks, reply: '' };
+  // Report.
+  let reportId: string | undefined;
+  if (wants.report || wants.pdf || wants.pack) reportId = add('report.build', {}, 'Compile observations, risks and recommendations from the results above.', [...afterClean, ...analyses]);
+  if (wants.pdf && reportId) add('report.pdf', {}, 'Download the report as a PDF.', [reportId]);
+  if (wants.pack && reportId) add('report.package', {}, 'Download data, lineage, analyses and a notebook in one ZIP.', [reportId]);
+
+  if (tasks.length === 0) return { tasks, reply: skipped.length ? `I couldn’t plan that: ${skipped.join('; ')}.` : '' };
   const roles = [...new Set(tasks.map(t => t.role))].length;
-  return { tasks, reply: `I’ve planned ${tasks.length} task${tasks.length === 1 ? '' : 's'} for ${roles} specialist${roles === 1 ? '' : 's'}.` };
+  const steps = [...new Set(tasks.map(t => STEP_LABEL[CAPABILITIES[t.capability].step]))];
+  return {
+    tasks,
+    reply: `I’ve planned ${tasks.length} task${tasks.length === 1 ? '' : 's'} for ${roles} specialist${roles === 1 ? '' : 's'}${steps.length > 1 ? ` across ${steps.join(' → ')}` : ''}.${skipped.length ? ` Skipped ${skipped.join('; ')}.` : ''}`,
+  };
+}
+
+const STEP_LABEL: Record<string, string> = { ingest: 'Import', clean: 'Clean', eda: 'Explore', stats: 'Statistics', ml: 'Model', dashboard: 'Dashboard', reports: 'Report' };
+const titleCase = (s: string) => s.replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+/** Names that usually mean "the outcome". */
+export const OUTCOME_RE = /^(y|target|label|class)$|churn|outcome|default|fraud|converted|conversion|survived|attrition|cancel+ed|purchased|clicked|is_?active/i;
+
+/** The outcome column: named by the user, or clearly an outcome; otherwise none. */
+export function chooseTarget(request: string, ds: Dataset, cols: string[] = mentionedColumns(request, ds)): string | undefined {
+  const after = request.match(/\b(?:predict(?:s|ing)?|target|drives?|drivers of|affects?|influences?|explains?|for)\b(.*)$/i);
+  const named = after ? mentionedColumns(after[1], ds)[0] : undefined;
+  if (named) return named;
+  const outcomeMentioned = cols.find(c => OUTCOME_RE.test(c));
+  if (outcomeMentioned) return outcomeMentioned;
+  const likely = ds.columns.find(c => OUTCOME_RE.test(c.name) && !isIdentifierColumn(c, ds.rowCount) && c.distinctCount >= 2);
+  if (likely) return likely.name;
+  // The last column, only if it looks like a label (yes/no or a few categories).
+  const last = ds.columns[ds.columns.length - 1];
+  if (last && !isIdentifierColumn(last, ds.rowCount) && (last.type === 'boolean' || (last.type === 'categorical' && last.distinctCount >= 2 && last.distinctCount <= 6))) return last.name;
+  return undefined;
 }
 
 const STEP_WORDS: [RegExp, string][] = [
@@ -215,11 +259,39 @@ function commandPlan(request: string, text: string, ds: Dataset, cols: string[])
     }
     return out.slice(0, 12);
   }
+  // "Show only Monthly contracts in the dashboard" / "filter the dashboard to Yearly"
+  if (/\bdashboard\b/.test(text) && /\b(only|filter|just|limit)\b/.test(text)) {
+    for (const c of ds.columns.filter(c => (c.type === 'categorical' || c.type === 'boolean') && c.distinctCount <= 30)) {
+      const values = [...new Set(ds.rows.map(r => String(r[c.name] ?? '')))].filter(v => v && new RegExp(`\\b${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(request));
+      if (values.length) return [{ capability: 'dashboard.filter', params: { column: c.name, values }, why: `Show only rows where ${c.name} is ${values.join(' or ')}.` }];
+    }
+  }
+
   if (/\b(open|go to|show|take me to|switch to|navigate to)\b/.test(text)) {
     const step = STEP_WORDS.find(([re]) => re.test(text))?.[1];
     if (step && !/\b(train|test|forecast|build|run)\b/.test(text)) return [{ capability: 'nav.open_step', params: { step }, why: `Open the ${step} step.` }];
   }
   if (has(text, 'ai scan', 'advisory', 'ai insight', 'ai analysis')) return [{ capability: 'explore.ai_advisory', params: {}, why: 'Run the AI advisory on the dataset.' }];
+
+  // "Load the churn sample"
+  const sample = text.match(/\b(churn|saas|hardware)\b.*\bsample|\bsample\b.*\b(churn|saas|hardware)\b/);
+  if (sample && /\b(load|open|use|switch|try|start)\b/.test(text)) {
+    const name = sample[1] ?? sample[2];
+    return [{ capability: 'import.sample', params: { name }, why: `Load the ${name} sample dataset (replaces the current data — Undo can’t bring it back, so it needs its own approval).` }];
+  }
+
+  // "Average charges by contract" → a read-only query (the data isn't reshaped).
+  const agg = text.match(/\b(average|avg|mean|total|sum|median|max(?:imum)?|min(?:imum)?|count|number of)\b.*\bby\b/);
+  if (agg && !/\b(dashboard|chart|plot|train|model|forecast|segment|cluster|test)\b/.test(text)) {
+    const metric = cols.find(c => ds.columns.find(x => x.name === c)?.type === 'numeric');
+    const dim = cols.find(c => c !== metric && ds.columns.find(x => x.name === c)?.type !== 'numeric') ?? cols.find(c => c !== metric);
+    if (dim && (metric || /count|number of/.test(agg[1]))) {
+      const q = (n: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(n) ? n : `[${n}]`);
+      const fn = /total|sum/.test(agg[1]) ? 'SUM' : /median/.test(agg[1]) ? 'MEDIAN' : /max/.test(agg[1]) ? 'MAX' : /min/.test(agg[1]) ? 'MIN' : /count|number/.test(agg[1]) ? 'COUNT' : 'AVG';
+      const value = fn === 'COUNT' || !metric ? 'COUNT(*) AS n' : `${fn}(${q(metric)}) AS ${fn.toLowerCase()}_${metric.replace(/\W+/g, '_')}, COUNT(*) AS n`;
+      return [{ capability: 'sql.query', params: { sql: `SELECT ${q(dim)}, ${value} FROM dataset GROUP BY ${q(dim)} ORDER BY 2 DESC` }, why: `Summarise ${metric ?? 'rows'} by ${dim} with a read-only query.` }];
+    }
+  }
   return out;
 }
 

@@ -63,3 +63,11 @@ def test_eda_empty_data_returns_400(client):
 def test_eda_single_row_returns_400(client):
     resp = client.post("/eda", json={"data": [{"a": 1}]})
     assert resp.status_code == 400
+
+
+def test_eda_survives_extreme_numeric_values(client):
+    # Values near the float limit overflow variance/skew/correlation maths; the
+    # endpoint must still answer (non-finite stats become null) instead of 500.
+    rows = [{"a": (1e300 if i % 2 else -1e300), "b": float(i)} for i in range(30)]
+    resp = client.post("/eda", json={"data": rows})
+    assert resp.status_code == 200

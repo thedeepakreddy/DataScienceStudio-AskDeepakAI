@@ -21,6 +21,23 @@ import DashboardToolbar from './DashboardToolbar';
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
+// A dashboard may hold several charts of one type ("Bar Chart", "Bar Chart#2"…).
+const baseType = (id: string) => id.split('#')[0];
+const slug = (id: string) => id.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+/** Ids for designed components: the first of a type keeps the type name, later ones get #2, #3… */
+function withIds(components: any[]): any[] {
+  const seen = new Map<string, number>();
+  return components.map(c => {
+    const n = (seen.get(c.type) ?? 0) + 1;
+    seen.set(c.type, n);
+    return { ...c, id: n === 1 ? c.type : `${c.type}#${n}` };
+  });
+}
+
+export const DASHBOARD_APPLY_EVENT = 'studio:dashboard-apply';
+export const DASHBOARD_APPLIED_EVENT = 'studio:dashboard-applied';
+
 /** Plain-language observations computed from the rows currently on screen - used when no AI narrative is available. */
 function buildLocalInsights(rows: any[], metrics: { name: string; average: number; count: number }[]): string[] {
   const insights = [`${rows.length.toLocaleString()} records are in the current view.`];
@@ -85,6 +102,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
   }, [dataset, mlResult]);
 
   const runAutoConfig = async (problemOverride?: string) => {
+    const startedAt = Date.now();
     setLoadingConfig(true);
     setConfigError(null);
     try {
@@ -97,6 +115,8 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
         throw new Error(`Server responded with ${response.status}`);
       }
       const data = await response.json();
+      // The agents designed one while this was loading: keep theirs.
+      if (agentDesignedAt.current > startedAt) return;
       if (data && data.recommendedComponents) {
         setConfig(data);
         setActiveComponents(data.recommendedComponents.map((c: any) => c.type));
@@ -111,11 +131,64 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
     }
   };
 
-  // A saved dashboard for this dataset is reopened; otherwise AI suggests one.
+  // Agents design dashboards too (docs/AGENTS_PLAN.md §6): a design arrives as an
+  // event, is applied like any configuration, and the dashboard replies with
+  // the charts that actually rendered — that reply is the agent's check.
+  const { setCategoryFilters } = useDashboardContext();
   const initialLoadDone = React.useRef(false);
+  // When the agents last applied a design; a slower AI suggestion must not overwrite it.
+  const agentDesignedAt = React.useRef(0);
+  const pendingAgentDesign = React.useRef<any>(null);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const applyAgentDesign = React.useRef((_detail: any) => {});
+  // Kept current after each render (it reads the latest filters).
+  React.useLayoutEffect(() => { applyAgentDesign.current = (detail: any) => {
+    const { design, filters } = detail ?? {};
+    if (design?.recommendedComponents) {
+      const comps = withIds(design.recommendedComponents);
+      agentDesignedAt.current = Date.now();
+      setConfig({ ...design, recommendedComponents: comps });
+      setActiveComponents(comps.map((c: any) => c.id));
+      if (design.layout) setLayout(design.layout);
+    }
+    if (filters) setCategoryFilters({ ...categoryFilters, ...filters });
+    // Reply once the new charts are on screen.
+    let tries = 0;
+    const want = design?.recommendedComponents ? withIds(design.recommendedComponents).filter((c: any) => c.type !== 'Filters Panel').map((c: any) => slug(c.id)) : [];
+    const reply = () => {
+      const rendered = [...document.querySelectorAll<HTMLElement>('[data-agent^="dash-chart-"]')].map(el => el.dataset.agent!.slice('dash-chart-'.length));
+      if (want.every((w: string) => rendered.includes(w)) || ++tries > 60) {
+        window.dispatchEvent(new CustomEvent(DASHBOARD_APPLIED_EVENT, { detail: { rendered, expected: want } }));
+      } else requestAnimationFrame(reply);
+    };
+    requestAnimationFrame(reply);
+  }; });
+
+  // Agents design dashboards too (docs/AGENTS_PLAN.md §6): a design arrives as an
+  // event and is applied like any configuration (after the dashboard's own first
+  // load, so a reopened saved dashboard doesn't replace it). The dashboard replies
+  // with the charts that actually rendered — that reply is the agent's check.
+  useEffect(() => {
+    const onApply = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!initialLoadDone.current && detail?.design) { pendingAgentDesign.current = detail; return; }
+      applyAgentDesign.current(detail);
+    };
+    window.addEventListener(DASHBOARD_APPLY_EVENT, onApply);
+    return () => window.removeEventListener(DASHBOARD_APPLY_EVENT, onApply);
+  }, []);
+
+  // A saved dashboard for this dataset is reopened; otherwise AI suggests one.
   const handleInitialLoad = (openedSaved: boolean) => {
     if (initialLoadDone.current) return;
     initialLoadDone.current = true;
+    if (pendingAgentDesign.current) {
+      const d = pendingAgentDesign.current;
+      pendingAgentDesign.current = null;
+      applyAgentDesign.current(d);
+      return;
+    }
     if (!openedSaved && !config) runAutoConfig();
   };
 
@@ -145,8 +218,9 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
     setFilteredData(_data);
   }, [dataset, categoryFilters, numericSlicers]);
 
-  const getColsForComp = (type: string) => {
-    const aiRec = config?.recommendedComponents?.find((c: any) => c.type === type);
+  const getColsForComp = (id: string) => {
+    const type = baseType(id);
+    const aiRec = config?.recommendedComponents?.find((c: any) => (c.id ?? c.type) === id) ?? config?.recommendedComponents?.find((c: any) => c.type === type && !c.id);
     if (aiRec && aiRec.columnsToUse && aiRec.columnsToUse.length > 0) return aiRec.columnsToUse;
 
     // Identifier columns (CustomerID, ...) make meaningless axes, so defaults skip them.
@@ -174,8 +248,9 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
     }
   };
 
-  const renderComponentWrapper = (type: string, key: any) => {
-    const cols = getColsForComp(type);
+  const renderComponentWrapper = (id: string, key: any) => {
+    const cols = getColsForComp(id);
+    const type = baseType(id);
 
     switch (type) {
       case 'KPI Cards': {
@@ -338,34 +413,38 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
           <div className="flex flex-col mb-4">
             {/* Top row: KPI CARDS */}
             {activeComponents.includes('KPI Cards') && (
-              <div className="w-full">
+              <div className="w-full" data-agent="dash-chart-kpi-cards">
                 {renderComponentWrapper('KPI Cards', 'kpi')}
               </div>
             )}
             
             {/* Grid row: CHARTS via CSS Columns for Masonry layout */}
-            {activeComponents.filter(c => c !== 'KPI Cards' && c !== 'Data Table' && c !== 'Filters Panel' && c !== 'Slicers Panel' && c !== 'Heatmap Correlation Matrix').length > 0 && (
+            {activeComponents.filter(c => !['KPI Cards', 'Data Table', 'Filters Panel', 'Slicers Panel', 'Heatmap Correlation Matrix'].includes(baseType(c))).length > 0 && (
               <div className={`gap-4 w-full z-0 px-1 ${layout === '2-col' ? 'columns-1 lg:columns-2' : layout === '3-col' ? 'columns-1 lg:columns-3' : 'columns-1'}`}>
                 {activeComponents
-                  .filter(c => c !== 'KPI Cards' && c !== 'Data Table' && c !== 'Filters Panel' && c !== 'Slicers Panel' && c !== 'Heatmap Correlation Matrix')
-                  .map((comp) => (
-                    <div key={comp} className="block mb-4 break-inside-avoid w-full">
-                      {renderComponentWrapper(comp, comp)}
-                    </div>
-                ))}
+                  .filter(c => !['KPI Cards', 'Data Table', 'Filters Panel', 'Slicers Panel', 'Heatmap Correlation Matrix'].includes(baseType(c)))
+                  .map((comp) => {
+                    const rec = config?.designedBy === 'agents' ? config.recommendedComponents?.find((c: any) => c.id === comp) : null;
+                    return (
+                      <div key={comp} className="block mb-4 break-inside-avoid w-full" data-agent={`dash-chart-${slug(comp)}`}>
+                        {rec?.questionAnswered && <p className="text-xs text-label-2 mb-1.5 px-1">{rec.questionAnswered}</p>}
+                        {renderComponentWrapper(comp, comp)}
+                      </div>
+                    );
+                })}
               </div>
             )}
 
             {/* Heatmap Correlation Matrix */}
             {activeComponents.includes('Heatmap Correlation Matrix') && (
-              <div className="col-span-full w-full mb-4">
+              <div className="col-span-full w-full mb-4" data-agent="dash-chart-heatmap-correlation-matrix">
                  {renderComponentWrapper('Heatmap Correlation Matrix', 'heatmap')}
               </div>
             )}
 
             {/* Bottom row: DATA TABLE */}
             {activeComponents.includes('Data Table') && (
-              <div className="w-full mt-2">
+              <div className="w-full mt-2" data-agent="dash-chart-data-table">
                 {renderComponentWrapper('Data Table', 'table')}
               </div>
             )}
