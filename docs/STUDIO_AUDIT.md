@@ -227,6 +227,13 @@ pull requests of about the size of the recent ones.
 | 7. Report | History browser, report from saved results with provenance, notebook export, reproducibility package, workflows | Saved workflow reruns into a provenance-backed report | 3 PRs |
 | 8. Agentic assistant | Typed tool registry over the same operations, plan/confirm/run/verify loop, completion report, cancel, AI-off parity | Multi-step chat task end to end with a truthful report | 3 PRs |
 
+**Phase 1 progress.** Done: IndexedDB store for dataset versions (with parent
+links), run history with the version each run used, session restore on reload,
+History sheet (switch versions, clear saved work), the Statistics stage, and
+Vitest with tests for the store, version labels and normal-distribution maths.
+Still to do in Phase 1: workspace export/import, saving trained-model files,
+an operation registry, and a job centre for long-running work.
+
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the
 foundation is stable, as the plan itself recommends.

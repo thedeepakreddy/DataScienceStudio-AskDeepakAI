@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BrainCircuit, Copy, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
+import { useLogRun } from '../contexts/WorkspaceContext';
 import { normalCdf, normalQuantile } from '../utils/normal';
 
 export default function ABTestInterpreter() {
@@ -12,6 +13,7 @@ export default function ABTestInterpreter() {
   const [confidence, setConfidence] = useState(0.95);
   const [testType, setTestType] = useState('two-tailed');
   
+  const logRun = useLogRun();
   const [loading, setLoading] = useState(false);
   const [memo, setMemo] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -59,6 +61,14 @@ export default function ABTestInterpreter() {
     setError(null);
     try {
        const results = calculateTest();
+       logRun({
+         kind: 'ab-test',
+         title: `A/B test: ${(controlRate * 100).toFixed(1)}% vs ${(treatmentRate * 100).toFixed(1)}%`,
+         summary: `Lift ${results.relativeLift}% · p = ${results.pValue} · ${results.isSignificant ? 'significant' : 'not significant'}`,
+         status: 'succeeded',
+         params: { controlSize, controlRate, treatmentSize, treatmentRate, confidence, testType },
+         result: results,
+       });
        const response = await apiFetch('/api/ab-test-interpreter', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },

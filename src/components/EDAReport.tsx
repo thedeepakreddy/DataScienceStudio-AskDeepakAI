@@ -31,8 +31,6 @@ import {
   OutlierDetail,
   CategoricalValue
 } from '../utils/edaEngine';
-import HypothesisLab from './HypothesisLab';
-import ABTestInterpreter from './ABTestInterpreter';
 import SQLAssistant from './SQLAssistant';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
@@ -59,7 +57,7 @@ interface EDAReportProps {
 export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI }: EDAReportProps) {
   const { expertMode } = usePipelineContext();
   // State for Sub-Workspaces
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'hypothesis' | 'abtest' | 'sql' | 'deepeda'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'sql' | 'deepeda'>('overview');
 
   // Real server-side EDA (Python/pandas) — computed on-demand since it hits the network.
   const [deepEdaResult, setDeepEdaResult] = useState<EdaReportType | null>(null);
@@ -257,9 +255,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
               { id: 'outliers', label: 'Outliers' },
               { id: 'correlation', label: 'Correlation' },
               { id: 'distributions', label: 'Distributions' },
-              { id: 'categorical', label: 'Categories' },
-              { id: 'hypothesis', label: 'Hypotheses' },
-              { id: 'abtest', label: 'A/B Test' }
+              { id: 'categorical', label: 'Categories' }
             ] : [])
           ].map(tab => (
             <button
@@ -1047,16 +1043,6 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
               )}
             </div>
           </div>
-        )}
-
-        {/* 8. HYPOTHESIS LAB */}
-        {activeSubTab === 'hypothesis' && (
-          <HypothesisLab dataset={dataset} />
-        )}
-
-        {/* 9. A/B TEST INTERPRETER */}
-        {activeSubTab === 'abtest' && (
-          <ABTestInterpreter />
         )}
 
         {/* 10. SQL ASSISTANT */}

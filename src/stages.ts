@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { FolderOpen, Sparkles, Compass, Cpu, LayoutGrid, FileText, type LucideIcon } from 'lucide-react';
+import { FolderOpen, Sparkles, Compass, Sigma, Cpu, LayoutGrid, FileText, type LucideIcon } from 'lucide-react';
 import type { PipelineStage } from './contexts/PipelineContext';
 
 export interface StageMeta {
@@ -18,7 +18,7 @@ export interface StageMeta {
 }
 
 /** The workflow, in order. Single source of truth for navigation and headers. */
-export const STAGE_ORDER: PipelineStage[] = ['ingest', 'clean', 'eda', 'ml', 'dashboard', 'reports'];
+export const STAGE_ORDER: PipelineStage[] = ['ingest', 'clean', 'eda', 'stats', 'ml', 'dashboard', 'reports'];
 
 export const STAGES: Record<PipelineStage, StageMeta> = {
   ingest: {
@@ -41,6 +41,13 @@ export const STAGES: Record<PipelineStage, StageMeta> = {
     description: 'See distributions, correlations and data quality at a glance, then ask AI for strategic insights.',
     icon: Compass,
     hint: 'Tip: run the AI advisory for a recommended target and features.',
+  },
+  stats: {
+    label: 'Statistics',
+    title: 'Test with statistics',
+    description: 'Check whether a difference or relationship in your data is real or could be chance, with proper statistical tests.',
+    icon: Sigma,
+    hint: 'Tip: test a hypothesis before you rely on a pattern.',
   },
   ml: {
     label: 'Model',

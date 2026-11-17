@@ -1284,6 +1284,9 @@ app.post('/api/chat-bot', async (req, res) => {
       } else {
         reply = `Imputation can only be executed when a column is specified. Available columns: ${colNamesList || 'N/A'}`;
       }
+    } else if (/hypothes|a\/b|\bab test|significan|t-test|chi-square|anova/.test(msgLower)) {
+      reply = "Opening the **Statistics** step, where you can test a hypothesis on your data or check an A/B test result.";
+      commands.push({ type: 'SELECT_TAB', tab: 'stats' });
     } else if (msgLower.includes('eda') || msgLower.includes('scan') || msgLower.includes('analyze') || msgLower.includes('exploratory')) {
       reply = "Starting Exploratory Data Scan and Statistical Analysis on active datasets using our intelligent analytics engine!";
       commands.push({ type: 'SELECT_TAB', tab: 'eda' });
@@ -1367,20 +1370,21 @@ As your AI code copilot, I can read and write the active dataset! I can add/dele
   try {
     // Inject full schema, history, and active dataset stats context as a system guideline to AskAI
     const systemInstruction = `You are "AskAI", an advanced Data Science and Automation Agent integrated into "AskDeepakAI" (designed by Gorisi Deepak Reddy).
-You have visual and logical agency over a 6-stage web workspace app consisting of:
-- Stage 1: 'ingest' (Data Ingestion/upload)
-- Stage 2: 'clean' (Cleaning Studio for imputation, dropping columns, resetting rows, adding/deleting elements, grouping stats)
-- Stage 3: 'eda' (Exploratory Data Analysis AI report scan)
-- Stage 4: 'ml' (ML Pipeline model training & parameters tuning)
-- Stage 5: 'dashboard' (Active slicers & interactive charts)
-- Stage 6: 'reports' (Strategic reports & PDF briefs export)
+You have visual and logical agency over a 7-stage web workspace app consisting of:
+- Stage 1: 'ingest' (Import: upload a dataset)
+- Stage 2: 'clean' (Clean: imputation, dropping columns, resetting rows, adding/deleting elements, grouping stats)
+- Stage 3: 'eda' (Explore: profiling, quality, correlations, SQL, AI advisory)
+- Stage 4: 'stats' (Statistics: hypothesis tests and A/B test analysis)
+- Stage 5: 'ml' (Model: training and parameter tuning)
+- Stage 6: 'dashboard' (Dashboard: slicers and interactive charts)
+- Stage 7: 'reports' (Report: findings and PDF export)
 
 You must output a STRICT, valid JSON object following this EXACT TypeScript interface:
 interface ChatBotResponse {
   message: string; // Friendly, professional, markdown-styled response. Detail what action you are taking or how you are answering. Keep it concise, insightful and respectful.
   commands: {
     type: 'SELECT_TAB' | 'DROP_COLUMN' | 'FILL_MISSING' | 'RUN_EDA_SCAN' | 'RUN_ML' | 'RESET_DATASET' | 'FILTER_ROWS' | 'ADD_COLUMN' | 'ADD_ROW' | 'DELETE_ROW' | 'EXECUTE_DATASET_JS';
-    tab?: 'ingest' | 'clean' | 'eda' | 'ml' | 'dashboard' | 'reports';
+    tab?: 'ingest' | 'clean' | 'eda' | 'stats' | 'ml' | 'dashboard' | 'reports';
     column?: string;
     columnType?: 'numeric' | 'categorical' | 'boolean';
     strategy?: 'mean' | 'median' | 'zero' | 'mode';
