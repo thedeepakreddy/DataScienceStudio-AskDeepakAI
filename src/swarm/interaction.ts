@@ -32,11 +32,30 @@ export interface InteractionEvent {
 }
 
 type Listener = (e: InteractionEvent) => void;
+/** Returns a promise when the page wants the agent to wait (for example while a box is dragged open). */
+type Gate = (e: InteractionEvent) => Promise<void> | void;
 
 class InteractionBus {
   private listeners = new Set<Listener>();
+  private gates = new Set<Gate>();
   private seq = 0;
   subscribe(fn: Listener) { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
+  /**
+   * Lets the cursor layer hold an agent until what it draws has caught up:
+   * the partner cursor has dragged the box open and the working cursor is
+   * inside it. The action itself still decides success.
+   */
+  addGate(fn: Gate) { this.gates.add(fn); return () => { this.gates.delete(fn); }; }
+  /** Resolves once every gate is ready, or after `cap` ms so drawing can never stall an agent. */
+  ready(e: InteractionEvent, cap: number): Promise<void> {
+    const waits = [...this.gates].map(g => g(e)).filter((w): w is Promise<void> => !!w);
+    if (!waits.length) return Promise.resolve();
+    return new Promise(resolve => {
+      const t = setTimeout(resolve, cap);
+      const finish = () => { clearTimeout(t); resolve(); };
+      Promise.all(waits).then(finish, finish);
+    });
+  }
   emit(e: Omit<InteractionEvent, 'id' | 'seq' | 'at'>) {
     const ev = { ...e, id: `${e.taskId}-${++this.seq}`, seq: this.seq, at: Date.now() };
     this.listeners.forEach(l => l(ev));
@@ -79,6 +98,8 @@ export interface DriverContext {
   pace?: number;
   /** Holds the agent while the run is paused (for example when the user takes over). */
   waitIfPaused?: () => Promise<void>;
+  /** Longest the page may hold an agent while it draws (default 2 s). */
+  visualCap?: number;
 }
 
 /** What an agent uses to operate the page. Every call emits a grounded event. */
@@ -91,6 +112,11 @@ export class Driver {
 
   // Long enough for the pointer to finish its curved, human-paced move.
   private get pace() { return this.ctx.pace ?? 640; }
+
+  /** Waits for the pointer's travel and for the page to finish drawing the step. */
+  private async hold(ev: InteractionEvent) {
+    await Promise.all([sleep(this.pace, this.ctx.signal), interactions.ready(ev, this.ctx.visualCap ?? 2000)]);
+  }
 
   /** Waits for a control to appear (after a step change), up to `timeout`. */
   async waitFor(target: string, timeout = 5000): Promise<HTMLElement> {
@@ -110,8 +136,8 @@ export class Driver {
     await this.ctx.waitIfPaused?.();
     const el = await this.waitFor(target);
     el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-    this.emit('move', label, { target });
-    await sleep(this.pace, this.ctx.signal);
+    // The partner cursor drags a box open round the control, then the working cursor moves in.
+    await this.hold(this.emit('move', label, { target }));
     return el;
   }
 
@@ -126,8 +152,7 @@ export class Driver {
   /** Drags a selection box over the area the agent is about to work in. */
   async claim(target: string, label: string) {
     await this.approach(target, label);
-    this.emit('claim', label, { target, outcome: 'ok' });
-    await sleep(this.pace, this.ctx.signal);
+    await this.hold(this.emit('claim', label, { target, outcome: 'ok' }));
   }
 
   async select(target: string, value: string, label: string) {

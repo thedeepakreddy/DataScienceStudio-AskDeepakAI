@@ -83,6 +83,11 @@ export interface MoveOptions extends PathOptions {
   maxDuration?: number;
   delay?: number;
   onFrame?: (p: Point, t: number) => void;
+  /**
+   * Where the target is now, if it can move while the pointer travels (a page
+   * still scrolling). The path bends smoothly toward it and ends exactly on it.
+   */
+  follow?: () => Point | null;
 }
 
 /** Moves one element along human-looking paths; a new move starts from wherever it is. */
@@ -132,6 +137,12 @@ export class HumanMover {
         const step = (now: number) => {
           const t = duration > 0 ? Math.min(1, (now - t0) / duration) : 1;
           const p = path(t);
+          const live = opts.follow?.();
+          if (live) {
+            const k = minimumJerk(t);
+            p.x += (live.x - to.x) * k;
+            p.y += (live.y - to.y) * k;
+          }
           this.x = p.x;
           this.y = p.y;
           this.apply();
