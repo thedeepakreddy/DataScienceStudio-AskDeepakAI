@@ -97,6 +97,8 @@ export default function ChatRunCard({ run, live, ...on }: ChatRunCardProps) {
         {on.onUndo && canUndo(run) && (
           <button type="button" className="btn btn-sm btn-secondary" onClick={() => on.onUndo!(run.startVersionId!)}><Undo2 className="w-3.5 h-3.5" /> Undo All</button>
         )}
+        {/* Clears the finished workflow (and the panels' glows) so a new run can start, like Clear in the Agents panel. */}
+        {live && !active && !canStart(run) && <button type="button" className="btn btn-sm btn-secondary" onClick={on.onDiscard}>Clear</button>}
         <button type="button" className="btn btn-sm btn-plain" onClick={on.onDetails}>Details</button>
       </div>
     </div>

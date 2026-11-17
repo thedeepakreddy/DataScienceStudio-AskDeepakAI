@@ -109,7 +109,7 @@ export default function DeployPanel({ dataset, datasetId, activeVersionId, mlRes
   };
 
   return (
-    <section className="card p-5 sm:p-6 space-y-5" aria-labelledby="deploy-heading">
+    <section className="card p-4 sm:p-5 space-y-5" aria-labelledby="deploy-heading">
       <div>
         <h2 id="deploy-heading" className="card-title">Deploy & monitor</h2>
         <p className="mt-1 text-sm text-label-2">

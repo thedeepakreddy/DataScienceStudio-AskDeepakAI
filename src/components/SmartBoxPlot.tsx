@@ -53,7 +53,7 @@ export default function SmartBoxPlot({ column, groupColumn }: SmartBoxPlotProps)
 
   if (plotData.length === 0) {
     return (
-      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+      <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col items-center justify-center">
         <h3 className="text-sm font-semibold tracking-tight text-label mb-4">Spread of {column} {groupColumn ? `by ${groupColumn}` : ''}</h3>
         <p className="text-label-3 text-xs text-center">No sufficient data for box plot.</p>
       </div>
@@ -76,7 +76,7 @@ export default function SmartBoxPlot({ column, groupColumn }: SmartBoxPlotProps)
   const mapY = (val: number) => 100 - (((val - globalMin) / range) * 100);
 
   return (
-    <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col">
+    <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col">
        <div className="flex justify-between items-start mb-4">
         <h3 className="text-sm font-semibold tracking-tight text-label overflow-hidden text-ellipsis whitespace-nowrap pr-2">
           Spread of {column} {groupColumn ? `by ${groupColumn}` : ''}

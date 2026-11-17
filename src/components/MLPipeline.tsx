@@ -321,7 +321,7 @@ export default function MLPipeline({
     <div className="space-y-12 animate-fade-in" id="ml_module">
 
       {/* Recommendation before training; the measured champion after. */}
-      <section className="card p-5 sm:p-6 flex flex-col md:flex-row md:items-center gap-5" aria-label="Model recommendation">
+      <section className="card p-4 sm:p-5 flex flex-col md:flex-row md:items-center gap-5" aria-label="Model recommendation">
         <div className="w-12 h-12 rounded-xl bg-blue/12 text-blue flex items-center justify-center shrink-0">
           <Sparkles className="w-6 h-6" />
         </div>
@@ -402,7 +402,7 @@ export default function MLPipeline({
 
         <div className={`mt-5 grid grid-cols-1 gap-5 ${expertMode ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
           {/* Target + features */}
-          <div className="card p-5 sm:p-6 space-y-5">
+          <div className="card p-4 sm:p-5 space-y-5">
             <div>
               <label className="field-label" htmlFor="ml-target">Predict</label>
               <select
@@ -485,7 +485,7 @@ export default function MLPipeline({
 
           {/* Algorithm + hyperparameters (Expert) */}
           {expertMode && (
-            <div className="card p-5 sm:p-6 space-y-5">
+            <div className="card p-4 sm:p-5 space-y-5">
               <div>
                 <span className="field-label">Problem type</span>
                 <div className="segmented w-full" role="group" aria-label="Problem type">
@@ -639,7 +639,7 @@ export default function MLPipeline({
           )}
 
           {/* Run */}
-          <div className="card p-5 sm:p-6 flex flex-col">
+          <div className="card p-4 sm:p-5 flex flex-col">
             <p className="text-sm font-semibold text-label">Training log</p>
             <div
               className="mt-3 flex-1 min-h-[168px] max-h-[280px] overflow-y-auto rounded-xl bg-well p-3.5 font-code text-xs leading-relaxed text-label space-y-1"

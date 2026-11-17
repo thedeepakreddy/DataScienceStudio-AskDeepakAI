@@ -17,7 +17,7 @@ export default function SmartPieChart({ categoryColumn }: SmartPieChartProps) {
 
   if (!filteredData || filteredData.length === 0) {
     return (
-      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+      <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col items-center justify-center">
         <h3 className="text-sm font-semibold tracking-tight text-label mb-4">{categoryColumn}</h3>
         <p className="text-label-3 text-xs text-center">No data available.</p>
       </div>
@@ -43,7 +43,7 @@ export default function SmartPieChart({ categoryColumn }: SmartPieChartProps) {
   const toggleDonut = () => setIsDonut(!isDonut);
 
   return (
-    <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col relative">
+    <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col relative">
        <div className="flex justify-between items-start mb-2">
         <h3 className="text-sm font-semibold tracking-tight text-label overflow-hidden text-ellipsis whitespace-nowrap pr-2">
           Share by {categoryColumn}

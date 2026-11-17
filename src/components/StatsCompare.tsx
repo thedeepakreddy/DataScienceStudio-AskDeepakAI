@@ -113,7 +113,7 @@ export default function StatsCompare({ dataset, sessionTests, onTestRun }: {
 
   return (
     <div className="space-y-6">
-      <div className="card p-5 sm:p-6 space-y-4">
+      <div className="card p-4 sm:p-5 space-y-4">
         <div>
           <h3 className="card-title" data-agent="area-compare">Compare or relate two columns</h3>
           <p className="mt-1 text-sm text-label-2">
@@ -171,7 +171,7 @@ export default function StatsCompare({ dataset, sessionTests, onTestRun }: {
       {result && <ResultCard r={result.r} a={result.a} b={result.b} />}
 
       {sessionTests.length >= 2 && (
-        <div className="card p-5 sm:p-6 space-y-3">
+        <div className="card p-4 sm:p-5 space-y-3">
           <h3 className="card-title">Correct for running several tests</h3>
           <p className="text-sm text-label-2">
             You’ve run {sessionTests.length} tests. The more tests, the more likely one looks significant by chance; adjusted p-values account for that.
@@ -214,7 +214,7 @@ function ResultCard({ r, a, b }: { r: CompareResult; a: string; b: string }) {
   ];
   if (r.effectSize) stats.push([r.effectSize.name, `${short(r.effectSize.value)}${r.effectSize.magnitude && r.effectSize.magnitude !== 'unknown' ? ` (${r.effectSize.magnitude})` : ''}`]);
   return (
-    <div className="card p-5 sm:p-6 space-y-5 animate-fade-in" role="region" aria-label="Test result">
+    <div className="card p-4 sm:p-5 space-y-5 animate-fade-in" role="region" aria-label="Test result">
       <p className={`text-[17px] font-semibold ${r.significant ? 'text-green' : 'text-label'}`}>{headline(r, a, b)}</p>
       <dl className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-separator rounded-xl overflow-hidden">
         {stats.map(([k, v]) => (

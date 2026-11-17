@@ -48,7 +48,7 @@ export default function ForecastPanel({ dataset }: { dataset: Dataset }) {
 
   if (dateCols.length === 0) {
     return (
-      <section className="card p-5 sm:p-6">
+      <section className="card p-4 sm:p-5">
         <h2 className="card-title">Forecast</h2>
         <p className="mt-1 text-sm text-label-2">Forecasting needs a date column. None was found; if dates are stored as text, change the column type to Date in Clean → More tools.</p>
       </section>
@@ -87,7 +87,7 @@ export default function ForecastPanel({ dataset }: { dataset: Dataset }) {
   };
 
   return (
-    <section className="card p-5 sm:p-6 space-y-5" aria-labelledby="forecast-heading">
+    <section className="card p-4 sm:p-5 space-y-5" aria-labelledby="forecast-heading">
       <div>
         <h2 id="forecast-heading" data-agent="area-forecast" className="card-title">Forecast</h2>
         <p className="mt-1 text-sm text-label-2">

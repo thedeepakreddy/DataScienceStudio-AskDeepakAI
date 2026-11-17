@@ -14,7 +14,7 @@ export default function SmartHistogram({ column }: SmartHistogramProps) {
   const values = filteredData.map(d => Number(d[column])).filter(v => !isNaN(v));
   if (values.length === 0) {
     return (
-      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+      <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col items-center justify-center">
         <h3 className="text-sm font-semibold tracking-tight text-label mb-4">Distribution of {column}</h3>
         <p className="text-label-3 text-xs text-center">No numeric data available for this column.</p>
       </div>
@@ -53,7 +53,7 @@ export default function SmartHistogram({ column }: SmartHistogramProps) {
   });
 
   return (
-    <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col">
+    <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col">
        <h3 className="text-sm font-semibold tracking-tight text-label mb-4">
         Distribution of {column}
       </h3>

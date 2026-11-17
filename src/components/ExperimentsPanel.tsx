@@ -50,7 +50,7 @@ export default function ExperimentsPanel({ datasetId, activeVersionId, refreshKe
   if (!runs || runs.length === 0) return null;
 
   return (
-    <section className="card p-5 sm:p-6" aria-labelledby="experiments-heading">
+    <section className="card p-4 sm:p-5" aria-labelledby="experiments-heading">
       <h2 id="experiments-heading" className="card-title">Experiments</h2>
       <p className="mt-1 text-sm text-label-2">
         Every model trained on this dataset, newest first. Re-run repeats it with the same data version, columns, settings and seed.

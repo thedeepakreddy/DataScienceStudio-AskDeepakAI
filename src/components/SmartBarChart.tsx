@@ -20,7 +20,7 @@ export default function SmartBarChart({ categoryColumn, valueColumn }: SmartBarC
 
   if (!filteredData || filteredData.length === 0) {
     return (
-      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+      <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col items-center justify-center">
         <h3 className="text-sm font-semibold tracking-tight text-label mb-4">{valueColumn} by {categoryColumn}</h3>
         <p className="text-label-3 text-xs text-center">No data available.</p>
       </div>
@@ -52,7 +52,7 @@ export default function SmartBarChart({ categoryColumn, valueColumn }: SmartBarC
   };
 
   return (
-    <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col relative">
+    <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col relative">
       <div className="flex justify-between items-start mb-4">
         <h3 className="text-sm font-semibold tracking-tight text-label overflow-hidden text-ellipsis whitespace-nowrap pr-2">
           {aggregation === 'avg' ? 'Average ' : 'Total '}{valueColumn} by {categoryColumn}

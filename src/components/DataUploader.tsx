@@ -212,7 +212,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
     <div className="space-y-10" id="uploader_module">
       {/* Loaded dataset summary — the first thing you see once data is in. */}
       {currentDataset && (
-        <section className="card p-5 sm:p-6 animate-fade-in" aria-label="Current dataset">
+        <section className="card p-4 sm:p-5 animate-fade-in" aria-label="Current dataset">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="flex items-center gap-4 min-w-0 flex-1">
               <div className="w-12 h-12 rounded-xl bg-green/12 text-green flex items-center justify-center shrink-0">
@@ -262,7 +262,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
 
       {/* AI recommendation for this dataset + goal. */}
       {currentDataset && (isGeneratingIntel || pipelineIntelligence) && (
-        <section className="card p-5 sm:p-6 animate-fade-in" aria-label="Recommended approach">
+        <section className="card p-4 sm:p-5 animate-fade-in" aria-label="Recommended approach">
           <div className="flex items-center gap-2">
             <Sparkles className="w-[18px] h-[18px] text-blue" />
             <h2 className="text-lg font-semibold tracking-tight text-label">Recommended approach</h2>
@@ -392,7 +392,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
                 data-agent={`sample-${key}`}
                 onClick={() => loadSample(key)}
                 aria-pressed={isActive}
-                className={`card group text-left p-5 flex items-start gap-4 hover:shadow-md ${
+                className={`card group text-left p-4 flex items-start gap-4 hover:shadow-md ${
                   isActive ? 'ring-2 ring-blue' : ''
                 }`}
               >

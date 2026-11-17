@@ -68,7 +68,7 @@ export default function StatsPower() {
 
   return (
     <div className="space-y-6">
-      <div className="card p-5 sm:p-6 space-y-4">
+      <div className="card p-4 sm:p-5 space-y-4">
         <div>
           <h3 className="card-title" data-agent="area-power">Sample size and power</h3>
           <p className="mt-1 text-sm text-label-2">

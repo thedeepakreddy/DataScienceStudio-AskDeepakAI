@@ -15,7 +15,7 @@ export default function SmartAreaChart({ xAxisColumn, yAxisColumns }: SmartAreaC
 
   if (!filteredData || filteredData.length === 0) {
     return (
-      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+      <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col items-center justify-center">
         <h3 className="text-sm font-semibold tracking-tight text-label mb-4">{yAxisColumns.join(' & ')} Area</h3>
         <p className="text-label-3 text-xs text-center">No data available.</p>
       </div>
@@ -31,7 +31,7 @@ export default function SmartAreaChart({ xAxisColumn, yAxisColumns }: SmartAreaC
   });
 
   return (
-    <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col">
+    <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col">
        <h3 className="text-sm font-semibold tracking-tight text-label mb-4">
         {yAxisColumns.join(' & ')} Area
       </h3>

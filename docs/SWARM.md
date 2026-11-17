@@ -41,20 +41,30 @@ system (`src/agent/tools.ts`, `/api/chat-bot`) is removed.
 they open the step, choose options, type and click buttons marked with
 `data-agent="…"` (`src/swarm/interaction.ts`, `src/swarm/uiScripts.ts`).
 Every action emits an event (agent, task, run, pointer), which
-`AgentCursorLayer` draws with two cursors per running task, both from the
-same agent:
-- the **partner** (a lighter twin with a small name tag) flies to the spot,
-  presses at the top-left corner and drags a selection box open to the
-  bottom-right, round the area being worked on and round every control the
-  agent reaches, chooses, types into or clicks; it then holds the corner;
-- the **worker** sets off as the drag starts, arrives as the box finishes
-  opening, and does the real action inside it (labelled with the action),
-  with a ripple on clicks.
+`AgentCursorLayer` and `agentStage.ts` draw with two cursors per running
+task, both from the same agent:
+- the **partner** (two-tone, fast) lights up each panel (card or section) the
+  task works in: a thin branch grows from the **Orchestrator** node (in the
+  step bar) to the panel, the partner darts to the panel's centre, touches it
+  (two rings ripple) and explodes into fine dust (`dust.ts`). The dust races
+  to the panel's edges and becomes a soft moving outer glow (blue, violet,
+  pink; Gemini-style, gentler in dark mode). The partner re-forms from the
+  dust beside the panel and watches;
+- the **worker** (solid) then moves in and does the real clicks, choices and
+  typing (three click rays flash at its tip), with a ripple on clicks.
 
-The agent waits for this before acting (`interactions.addGate`), so what you
-see is the order things really happen; the wait is capped at 2 s so drawing
-can never stall an agent. The flight and the drag follow the live corners
-while the page is still scrolling, so runs take about as long as before.
+When the task moves on or finishes, the panel's glow and branch settle to a
+steady violet; panels never used get nothing. The finished glows, and the
+tree of branches to them, stay across steps and reloads until the run is
+cleared (**Clear** in the chat or the Agents panel). Glows are drawn over
+the page with the panel cut out of them, so they never tint its contents,
+and they fade out softly.
+
+The agent waits for a new panel to light up and the worker to arrive before
+acting (`interactions.addGate`), so what you see is the order things really
+happen; the wait is capped at 3.2 s so drawing can never stall an agent. Each
+step is paced (760 ms per move), and the partner moves about twice as fast as
+the worker.
 Results
 come from the studio’s own logged runs and data versions, never from the
 animation. One agent holds the page at a time and releases it while it waits
@@ -81,14 +91,18 @@ anything past the limits (1 repair per task, 3 per run) are escalated to the
 user. No AI calls.
 
 **Welcome swarm** (`src/components/WelcomeSwarm.tsx`). Every time the studio
-opens, after the loading screen, about seven seconds:
+opens, after the loading screen, about fifteen seconds:
 1. The swarm streams in from every edge on curved paths, with short fading trails.
-2. The Orchestrator types "Welcome to", while three agents drag selection
-   boxes over "Data", "Science" and "Studio", revealing each word.
-3. Nine agents each drag out a box that lands as a card.
-4. A line draws to the floating Ask AI button, and the swarm flies into it.
+2. The Orchestrator types "Welcome to", while three partners touch "Data",
+   "Science" and "Studio" and explode into dust; each word appears out of it.
+3. The Orchestrator node appears under the title. For each of nine cards a
+   branch grows from it, a partner darts along, touches the card and
+   explodes; the card forms out of the dust with the moving glow, which
+   settles to the finished violet, as panels do in the studio.
+4. The tree fades, a line draws to the floating Ask AI button, and the swarm
+   flies into it.
 
-It uses 15 cursors on desktop, 12 on tablets and 10 on phones; on short
+It uses 23 cursors on desktop, 16 on tablets and 12 on phones; on short
 screens the cards bow out so the closing words clear the button. A dim ×
 with a ring showing the time left, Esc, or a tap skips it; with reduced
 motion it is a still card. The type is Source Serif 4, Medium-style editorial
@@ -102,8 +116,10 @@ type. It touches nothing on the page.
 - a faint tremor,
 - duration that grows with distance (Fitts's law).
 
-The cursor is a rounded arrow with a soft sheen, a white rim and a shadow,
-with a name tag tucked under it. Agent colours are rich, muted tones
+The cursor is a rounded arrowhead in the style of modern click cursors: dark
+with a white rim on light pages, light with a dark rim in dark mode, a small
+dot in the agent's colour and a slim dark name tag. Workers are solid (click
+rays flash at the tip); partners are two-tone (rings ripple when they touch). Agent colours are rich, muted tones
 (`--agent-*` in `index.css`, slightly lifted in dark mode).
 
 **Agents panel** is the detail view: task map (levels of the dependency
