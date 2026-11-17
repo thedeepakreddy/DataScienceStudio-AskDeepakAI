@@ -89,3 +89,14 @@ def test_true_false_feature_columns_train(client, classification_rows):
     resp = client.post("/train", json={"data": rows, "target": "ContractType", "models": ["random_forest", "linear"]})
     assert resp.status_code == 200, resp.text
     assert "is_senior" in resp.json()["features"]
+
+
+def test_train_continuous_target_is_not_treated_as_classification(client, regression_rows):
+    # A caller (or UI default) asking for classification on a continuous target
+    # used to fail every model with "Unknown label type: continuous".
+    resp = client.post("/train", json={
+        "data": regression_rows, "target": "target", "task_type": "classification",
+        "models": ["linear", "random_forest"],
+    })
+    assert resp.status_code == 200
+    assert resp.json()["task"] == "regression"
