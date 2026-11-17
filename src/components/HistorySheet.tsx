@@ -16,6 +16,7 @@ const RUN_KIND_LABEL: Record<RunRecord['kind'], string> = {
   'ab-test': 'A/B test',
   'quality-audit': 'Quality audit',
   'sql-query': 'SQL',
+  regression: 'Regression',
   other: 'Run',
 };
 

@@ -250,6 +250,13 @@ pull requests of about the size of the recent ones.
 - Fixed: pie chart dropped every category after the 8th, so its percentages were wrong (now an "Other" slice); built-in insights now follow the filters, and AI insights say when they were written for a different number of rows.
 - Vitest: 61 tests.
 
+**Phase 4 status: done.**
+- Statistics → Compare & relate: the test is chosen from the column types (Welch’s t-test, Welch’s ANOVA with Tukey HSD post-hoc, Pearson correlation, paired t-test, chi-squared), each with an effect size (Hedges’ g, η²/ω², r, dz, Cramér’s V), a confidence interval, assumption checks (Shapiro–Wilk, Levene, expected counts) and the matching non-parametric test (Mann–Whitney, Kruskal–Wallis, Spearman, Wilcoxon, Fisher’s exact), recommended when an assumption fails. One-sided tests and 0.01/0.05/0.10 levels.
+- Multiple-test correction (Holm, Bonferroni, Benjamini–Hochberg) across the tests run in a visit.
+- Regression: linear (OLS) and logistic (maximum likelihood) with coefficients, CIs, p-values, odds ratios, R² / pseudo-R², model tests and collinearity detection.
+- Sample size and power for two-group, paired, ANOVA, correlation and two-proportion designs.
+- Reference tests (`mlops_service/tests/test_stats_engine.py`): Cohen’s sample-size tables, SciPy, scikit-learn and pingouin’s Welch ANOVA. Python: 60 tests; Vitest: 65 tests.
+
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the
 foundation is stable, as the plan itself recommends.

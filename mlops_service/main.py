@@ -44,6 +44,8 @@ from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 
+import stats_engine
+
 try:
     from xgboost import XGBClassifier, XGBRegressor
     HAS_XGBOOST = True
@@ -1128,6 +1130,68 @@ def run_hypothesis_test(request: HypothesisTestRequest):
         "sampleSize": int(len(sub)),
         "basis": basis,
     }
+
+
+# --------------------------------------------------------------------------
+# Statistics step: tests with effect sizes, CIs and assumption checks,
+# regression, and power analysis. The maths lives in stats_engine.py.
+# --------------------------------------------------------------------------
+
+class StatsCompareRequest(BaseModel):
+    data: list[dict[str, Any]]
+    columnA: str
+    columnB: str
+    paired: bool = False
+    alpha: float = 0.05
+    alternative: Literal["two-sided", "less", "greater"] = "two-sided"
+
+
+class StatsRegressionRequest(BaseModel):
+    data: list[dict[str, Any]]
+    outcome: str
+    predictors: list[str]
+    kind: Literal["linear", "logistic"] = "linear"
+    alpha: float = 0.05
+
+
+class StatsPowerRequest(BaseModel):
+    test: Literal["two-sample-t", "paired-t", "anova", "correlation", "two-proportions"]
+    effect: float
+    alpha: float = 0.05
+    power: float | None = None
+    n: float | None = None
+    groups: int = Field(default=3, ge=2, le=50)
+    alternative: Literal["two-sided", "less", "greater"] = "two-sided"
+
+
+@app.post("/stats/compare")
+def stats_compare(request: StatsCompareRequest):
+    if not request.data:
+        raise HTTPException(status_code=400, detail="No data provided.")
+    try:
+        return stats_engine.compare(pd.DataFrame(request.data), request.columnA, request.columnB,
+                                    paired=request.paired, alpha=request.alpha, alternative=request.alternative)
+    except stats_engine.StatsError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@app.post("/stats/regression")
+def stats_regression(request: StatsRegressionRequest):
+    if not request.data:
+        raise HTTPException(status_code=400, detail="No data provided.")
+    try:
+        return stats_engine.regression(pd.DataFrame(request.data), request.outcome, request.predictors, request.kind, request.alpha)
+    except stats_engine.StatsError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@app.post("/stats/power")
+def stats_power(request: StatsPowerRequest):
+    try:
+        return stats_engine.power_analysis(request.test, request.effect, request.alpha, request.power, request.n,
+                                           request.groups, request.alternative)
+    except stats_engine.StatsError as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
 
 # --------------------------------------------------------------------------

@@ -470,7 +470,10 @@ async function callMlService(path: string, options: { method?: string; body?: an
           continue;
         }
         const detail = parsed?.detail || parsed?.error || (parsed ? JSON.stringify(parsed) : null);
-        if (detail) throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        if (detail) {
+          // Keep the service's status so callers can tell bad input (4xx) from an outage.
+          throw Object.assign(new Error(typeof detail === 'string' ? detail : JSON.stringify(detail)), { status: response.status });
+        }
         throw new Error(
           GATEWAY_RETRY_STATUSES.has(response.status)
             ? `The ML compute service is waking up from an idle sleep (its free-tier host spins it down after inactivity) and still hasn't responded after ~${Math.round(GATEWAY_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0) / 1000)}s of retries. It should be warm now - please try again.`
@@ -1715,6 +1718,18 @@ app.post('/api/hypothesis-lab/run-test', async (req, res) => {
     return res.status(503).json({ error: err.message || 'ML compute service unavailable.' });
   }
 });
+
+// Statistics step: real tests, regression and power analysis from the Python service.
+for (const route of ['compare', 'regression', 'power'] as const) {
+  app.post(`/api/stats/${route}`, async (req, res) => {
+    try {
+      return res.json(await callMlService(`/stats/${route}`, { body: req.body }));
+    } catch (err: any) {
+      const status = typeof err.status === 'number' && err.status >= 400 && err.status < 500 ? 400 : 503;
+      return res.status(status).json({ error: err.message || 'ML compute service unavailable.' });
+    }
+  });
+}
 
 // --------------------------------------------------------------------------
 // PHASE 2: Agentic analysis mode.
