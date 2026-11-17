@@ -70,15 +70,30 @@ anything past the limits (1 repair per task, 3 per run) are escalated to the
 user. No AI calls.
 
 **Welcome swarm** (`src/components/WelcomeSwarm.tsx`). Every time the studio
-opens, after the loading screen, about seven seconds: 15 cursors (12 on
-tablets, 10 on phones) fly in, the Orchestrator drags a box open over
-“Welcome to Data Science Studio”, each agent drags out a box with one thing
-the team can do (3 × 3 on desktop, 2 columns on tablets, 3 at a time on
-phones), then they point to the floating Ask AI button, where tasks are
-given, and fly into it. A dim × in the top-left (clear of the notch), Esc
-or a tap anywhere skips it; with reduced motion it is a still card. Type is
-Source Serif 4, an editorial serif in the style of Medium. It touches
-nothing on the page.
+opens, after the loading screen, about seven seconds:
+1. The swarm streams in from every edge on curved paths, with short fading trails.
+2. The Orchestrator types "Welcome to", while three agents drag selection
+   boxes over "Data", "Science" and "Studio", revealing each word.
+3. Nine agents each drag out a box that lands as a card.
+4. A line draws to the floating Ask AI button, and the swarm flies into it.
+
+It uses 15 cursors on desktop, 12 on tablets and 10 on phones; on short
+screens the cards bow out so the closing words clear the button. A dim ×
+with a ring showing the time left, Esc, or a tap skips it; with reduced
+motion it is a still card. The type is Source Serif 4, Medium-style editorial
+type. It touches nothing on the page.
+
+**Cursor motion and look** (`src/swarm/humanMotion.ts`,
+`src/components/AgentCursor.tsx`). Cursors move like a hand:
+- curved paths,
+- a bell-shaped speed curve (minimum jerk),
+- a slight overshoot that settles on long moves,
+- a faint tremor,
+- duration that grows with distance (Fitts's law).
+
+The cursor is a rounded arrow with a soft sheen, a white rim and a shadow,
+with a name tag tucked under it. Agent colours are rich, muted tones
+(`--agent-*` in `index.css`, slightly lifted in dark mode).
 
 **Agents panel** is the detail view: task map (levels of the dependency
 graph), each task’s check and whether it used the page, reviews, incidents,

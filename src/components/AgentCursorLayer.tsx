@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AGENTS } from '../swarm/agents';
 import { InteractionEvent, findTarget, interactions } from '../swarm/interaction';
+import { HumanPointer } from './AgentCursor';
 
 // Draws the agents at work on the user's page (blueprint 11.4–11.7): one
 // pointer per running task (so an agent can show several), a selection box
@@ -23,6 +24,8 @@ interface Pointer {
   y: number;
   at: number;
   waiting: boolean;
+  /** Bumped to make the pointer jump (following a scroll) instead of travelling. */
+  snap?: number;
 }
 
 interface Box { pointerId: string; agent: InteractionEvent['agent']; target: string; rect: DOMRect; label: string }
@@ -106,7 +109,7 @@ export default function AgentCursorLayer() {
             const el = p.target ? findTarget(p.target) : null;
             if (!el) continue;
             const c = centre(el);
-            if (Math.abs(c.x - p.x) > 0.5 || Math.abs(c.y - p.y) > 0.5) { next[p.id] = { ...p, ...c }; changed = true; }
+            if (Math.abs(c.x - p.x) > 0.5 || Math.abs(c.y - p.y) > 0.5) { next[p.id] = { ...p, ...c, snap: (p.snap ?? 0) + 1 }; changed = true; }
           }
           return changed ? next : prev;
         });
@@ -175,26 +178,19 @@ export default function AgentCursorLayer() {
         <span key={r.id} className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full border-2" style={{ left: r.x, top: r.y, borderColor: r.color, animation: 'agent-ripple 0.6s ease-out forwards' }} />
       ))}
 
-      {list.map(p => {
-        const color = AGENTS[p.agent].color;
-        return (
-          <div
-            key={p.id}
-            className="absolute left-0 top-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,0.61,0.36,1)]"
-            style={{ transform: `translate(${p.x}px, ${p.y}px)` }}
-          >
-            <svg width="22" height="22" viewBox="0 0 22 22" className="-ml-[3px] -mt-[2px] drop-shadow" aria-hidden="true">
-              <path d="M3 2 L3 18 L7.5 13.8 L10.6 20.4 L13.4 19.1 L10.4 12.6 L16.6 12.4 Z" fill={color} stroke="white" strokeWidth="1.4" strokeLinejoin="round" />
-            </svg>
-            <div
-              className="ml-4 -mt-1 max-w-[260px] rounded-full px-2.5 py-1 text-[11px] font-medium text-white shadow-lg whitespace-nowrap overflow-hidden text-ellipsis"
-              style={{ background: color, opacity: p.waiting ? 0.75 : 1 }}
-            >
-              <span className="font-semibold">{AGENTS[p.agent].name}</span> · {p.waiting ? `waiting: ${p.label}` : p.label}
-            </div>
-          </div>
-        );
-      })}
+      {list.map(p => (
+        <React.Fragment key={p.id}>
+        <HumanPointer
+          x={p.x}
+          y={p.y}
+          snap={p.snap}
+          color={AGENTS[p.agent].color}
+          name={AGENTS[p.agent].name}
+          detail={p.label}
+          waiting={p.waiting}
+        />
+        </React.Fragment>
+      ))}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle2, AlertTriangle, ExternalLink, Eye, EyeOff, KeyRound, Lock } from 'lucide-react';
 import Orb from './Orb';
-import { AI_KEY_HEADER, getUserGeminiKey, looksLikeGeminiKey, maskKey, setUserGeminiKey } from '../utils/aiKey';
+import { AI_KEY_HEADER, cleanGeminiKey, getUserGeminiKey, looksLikeGeminiKey, maskKey, setUserGeminiKey } from '../utils/aiKey';
 
 type TestResult = { ok: boolean; message: string; reason?: string } | null;
 
@@ -49,14 +49,14 @@ export default function AiKeySheet({ onClose, onChanged }: { onClose: () => void
     if (!draftValid) return;
     setTesting(true);
     setResult(null);
-    const outcome = await test(draft.trim());
+    const outcome = await test(cleanGeminiKey(draft));
     setTesting(false);
     setResult(outcome);
     // Save a key that works, or one that couldn't be checked only because Google
     // or the network was briefly unavailable. Never save a key Google rejected.
     if (outcome?.ok || outcome?.reason === 'busy' || outcome?.reason === 'network') {
-      setUserGeminiKey(draft.trim());
-      setSaved(draft.trim());
+      setUserGeminiKey(cleanGeminiKey(draft));
+      setSaved(cleanGeminiKey(draft));
       setDraft('');
       onChanged();
     }
@@ -153,7 +153,7 @@ export default function AiKeySheet({ onClose, onChanged }: { onClose: () => void
               </button>
             </div>
             {draft && !draftValid && (
-              <p className="mt-1.5 text-xs text-red">That doesn’t look like a Gemini API key.</p>
+              <p className="mt-1.5 text-xs text-red">That doesn’t look like a Gemini API key. Copy it again from Google AI Studio (it usually starts with “AIza” or “AQ.”).</p>
             )}
             <button
               type="submit"
