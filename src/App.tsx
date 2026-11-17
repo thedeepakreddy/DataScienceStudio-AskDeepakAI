@@ -52,6 +52,7 @@ import DeployPanel from './components/DeployPanel';
 import SwarmPanel from './components/SwarmPanel';
 import AgentCursorLayer from './components/AgentCursorLayer';
 import SwarmTakeover from './components/SwarmTakeover';
+import WelcomeSwarm from './components/WelcomeSwarm';
 import { useSwarm } from './swarm/useSwarm';
 import { RUN_LOGGED_EVENT } from './swarm/interaction';
 import { runSandboxedDatasetJs } from './utils/sandbox';
@@ -79,6 +80,9 @@ export default function App() {
   // depends on this callback, so a fresh function reference on every App
   // render would keep restarting that timer for as long as showLoading stays true.
   const handleLoadingComplete = useCallback(() => setShowLoading(false), []);
+  // The agents' welcome, every time the studio opens (after the loading screen).
+  const [showWelcome, setShowWelcome] = useState(true);
+  const closeWelcome = useCallback(() => setShowWelcome(false), []);
   const {
     businessProblem, bannerDismissed, setBannerDismissed,
     expertMode, setExpertMode,
@@ -1041,6 +1045,7 @@ export default function App() {
       {/* Assistive Touch Dynamic Gemini Co-pilot (Drag and move anywhere, controls all pipeline stages & data) */}
       {/* The agents at work on this page, and the user's way to take over. */}
       <AgentCursorLayer />
+      {!showLoading && showWelcome && <WelcomeSwarm onClose={closeWelcome} />}
       <SwarmTakeover status={swarm.run?.status ?? null} onPause={swarm.pause} onResume={swarm.resume} onCancel={swarm.cancel} />
 
       <AssistiveTouchBot

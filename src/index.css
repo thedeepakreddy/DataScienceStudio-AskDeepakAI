@@ -678,6 +678,25 @@
   from { opacity: 0.9; transform: scale(0.4); }
   to { opacity: 0; transform: scale(1.8); }
 }
+/* A selection box being dragged open from its top-left corner. */
+@keyframes agent-drag {
+  from { clip-path: inset(0 100% 100% 0 round 14px); }
+  /* Ends past the edges so name badges sitting on the border aren't cut off. */
+  to { clip-path: inset(-30px -30px -30px -30px round 14px); }
+}
+@keyframes agent-target {
+  from { opacity: 0; transform: scale(1.12); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes welcome-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--blue) 45%, transparent); }
+  50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--blue) 0%, transparent); }
+}
+/* Editorial type for the welcome, in the style of Medium. */
+.font-editorial {
+  font-family: "Source Serif 4", "Source Serif Pro", Charter, "Iowan Old Style", Georgia, serif;
+  font-optical-sizing: auto;
+}
 @media (prefers-reduced-motion: reduce) {
   [data-swarm-ui] * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
 }

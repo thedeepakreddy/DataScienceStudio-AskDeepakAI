@@ -27,6 +27,12 @@ interface Pointer {
 
 interface Box { pointerId: string; agent: InteractionEvent['agent']; target: string; rect: DOMRect; label: string }
 interface Ripple { id: string; x: number; y: number; color: string }
+/** A small selection box round the exact control an agent is using right now. */
+interface Mark { pointerId: string; agent: InteractionEvent['agent']; target: string; rect: DOMRect; verb: string; key: string }
+
+const VERB: Partial<Record<InteractionEvent['action'], string>> = {
+  move: 'reaching', navigate: 'opening', select: 'choosing', type: 'typing', click: 'clicking', check: 'ticking',
+};
 
 const centre = (el: HTMLElement) => {
   const r = el.getBoundingClientRect();
@@ -40,6 +46,8 @@ export default function AgentCursorLayer() {
   const [pointers, setPointers] = useState<Record<string, Pointer>>({});
   const [boxes, setBoxes] = useState<Record<string, Box>>({});
   const [ripples, setRipples] = useState<Ripple[]>([]);
+  const [marks, setMarks] = useState<Record<string, Mark>>({});
+  const markTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(() => interactions.subscribe(e => {
@@ -59,6 +67,14 @@ export default function AgentCursorLayer() {
       };
     });
 
+    // Every action gets a box round the control it touches (it fades a moment later).
+    const verb = VERB[e.action];
+    if (verb && el && e.target) {
+      const pointerId = e.pointerId;
+      setMarks(prev => ({ ...prev, [pointerId]: { pointerId, agent: e.agent, target: e.target!, rect: el.getBoundingClientRect(), verb, key: prev[pointerId]?.target === e.target ? prev[pointerId].key : e.id } }));
+      clearTimeout(markTimers.current.get(pointerId));
+      markTimers.current.set(pointerId, setTimeout(() => setMarks(prev => { const n = { ...prev }; delete n[pointerId]; return n; }), e.action === 'move' ? 1600 : 1100));
+    }
     if (e.action === 'claim' && el) {
       setBoxes(prev => ({ ...prev, [e.pointerId]: { pointerId: e.pointerId, agent: e.agent, target: e.target!, rect: areaOf(el).getBoundingClientRect(), label: e.label } }));
     }
@@ -94,6 +110,14 @@ export default function AgentCursorLayer() {
           }
           return changed ? next : prev;
         });
+        setMarks(prev => {
+          const next: Record<string, Mark> = {};
+          for (const m of Object.values(prev) as Mark[]) {
+            const el = findTarget(m.target);
+            if (el) next[m.pointerId] = { ...m, rect: el.getBoundingClientRect() };
+          }
+          return next;
+        });
         setBoxes(prev => {
           const next: Record<string, Box> = {};
           for (const b of Object.values(prev) as Box[]) {
@@ -110,7 +134,7 @@ export default function AgentCursorLayer() {
   }, []);
 
   const list = Object.values(pointers) as Pointer[];
-  if (!list.length && !ripples.length) return null;
+  if (!list.length && !ripples.length && !Object.keys(marks).length) return null;
 
   return (
     <div className="fixed inset-0 pointer-events-none z-[9990]" aria-live="polite" data-swarm-ui>
@@ -129,6 +153,23 @@ export default function AgentCursorLayer() {
           </span>
         </div>
       ))}
+
+      {(Object.values(marks) as Mark[]).map(m => {
+        const color = AGENTS[m.agent].color;
+        return (
+          <div
+            key={m.key}
+            className="absolute rounded-lg border-2 transition-all duration-300 ease-out"
+            style={{
+              left: m.rect.left - 4, top: m.rect.top - 4, width: m.rect.width + 8, height: m.rect.height + 8,
+              borderColor: color, background: `color-mix(in srgb, ${color} 10%, transparent)`,
+              animation: 'agent-drag 260ms ease-out both',
+            }}
+          >
+            <span className="absolute -top-2.5 right-2 px-1.5 rounded-full text-[10px] font-semibold text-white leading-4" style={{ background: color }}>{m.verb}</span>
+          </div>
+        );
+      })}
 
       {ripples.map(r => (
         <span key={r.id} className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full border-2" style={{ left: r.x, top: r.y, borderColor: r.color, animation: 'agent-ripple 0.6s ease-out forwards' }} />

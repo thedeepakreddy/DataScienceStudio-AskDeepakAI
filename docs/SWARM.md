@@ -42,7 +42,9 @@ they open the step, choose options, type and click buttons marked with
 `data-agent="…"` (`src/swarm/interaction.ts`, `src/swarm/uiScripts.ts`).
 Every action emits an event (agent, task, run, pointer), which
 `AgentCursorLayer` draws: one pointer per running task with a label, a
-selection box over the area being worked on and a ripple on clicks. Results
+selection box over the area being worked on, a small box round every
+control it reaches, chooses, types into or clicks (labelled with the action),
+and a ripple on clicks. Results
 come from the studio’s own logged runs and data versions, never from the
 animation. One agent holds the page at a time and releases it while it waits
 for a result. A real click or key press anywhere outside the agents’ own UI
@@ -66,6 +68,17 @@ try with twice the time. The task re-runs to validate the repair; the
 incident closes only if it succeeds. Unknown failures, failed repairs and
 anything past the limits (1 repair per task, 3 per run) are escalated to the
 user. No AI calls.
+
+**Welcome swarm** (`src/components/WelcomeSwarm.tsx`). Every time the studio
+opens, after the loading screen, about seven seconds: 15 cursors (12 on
+tablets, 10 on phones) fly in, the Orchestrator drags a box open over
+“Welcome to Data Science Studio”, each agent drags out a box with one thing
+the team can do (3 × 3 on desktop, 2 columns on tablets, 3 at a time on
+phones), then they point to the floating Ask AI button, where tasks are
+given, and fly into it. A dim × in the top-left (clear of the notch), Esc
+or a tap anywhere skips it; with reduced motion it is a still card. Type is
+Source Serif 4, an editorial serif in the style of Medium. It touches
+nothing on the page.
 
 **Agents panel** is the detail view: task map (levels of the dependency
 graph), each task’s check and whether it used the page, reviews, incidents,
