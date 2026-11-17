@@ -147,68 +147,68 @@ export function runKMeans(
     }
   }
 
-  // Centroids initialization (Deterministic spaced sampling to avoid empty clusters)
-  const centroids: number[][] = [];
-  for (let i = 0; i < k; i++) {
-    const targetIdx = Math.min(
-      Math.floor((rows.length / k) * i + (rows.length / (k * 2))),
-      rows.length - 1
-    );
-    centroids.push([...dataStore[targetIdx]]);
-  }
-
-  const clusterAssignments = Array(rows.length).fill(-1);
-  let iteration = 0;
-  let assignmentsChanged = true;
-
-  while (iteration < maxIterations && assignmentsChanged) {
-    assignmentsChanged = false;
-    
-    // Assignment Step
-    for (let i = 0; i < dataStore.length; i++) {
-      const pt = dataStore[i];
-      let minDistance = Infinity;
-      let clusterIdx = 0;
-
+  // Lloyd iterations from given starting centroids; returns the assignments,
+  // the final centroids and the within-cluster sum of squares.
+  const lloyd = (start: number[][]) => {
+    const centroids = start.map(c => [...c]);
+    const clusterAssignments: number[] = Array(rows.length).fill(-1);
+    let iteration = 0;
+    let assignmentsChanged = true;
+    while (iteration < maxIterations && assignmentsChanged) {
+      assignmentsChanged = false;
+      for (let i = 0; i < dataStore.length; i++) {
+        const pt = dataStore[i];
+        let minDistance = Infinity;
+        let clusterIdx = 0;
+        for (let c = 0; c < k; c++) {
+          let euclidean = 0;
+          for (let d = 0; d < dimensionsCount; d++) euclidean += Math.pow(pt[d] - centroids[c][d], 2);
+          if (euclidean < minDistance) { minDistance = euclidean; clusterIdx = c; }
+        }
+        if (clusterAssignments[i] !== clusterIdx) { clusterAssignments[i] = clusterIdx; assignmentsChanged = true; }
+      }
+      const clusterSizes = Array(k).fill(0);
+      const sumMatrices = Array.from({ length: k }, () => Array(dimensionsCount).fill(0));
+      for (let i = 0; i < dataStore.length; i++) {
+        const clusterIdx = clusterAssignments[i];
+        clusterSizes[clusterIdx]++;
+        for (let d = 0; d < dimensionsCount; d++) sumMatrices[clusterIdx][d] += dataStore[i][d];
+      }
       for (let c = 0; c < k; c++) {
-        let euclidean = 0;
-        for (let d = 0; d < dimensionsCount; d++) {
-          euclidean += Math.pow(pt[d] - centroids[c][d], 2);
-        }
-        if (euclidean < minDistance) {
-          minDistance = euclidean;
-          clusterIdx = c;
-        }
+        if (clusterSizes[c] > 0) for (let d = 0; d < dimensionsCount; d++) centroids[c][d] = sumMatrices[c][d] / clusterSizes[c];
       }
-
-      if (clusterAssignments[i] !== clusterIdx) {
-        clusterAssignments[i] = clusterIdx;
-        assignmentsChanged = true;
-      }
+      iteration++;
     }
+    let sse = 0;
+    for (let i = 0; i < dataStore.length; i++) for (let d = 0; d < dimensionsCount; d++) sse += Math.pow(dataStore[i][d] - centroids[clusterAssignments[i]][d], 2);
+    return { clusterAssignments, centroids, sse };
+  };
 
-    // Refinement Step (Recalculate centroids)
-    const clusterSizes = Array(k).fill(0);
-    const sumMatrices = Array.from({ length: k }, () => Array(dimensionsCount).fill(0));
-
-    for (let i = 0; i < dataStore.length; i++) {
-      const clusterIdx = clusterAssignments[i];
-      clusterSizes[clusterIdx]++;
-      for (let d = 0; d < dimensionsCount; d++) {
-        sumMatrices[clusterIdx][d] += dataStore[i][d];
-      }
-    }
-
-    for (let c = 0; c < k; c++) {
-      if (clusterSizes[c] > 0) {
-        for (let d = 0; d < dimensionsCount; d++) {
-          centroids[c][d] = sumMatrices[c][d] / clusterSizes[c];
-        }
-      }
-    }
-
-    iteration++;
+  // Two deterministic starts, keeping the tighter result: evenly spaced rows
+  // (the original), and spread-out "farthest point" seeds, which don't depend
+  // on how the rows happen to be ordered.
+  const spaced: number[][] = [];
+  for (let i = 0; i < k; i++) {
+    const targetIdx = Math.min(Math.floor((rows.length / k) * i + (rows.length / (k * 2))), rows.length - 1);
+    spaced.push([...dataStore[targetIdx]]);
   }
+  const farthest: number[][] = [[...dataStore[Math.min(rows.length - 1, Math.floor(rows.length / (k * 2)))]]];
+  while (farthest.length < k) {
+    let best = 0, bestD = -1;
+    for (let i = 0; i < dataStore.length; i++) {
+      let near = Infinity;
+      for (const c of farthest) {
+        let dd = 0;
+        for (let d = 0; d < dimensionsCount; d++) dd += Math.pow(dataStore[i][d] - c[d], 2);
+        if (dd < near) near = dd;
+      }
+      if (near > bestD) { bestD = near; best = i; }
+    }
+    farthest.push([...dataStore[best]]);
+  }
+  const a1 = lloyd(spaced);
+  const a2 = lloyd(farthest);
+  const { clusterAssignments, centroids } = a2.sse < a1.sse - 1e-9 ? a2 : a1;
 
   // format centroids output relative to original unstandardized scales for user readability
   const outputCentroids: CentroidCoordinates[] = centroids.map((cent, cIdx) => {

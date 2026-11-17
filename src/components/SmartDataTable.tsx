@@ -70,20 +70,20 @@ export default function SmartDataTable({ columns }: SmartDataTableProps) {
 
   return (
     <div className="card p-4 sm:p-5 flex flex-col min-h-[300px]">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-sm font-semibold tracking-tight text-label">Data</h3>
-        <div className="flex items-center gap-2">
-          <div className="relative">
+      <div className="flex justify-between items-center gap-3 mb-4">
+        <h3 className="text-sm font-semibold tracking-tight text-label shrink-0">Data</h3>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="relative min-w-0">
             <Search className="w-3.5 h-3.5 text-label-3 absolute left-2 top-2" />
             <input
               type="text"
               placeholder="Search data..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-              className="bg-well border border-separator text-xs text-label rounded-lg pl-7 pr-3 py-1.5 focus:outline-none focus:border-blue"
+              className="w-full min-w-0 sm:w-auto bg-well border border-separator text-xs text-label rounded-lg pl-7 pr-3 py-1.5 focus:outline-none focus:border-blue"
             />
           </div>
-          <button onClick={exportCSV} className="bg-fill hover:bg-fill-strong text-label p-1.5 rounded-lg transition-colors" title="Export CSV">
+          <button onClick={exportCSV} className="shrink-0 bg-fill hover:bg-fill-strong text-label p-1.5 rounded-lg transition-colors" title="Export CSV" aria-label="Export CSV">
             <Download className="w-3.5 h-3.5" />
           </button>
         </div>

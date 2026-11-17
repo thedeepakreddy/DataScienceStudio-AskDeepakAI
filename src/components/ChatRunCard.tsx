@@ -65,6 +65,15 @@ export default function ChatRunCard({ run, live, ...on }: ChatRunCardProps) {
       {report && (
         <div className="rounded-xl bg-well px-2.5 py-2 space-y-1">
           <p className="text-label font-medium">{report.headline}</p>
+          {report.bySteps && report.bySteps.length > 1 && (
+            <p className="text-label-2">{report.bySteps.map(b => `${b.step} ${b.count}`).join(' · ')}</p>
+          )}
+          {report.orchestrator && (
+            <div className={report.orchestrator.verdict === 'needs_you' ? 'text-orange' : 'text-label-2'}>
+              <p><span className="font-medium" style={{ color: AGENTS.orchestrator.color }}>Orchestrator review</span>{report.orchestrator.usedAi ? ' (AI-checked)' : ''}: {report.orchestrator.summary}</p>
+              {report.orchestrator.verdict === 'needs_you' && report.orchestrator.issues.slice(0, 4).map((i, k) => <p key={k}>• {i}</p>)}
+            </div>
+          )}
           {report.reviews.filter(r => !r.agrees).map(r => <p key={r.label} className="text-orange">Contradiction — {r.label}: {r.detail}</p>)}
           {report.incidents.map((i, k) => (
             <p key={k} className={i.state === 'closed' ? 'text-label-2' : 'text-orange'}>

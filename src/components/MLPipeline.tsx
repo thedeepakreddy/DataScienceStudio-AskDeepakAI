@@ -616,7 +616,7 @@ export default function MLPipeline({
                     </select>
                   </div>
                   <label className="col-span-2 flex items-start gap-2 text-sm text-label">
-                    <input type="checkbox" className="mt-1" checked={tune} disabled={selectedAlgorithmId === 'auto'} onChange={e => setTune(e.target.checked)} />
+                    <input type="checkbox" data-agent="ml-tune" className="mt-1" checked={tune} disabled={selectedAlgorithmId === 'auto'} onChange={e => setTune(e.target.checked)} />
                     <span>
                       Tune the settings automatically
                       <span className="block text-xs text-label-2">

@@ -36,7 +36,7 @@ export interface DatasetVersion {
   dataset: Dataset;
 }
 
-export type RunKind = 'ai-advisory' | 'model-training' | 'hypothesis-test' | 'ab-test' | 'quality-audit' | 'sql-query' | 'regression' | 'forecast' | 'power' | 'other';
+export type RunKind = 'ai-advisory' | 'model-training' | 'hypothesis-test' | 'ab-test' | 'quality-audit' | 'sql-query' | 'regression' | 'forecast' | 'power' | 'deep-eda' | 'other';
 
 export interface RunRecord {
   id: string;

@@ -124,3 +124,13 @@ three approved fixes → test → model → report) ran with each agent’s poin
 on the page, two independent reviews, 0 AI calls, and Undo All; a click on
 the page paused the team and Resume finished it; SQL and Code modes worked
 from the chat.
+
+## v3 — a bigger, smarter team
+
+See [`AGENTS_PLAN.md`](AGENTS_PLAN.md) for the full plan and the reasons behind it.
+
+- **23 agents,** each with a skill sheet (`src/swarm/skills.ts`).
+- **New capabilities:** deep analysis, the drivers screen (Holm), segments, explanation, tuning, dashboard design and filters, sample datasets, group/pivot.
+- **The Dashboard Designer** designs from the user's words and the data (`src/swarm/dashboardDesign.ts`).
+- **A full analysis** runs through every step.
+- **The Orchestrator** reviews each run and redoes what went wrong (`src/swarm/orchestratorReview.ts`).

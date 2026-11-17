@@ -10,6 +10,8 @@ import { AGENTS } from '../swarm/agents';
 import { CAPABILITIES } from '../swarm/catalog';
 import type { SwarmRun, TaskState } from '../swarm/runtime';
 import { STATUS_TEXT, TaskIcon, canUndo, plannedByText, taskLabel } from './swarmBits';
+import { SKILLS } from '../swarm/skills';
+import type { AgentRole } from '../swarm/agents';
 
 interface SwarmPanelProps {
   onClose: () => void;
@@ -50,6 +52,7 @@ const INCIDENT_TEXT = { detected: 'Detected', diagnosing: 'Diagnosing', repairin
 export default function SwarmPanel(props: SwarmPanelProps) {
   const { run } = props;
   const [showMessages, setShowMessages] = useState(false);
+  const [view, setView] = useState<'work' | 'team'>('work');
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') props.onClose(); };
@@ -84,7 +87,14 @@ export default function SwarmPanel(props: SwarmPanelProps) {
           <button type="button" onClick={props.onClose} className="btn btn-icon" aria-label="Close agents"><X className="w-4 h-4" /></button>
         </div>
 
-        {!run && (
+        <div className="segmented w-full" role="tablist" aria-label="Agents view">
+          <button type="button" role="tab" className="flex-1" aria-selected={view === 'work'} onClick={() => setView('work')}>Work</button>
+          <button type="button" role="tab" className="flex-1" aria-selected={view === 'team'} onClick={() => setView('team')}>Team ({Object.keys(AGENTS).length})</button>
+        </div>
+
+        {view === 'team' && <TeamView />}
+
+        {view === 'work' && !run && (
           <div className="space-y-4">
             <p className="text-sm text-label-2">Ask the team in the <span className="text-label font-medium">Ask AI</span> chat — for example “Clean the data and train a model”. You’ll see each agent working on this page, and the details appear here.</p>
             {props.history.length > 0 && (
@@ -104,7 +114,7 @@ export default function SwarmPanel(props: SwarmPanelProps) {
           </div>
         )}
 
-        {run && (
+        {view === 'work' && run && (
           <div className="space-y-5">
             <div className="rounded-2xl bg-well p-4 space-y-1">
               <p className="text-sm text-label-2">“{run.request}”</p>
@@ -193,6 +203,13 @@ export default function SwarmPanel(props: SwarmPanelProps) {
                 {run.report.problems.length > 0 && (
                   <ul className="text-sm text-orange list-disc pl-5 space-y-0.5">{run.report.problems.map(p => <li key={p.label}>{p.label} — {p.status}: {p.reason}</li>)}</ul>
                 )}
+                {run.report.orchestrator && (
+                  <div className="text-sm space-y-0.5">
+                    <p className="text-label"><span className="font-medium" style={{ color: AGENTS.orchestrator.color }}>Orchestrator review</span>{run.report.orchestrator.usedAi ? ' (AI-checked)' : ''}: {run.report.orchestrator.summary}</p>
+                    {run.report.orchestrator.issues.map((i, k) => <p key={k} className="text-xs text-label-2">• {i}</p>)}
+                    {run.report.orchestrator.fixes.length > 0 && <p className="text-xs text-label-2">Redone: {run.report.orchestrator.fixes.join('; ')}.</p>}
+                  </div>
+                )}
                 {run.report.reviews.length > 0 && (
                   <ul className="text-sm list-disc pl-5 space-y-0.5">{run.report.reviews.map(r => <li key={r.label} className={r.agrees ? 'text-label-2' : 'text-orange'}>{r.agrees ? 'Review agrees' : 'Contradiction'} — {r.label}: {r.detail}</li>)}</ul>
                 )}
@@ -243,6 +260,56 @@ export default function SwarmPanel(props: SwarmPanelProps) {
           </div>
         )}
       </motion.aside>
+    </div>
+  );
+}
+
+/** Every agent with what it knows, how it decides and what it can do. */
+function TeamView() {
+  const owns = (role: AgentRole) => Object.values(CAPABILITIES).filter(c => c.defaultRole === role);
+  return (
+    <ul className="space-y-2">
+      {(Object.keys(AGENTS) as AgentRole[]).map(role => {
+        const a = AGENTS[role];
+        const s = SKILLS[role];
+        return (
+          <li key={role} className="rounded-2xl border border-separator">
+            <details className="group">
+              <summary className="list-none cursor-pointer p-3 flex items-start gap-3">
+                <span className="w-3 h-3 rounded-full mt-1.5 shrink-0" style={{ background: a.color }} aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-label">{a.name}</span>
+                  <span className="block text-xs text-label-2">{s.mission}</span>
+                </span>
+                <span className="text-xs text-label-3 shrink-0 mt-0.5">{owns(role).length} skills</span>
+              </summary>
+              <div className="px-3 pb-3 pl-9 space-y-2 text-xs">
+                <SkillList title="Knows" items={s.knows} />
+                <SkillList title="How it decides" items={s.playbook} />
+                <SkillList title="Quality bar" items={s.qualityBar} />
+                <div>
+                  <p className="font-medium text-label-2 mb-1">Can do</p>
+                  <div className="flex flex-wrap gap-1">
+                    {owns(role).map(c => <span key={c.id} className="tag text-[11px]">{c.id}</span>)}
+                  </div>
+                </div>
+                {s.handsOffTo.length > 0 && (
+                  <p className="text-label-3">Hands off to {s.handsOffTo.map(r => AGENTS[r].name).join(', ')}.</p>
+                )}
+              </div>
+            </details>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function SkillList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <p className="font-medium text-label-2 mb-0.5">{title}</p>
+      <ul className="list-disc pl-4 space-y-0.5 text-label">{items.map(i => <li key={i}>{i}</li>)}</ul>
     </div>
   );
 }

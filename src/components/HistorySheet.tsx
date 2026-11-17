@@ -19,6 +19,7 @@ const RUN_KIND_LABEL: Record<RunRecord['kind'], string> = {
   regression: 'Regression',
   forecast: 'Forecast',
   power: 'Sample size',
+  'deep-eda': 'Deep analysis',
   other: 'Run',
 };
 

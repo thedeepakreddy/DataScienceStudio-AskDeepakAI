@@ -376,7 +376,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
       </section>
 
       {/* Samples */}
-      <section aria-labelledby="samples-heading">
+      <section aria-labelledby="samples-heading" data-agent="area-samples">
         <h2 id="samples-heading" className="text-xl font-semibold tracking-tight text-label">
           {currentDataset ? 'Or switch to a sample' : 'Or start with a sample'}
         </h2>
@@ -389,6 +389,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
               <button
                 key={key}
                 type="button"
+                data-agent={`sample-${key}`}
                 onClick={() => loadSample(key)}
                 aria-pressed={isActive}
                 className={`card group text-left p-5 flex items-start gap-4 hover:shadow-md ${

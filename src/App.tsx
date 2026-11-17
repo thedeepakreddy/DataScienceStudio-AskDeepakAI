@@ -50,6 +50,7 @@ import ExperimentsPanel from './components/ExperimentsPanel';
 import ForecastPanel from './components/ForecastPanel';
 import DeployPanel from './components/DeployPanel';
 import SwarmPanel from './components/SwarmPanel';
+import MoreMenu from './components/MoreMenu';
 import AgentCursorLayer from './components/AgentCursorLayer';
 import SwarmTakeover from './components/SwarmTakeover';
 import WelcomeSwarm from './components/WelcomeSwarm';
@@ -116,9 +117,14 @@ export default function App() {
   const stageBarRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     window.scrollTo({ top: 0 });
-    stageBarRef.current
-      ?.querySelector<HTMLElement>('[aria-current="step"]')
-      ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    // Scroll only the step bar itself. scrollIntoView would also scroll the
+    // page sideways on phones, which pushed whole steps off the left edge.
+    const bar = stageBarRef.current;
+    const cur = bar?.querySelector<HTMLElement>('[aria-current="step"]');
+    if (bar && cur) {
+      const b = bar.getBoundingClientRect(), c = cur.getBoundingClientRect();
+      bar.scrollTo({ left: bar.scrollLeft + (c.left - b.left) - (b.width - c.width) / 2, behavior: 'smooth' });
+    }
   }, [activeTab]);
 
   // GLOBAL CLICK TRACKER FOR DEEPAKLLMS TRAINING DATA
@@ -651,7 +657,7 @@ export default function App() {
 
       {/* Toolbar: identity on the left, global controls on the right. */}
       <header className="bg-canvas">
-        <div className="mx-auto max-w-[1400px] h-14 px-4 sm:px-6 flex items-center justify-between gap-3">
+        <div className="mx-auto max-w-[1400px] h-14 px-3 min-[380px]:px-4 sm:px-6 flex items-center justify-between gap-2 sm:gap-3">
           <button
             type="button"
             onClick={() => setActiveTab('ingest')}
@@ -659,13 +665,13 @@ export default function App() {
             id="brand_logo"
             aria-label="Data Science Studio — go to Import"
           >
-            <AppIcon size={36} />
+            <span className="shrink-0"><AppIcon size={36} /></span>
             <span className="hidden sm:inline text-[17px] font-semibold tracking-tight text-label truncate">
               Data Science Studio
             </span>
           </button>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 min-[380px]:gap-1.5 sm:gap-2 shrink-0">
             {activeDataset && (
               <span className="tag hidden lg:inline-flex max-w-[220px] mr-1" title={activeDataset.filename}>
                 <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
@@ -673,7 +679,7 @@ export default function App() {
               </span>
             )}
 
-            <div className="segmented" role="group" aria-label="Experience level">
+            <div className="segmented segmented-compact hidden min-[380px]:inline-flex" role="group" aria-label="Experience level">
               <button
                 type="button"
                 aria-pressed={!expertMode}
@@ -713,7 +719,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setHistoryOpen(true)}
-              className="btn btn-icon"
+              className="btn btn-icon hidden sm:inline-flex"
               aria-label="History of versions and runs"
               title="History"
             >
@@ -723,7 +729,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setAiKeySheetOpen(true)}
-              className="btn btn-icon relative"
+              className="btn btn-icon relative hidden sm:inline-flex"
               aria-label={hasOwnKey ? 'Your Gemini API key (added)' : 'Use your own Gemini API key'}
               title={hasOwnKey ? 'Your Gemini API key is added' : 'Use your own Gemini API key'}
             >
@@ -734,7 +740,7 @@ export default function App() {
             <button
               type="button"
               onClick={toggleTheme}
-              className="btn btn-icon"
+              className="btn btn-icon hidden sm:inline-flex"
               aria-label={theme === 'dark' ? 'Switch to light appearance' : 'Switch to dark appearance'}
               title={theme === 'dark' ? 'Light appearance' : 'Dark appearance'}
             >
@@ -744,12 +750,23 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsAboutModalOpen(true)}
-              className="btn btn-icon"
+              className="btn btn-icon hidden sm:inline-flex"
               aria-label="About the creator"
               title="About the creator"
             >
               <CircleUser className="w-[18px] h-[18px]" />
             </button>
+
+            {/* Phones: the less-used controls live in one menu so the toolbar fits. */}
+            <MoreMenu
+              items={[
+                { label: expertMode ? 'Switch to Beginner' : 'Switch to Expert', icon: <Users className="w-4 h-4" />, onSelect: () => setExpertMode(!expertMode), className: 'min-[380px]:hidden' },
+                { label: 'History', icon: <History className="w-4 h-4" />, onSelect: () => setHistoryOpen(true) },
+                { label: hasOwnKey ? 'Your Gemini key (added)' : 'Use your own Gemini key', icon: <KeyRound className="w-4 h-4" />, onSelect: () => setAiKeySheetOpen(true) },
+                { label: theme === 'dark' ? 'Light appearance' : 'Dark appearance', icon: theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />, onSelect: toggleTheme },
+                { label: 'About the creator', icon: <CircleUser className="w-4 h-4" />, onSelect: () => setIsAboutModalOpen(true) },
+              ]}
+            />
           </div>
         </div>
       </header>

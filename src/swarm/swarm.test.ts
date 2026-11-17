@@ -14,9 +14,9 @@ describe('rule planner', () => {
 
   it('plans a full analysis with dependencies and no AI', () => {
     const p = rulePlan('Do a full analysis and write a report', ds);
-    expect(p.tasks.map(t => t.capability)).toEqual(['quality.check', 'explore.profile', 'stats.compare', 'models.train', 'report.build']);
+    expect(p.tasks.map(t => t.capability)).toEqual(['quality.check', 'explore.profile', 'explore.deep_eda', 'stats.screen', 'models.train', 'dashboard.design', 'dashboard.add_kpi', 'dashboard.save', 'report.build', 'report.pdf']);
     const report = p.tasks.find(t => t.capability === 'report.build')!;
-    expect(report.dependsOn).toEqual(['t1', 't3', 't4']);
+    expect(report.dependsOn).toEqual(['t1', 't3', 't4', 't5']);
     expect(validatePlan(p.tasks, ds)).toEqual([]);
   });
 
@@ -70,7 +70,9 @@ describe('swarm runtime', () => {
     expect(run.status).toBe('completed');
     expect(port.commits).toEqual(['Removed 1 duplicate row.', 'Removed “const”.', expect.stringContaining('Filled 1 missing value in “MonthlyCharges”')]);
     expect(port.train).toHaveBeenCalledTimes(1);
-    expect(run.report!.headline).toBe('Done: all 5 tasks completed and self-checked; 1 independently reviewed.');
+    expect(run.report!.headline).toBe('Done: all 6 tasks completed and self-checked; 1 independently reviewed.');
+    // Training hands off to the Explainability Analyst.
+    expect(run.tasks.find(t => t.capability === 'models.explain')).toMatchObject({ role: 'explainability_analyst', status: 'completed', dynamic: true });
     expect(run.report!.reviews).toEqual([expect.objectContaining({ label: 'Train a model to predict “Churn”', agrees: true })]);
     expect(run.report!.limitations[0]).toContain('self-check');
     expect(run.telemetry.aiCalls).toBe(0);

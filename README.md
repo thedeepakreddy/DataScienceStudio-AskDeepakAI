@@ -29,7 +29,7 @@
 ## At a glance
 
 - **What it is:** a full-stack data science workstation in the browser. It covers seven steps: **Import, Clean, Explore, Statistics, Model, Dashboard and Report**.
-- **The agent team:** nine specialist AI agents, led by an Orchestrator you talk to in the floating **Ask AI** chat.
+- **The agent team:** 23 specialist AI agents, led by an Orchestrator you talk to in the floating **Ask AI** chat.
   - They plan your request, then carry it out on your own screen: you watch their cursors click, type and select real controls.
   - Results are checked, risky ones are reviewed independently, and the whole run can be undone in one click.
 - **Real numbers only:**
@@ -65,17 +65,17 @@ Tap the floating **Ask AI** button and tell the team what you need in plain Engl
 
 The Orchestrator plans the work and hands each task to the right specialist:
 
-| Agent | Responsible for |
+| Step | Agents |
 |---|---|
-| Orchestrator | Plans the work, delegates it and writes the final report |
-| Data Engineer | Cleaning, transformations and data versions |
-| Data Quality Agent | Missing values, duplicates, leakage and consistency |
-| Data Scientist | Exploration, profiling and forecasting |
-| Statistician | Tests, assumptions and uncertainty |
-| ML Engineer | Training, evaluation and reproducibility |
-| BI Analyst | Dashboards and KPIs |
-| Research Analyst | Reports and evidence |
-| Verification Agent | Independent checks of risky results |
+| Lead | **Orchestrator** plans, delegates, reviews the finished run and redoes what went wrong · **Verification Agent** re-checks risky results by a different method |
+| Import & Clean | **Data Engineer** (fixes, samples, reshaping) · **Data Quality Agent** (finds problems) · **Feature Engineer** (log transforms, encodings, types) · **Data Steward** (quality rules) · **Automation Engineer** (repeatable workflows) · **Code Specialist** (sandboxed custom code) |
+| Explore | **Data Scientist** (profile, deep pandas analysis) · **Insights Strategist** (AI advisory) · **SQL Analyst** (read-only queries) |
+| Statistics | **Statistician** (tests, "what drives X" with Holm correction) · **Regression Analyst** (combined effects) · **Experimentation Scientist** (A/B tests, sample size) |
+| Model | **ML Engineer** (training, tuning) · **Explainability Analyst** (what the model learned, leakage alarms) · **Time-Series Analyst** (forecasts) · **Segmentation Analyst** (clusters, k by silhouette) · **MLOps Engineer** (registry, predictions) |
+| Dashboard | **Dashboard Designer** (charts from your words and the data) · **BI Analyst** (KPIs, filters) |
+| Report | **Research Analyst** (findings) · **Publishing Agent** (PDF, reproducibility package) |
+
+Each agent has a written skill sheet (what it knows, how it decides, its quality bar), shown in the Agents panel under **Team** and given to the AI planner. See [`docs/AGENTS_PLAN.md`](docs/AGENTS_PLAN.md).
 
 **How a request runs**
 
@@ -106,7 +106,14 @@ The Orchestrator plans the work and hands each task to the right specialist:
    - try once more with more time.
 
    The incident only closes if the re-run succeeds. Anything else is escalated to you, and no AI call is involved.
-6. **A truthful report.** At the end you get a summary in the chat:
+6. **The Orchestrator reviews before reporting.** When the work ends it audits the run and redoes what went wrong:
+   - leakage → retrain without the leaky columns;
+   - a model that fails the validation gate → a tuned model;
+   - a dashboard that didn't render → a redesign;
+   - blocked work → rerun after the fix.
+
+   With a Gemini key, one more AI call checks that the results answer your request. One round, at most six fixes, normal approvals.
+7. **A truthful report.** At the end you get a summary in the chat:
    - what was done, and each task's check,
    - reviews, contradictions and incidents,
    - limitations,

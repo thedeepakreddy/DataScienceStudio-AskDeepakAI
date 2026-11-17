@@ -16,7 +16,8 @@ export default function SmartBoxPlot({ column, groupColumn }: SmartBoxPlotProps)
     if (groupColumn) {
       filteredData.forEach(row => {
         let key = row[groupColumn];
-        if (!key) key = 'Unknown';
+        // false and 0 are real values, not missing ones.
+        key = key === undefined || key === null || key === '' ? 'Unknown' : String(key);
         if (!groups[key]) groups[key] = [];
         const val = Number(row[column]);
         if (!isNaN(val)) groups[key].push(val);

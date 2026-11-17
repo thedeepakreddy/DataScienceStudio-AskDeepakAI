@@ -1322,7 +1322,7 @@ app.post('/api/hypothesis-lab/run-test', async (req, res) => {
 // can't. One AI call; the browser validates the plan against its catalog
 // before anything runs, and only the studio's own operations execute it.
 app.post('/api/swarm/plan', async (req, res) => {
-  const { request, catalog, dataset, history } = req.body || {};
+  const { request, catalog, dataset, history, skills } = req.body || {};
   if (typeof request !== 'string' || !request.trim() || typeof catalog !== 'string') {
     return res.status(400).json({ error: 'A request and the capability catalog are required.' });
   }
@@ -1334,10 +1334,12 @@ app.post('/api/swarm/plan', async (req, res) => {
 Rules:
 - Use ONLY these capabilities (id, studio, usual specialist, params):
 ${catalog}
-- Specialist roles: data_engineer, data_scientist, statistician, ml_engineer, bi_analyst, research_analyst, data_quality, verifier.
+- Specialist roles and what each knows (follow their playbooks):
+${typeof skills === 'string' ? skills.slice(0, 12000) : 'data_engineer, data_scientist, statistician, ml_engineer, bi_analyst, research_analyst, data_quality, verifier'}
+- Give each task to the role that usually owns its capability (shown in the list above).
 - Use exact column names from the dataset. Never invent columns or results.
 - dependsOn lists task ids that must finish first. Data changes run in order; analyses that need clean data depend on the cleaning tasks.
-- Keep the plan as small as the request needs (at most 12 tasks).
+- Keep the plan as small as the request needs (at most 30 tasks). Order: clean before analysing; analyses before dashboards and reports. For dashboards use dashboard.design with focus set to the user's words.
 - If the user asks a question (about the data, statistics, the studio or a previous result) rather than asking for work, return NO tasks and answer it in reply, using only the facts given here. Say so when the facts don't answer it; never invent numbers or results.
 - If the request is outside data science work in this studio, return no tasks and say so briefly in reply.
 - params must be a JSON object string matching the capability's params.
@@ -1394,6 +1396,73 @@ ${sample ? `Sample rows: ${sample}\n` : ''}${safeHistory ? `Conversation so far:
   } catch (err: any) {
     console.error('[AskDeepakAI] /api/swarm/plan failed:', err);
     return res.status(503).json({ error: 'AI planning failed: ' + (err?.message || 'unknown error'), reason: 'ai_failed' });
+  }
+});
+
+// The Orchestrator's final review: does the run answer the request? One AI
+// call, only when the browser asks for it (after a run). Proposed fixes are
+// validated in the browser like any plan.
+app.post('/api/swarm/review', async (req, res) => {
+  const { request, tasks, catalog, dataset } = req.body || {};
+  if (typeof request !== 'string' || !Array.isArray(tasks) || typeof catalog !== 'string') {
+    return res.status(400).json({ error: 'The request, tasks and catalog are required.' });
+  }
+  if (!aiKeyAvailable()) return res.status(503).json({ error: 'AI review is unavailable (no Gemini key).', reason: 'ai_unavailable' });
+  const columns = Array.isArray(dataset?.columns) ? dataset.columns.slice(0, 200) : [];
+  const systemInstruction = `You are the Orchestrator of a data science agent team doing the final review of a finished run, before the user sees the report.
+Decide whether the results answer the user's request. Use only the facts given.
+- issues: concrete problems (at most 5): something requested but not delivered, a failed or contradicted result, a result that doesn't answer the question. Empty if none.
+- tasks: corrective tasks only when a capability below can fix an issue (at most 4). Use ONLY these capabilities and exact column names:
+${catalog}
+  params must be a JSON object string; dependsOn may only list other new task ids. Never repeat a task that already succeeded with the same params.
+- summary: one plain sentence for the user (what was checked and the outcome).`;
+  const prompt = `Dataset columns: ${columns.map((c: any) => `${c.name} (${c.type})`).join(', ')}
+Request: ${request.slice(0, 2000)}
+Tasks and results:
+${JSON.stringify(tasks).slice(0, 14000)}`;
+  try {
+    const aiResponse: any = await generateContentWithRetry(getGeminiClient(), {
+      contents: prompt,
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          required: ['summary', 'issues', 'tasks'],
+          properties: {
+            summary: { type: Type.STRING },
+            issues: { type: Type.ARRAY, items: { type: Type.STRING } },
+            tasks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                required: ['id', 'capability', 'params', 'dependsOn', 'why'],
+                properties: {
+                  id: { type: Type.STRING }, capability: { type: Type.STRING }, params: { type: Type.STRING, description: 'JSON object string' },
+                  dependsOn: { type: Type.ARRAY, items: { type: Type.STRING } }, why: { type: Type.STRING },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const parsed = JSON.parse(aiResponse?.text || '{}');
+    const out = (Array.isArray(parsed.tasks) ? parsed.tasks : []).slice(0, 4).map((t: any) => {
+      let params: unknown;
+      try { params = JSON.parse(t.params || '{}'); } catch { params = {}; }
+      return { ...t, params };
+    });
+    const usage = aiResponse?.usageMetadata || {};
+    return res.json({
+      summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      issues: Array.isArray(parsed.issues) ? parsed.issues.filter((x: unknown) => typeof x === 'string').slice(0, 5) : [],
+      tasks: out,
+      usage: { inputTokens: usage.promptTokenCount ?? 0, outputTokens: usage.candidatesTokenCount ?? 0 },
+    });
+  } catch (err: any) {
+    console.error('[AskDeepakAI] /api/swarm/review failed:', err);
+    return res.status(503).json({ error: 'AI review failed: ' + (err?.message || 'unknown error'), reason: 'ai_failed' });
   }
 });
 
