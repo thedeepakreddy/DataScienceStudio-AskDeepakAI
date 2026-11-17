@@ -49,6 +49,7 @@ export interface RegisteredModel {
   cv?: { mean?: number; std?: number; folds?: number; metric?: string };
   split?: MLResult['split'];
   seed?: number;
+  tuning?: MLResult['tuning'];
   topFeatures: { feature: string; score: number }[];
   schema: FeatureSchema[];
   gate: GateCheck[];

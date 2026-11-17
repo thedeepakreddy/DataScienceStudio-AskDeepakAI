@@ -865,6 +865,7 @@ export default function App() {
                 onUpdateDataset={handleUpdateDataset}
                 onResetOriginal={handleResetOriginal}
                 datasetId={datasetId}
+                activeVersionId={activeVersionId}
                 onUndo={handleUndo}
                 canUndo={!!activeParentId}
               />
@@ -937,6 +938,8 @@ export default function App() {
                 dataset={activeDataset}
                 mlResult={mlResult}
                 aiAnalysis={aiAnalysis}
+                datasetId={datasetId}
+                activeVersionId={activeVersionId}
               />
             )}
 

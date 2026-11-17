@@ -12,7 +12,13 @@ import {
   Printer,
   BarChart4,
   Check,
+  Package,
 } from 'lucide-react';
+import { DatasetVersion, RunRecord, listRegisteredModels, listRuns, listVersions } from '../utils/workspaceStore';
+import { REPORTABLE_KINDS, buildNotebook, describeRun, lineage, rowsToCsv } from '../utils/provenance';
+import { RegisteredModel, modelCardMarkdown } from '../utils/modelRegistry';
+import { workflowSteps } from '../operations/workflows';
+import { ZipEntry, createZip } from '../utils/zip';
 import AppIcon from './AppIcon';
 import { Dataset, MLResult } from '../types';
 import { computeReportFindings } from '../utils/reportFindings';
@@ -24,21 +30,48 @@ interface ReportsHubProps {
   dataset: Dataset;
   aiAnalysis: any;
   mlResult: MLResult | null;
+  datasetId?: string | null;
+  activeVersionId?: string | null;
 }
 
-export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHubProps) {
+export default function ReportsHub({ dataset, aiAnalysis, mlResult, datasetId = null, activeVersionId = null }: ReportsHubProps) {
   const { expertMode } = usePipelineContext();
   const [logs, setLogs] = useState<string[]>(['Report ready.']);
 
   // Every finding below is computed from the data and the model's real results.
   const findings = React.useMemo(() => computeReportFindings(dataset, mlResult), [dataset, mlResult]);
 
+  // Provenance: how this data version was made, and saved analyses to include.
+  const [versions, setVersions] = useState<DatasetVersion[]>([]);
+  const [savedRuns, setSavedRuns] = useState<RunRecord[]>([]);
+  const [activeModel, setActiveModel] = useState<RegisteredModel | null>(null);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [packaging, setPackaging] = useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!datasetId) return;
+      const [vs, runs, models] = await Promise.all([listVersions(datasetId), listRuns(300), listRegisteredModels(datasetId)]);
+      if (cancelled) return;
+      const ids = new Set(vs.map(v => v.id));
+      setVersions(vs);
+      setSavedRuns(runs.filter(r => r.versionId && ids.has(r.versionId) && r.status === 'succeeded' && REPORTABLE_KINDS.includes(r.kind)));
+      setActiveModel(models.find(m => m.active) ?? null);
+    })().catch(() => {});
+    return () => { cancelled = true; };
+  }, [datasetId, activeVersionId]);
+  const chain = React.useMemo(() => lineage(versions, activeVersionId), [versions, activeVersionId]);
+  const includedRuns = savedRuns.filter(r => !excluded.has(r.id));
+  const versionLabel = (id: string | null) => {
+    const i = chain.findIndex(v => v.id === id);
+    return i >= 0 ? `v${i + 1}` : versions.find(v => v.id === id) ? 'another version' : 'unsaved';
+  };
+
   // Compute stats on-the-fly to backfill if AI scan has not run yet
   const dynamicMissingCount = dataset.columns.reduce((acc, c) => acc + (c.missingCount || 0), 0);
   const numericCount = dataset.columns.filter(c => c.type === 'numeric').length;
 
-  const handleDownloadPDF = () => {
-    try {
+  const buildPdf = () => {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const generatedAt = new Date();
       const generatedLabel = generatedAt.toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
@@ -150,6 +183,36 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
         paragraph(rec.detail, { indent: 4 });
       });
 
+      // 6. Saved analyses
+      if (includedRuns.length > 0) {
+        heading('6. Saved analyses');
+        includedRuns.forEach(run => {
+          const d = describeRun(run);
+          paragraph(d.heading, { bold: true, color: [29, 29, 31] });
+          d.lines.forEach(l => paragraph(l, { indent: 2 }));
+          paragraph(`Run on data ${versionLabel(run.versionId)}, ${new Date(run.createdAt).toLocaleString()}.`, { indent: 2, size: 8, color: [140, 140, 145] });
+        });
+      }
+
+      // 7. Provenance
+      if (chain.length > 0 || mlResult) {
+        heading(`${includedRuns.length > 0 ? 7 : 6}. Provenance`);
+        if (chain.length > 0) {
+          paragraph('How the data used here was produced:', { bold: true, color: [29, 29, 31] });
+          chain.forEach((v, i) => paragraph(`v${i + 1}  ${v.label}  (${v.rowCount.toLocaleString()} rows × ${v.columnCount} columns, ${new Date(v.createdAt).toLocaleString()})`, { indent: 2, size: 9 }));
+        }
+        if (mlResult) {
+          const s = mlResult.split;
+          paragraph(
+            `Model: ${mlResult.modelAlgorithm}, seed ${mlResult.seed ?? 42}, ` +
+            (s ? `${s.strategy} split with ${s.trainRows} training and ${s.testRows} test rows` : 'random split') +
+            (mlResult.tuning?.tuned ? `, tuned over ${mlResult.tuning.iterations} trials` : '') + '.',
+            { size: 9 },
+          );
+        }
+        if (activeModel) paragraph(`Active registered model: ${activeModel.name} v${activeModel.version}.`, { size: 9 });
+      }
+
       // Method note + page numbers
       heading('How this report was made');
       paragraph(
@@ -166,12 +229,70 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
         doc.text(`${dataset.filename}  ·  page ${i} of ${pages}`, 105, 290, { align: 'center' });
       }
 
-      const fileName = `Data_Analysis_Report_${dataset.filename.replace(/\.[^/.]+$/, '')}.pdf`;
+      return { doc, pages };
+  };
+
+  const baseName = dataset.filename.replace(/\.[^/.]+$/, '').replace(/[^A-Za-z0-9_-]+/g, '_');
+
+  const handleDownloadPDF = () => {
+    try {
+      const { doc, pages } = buildPdf();
+      const fileName = `Data_Analysis_Report_${baseName}.pdf`;
       doc.save(fileName);
       setLogs(prev => [...prev, `Saved ${fileName} (${pages} page${pages === 1 ? '' : 's'}).`]);
     } catch (err: any) {
       console.error(err);
       setLogs(prev => [...prev, `Couldn’t create the PDF: ${err.message || err}`]);
+    }
+  };
+
+  // Everything needed to check or repeat the analysis outside the studio.
+  const handleDownloadPackage = async () => {
+    setPackaging(true);
+    try {
+      const columns = dataset.columns.map(c => c.name);
+      const original = chain[0]?.dataset;
+      const { steps, skipped } = workflowSteps(chain);
+      const runsForData = savedRuns;
+      const { doc } = buildPdf();
+      const files: ZipEntry[] = [
+        { path: 'README.md', data: `# ${dataset.filename} — reproducibility package
+
+Exported from Data Science Studio on ${new Date().toISOString()}.
+
+- \`data/current.csv\`: the data the report is based on (${dataset.rows.length.toLocaleString()} rows).
+${original ? `- \`data/original.csv\`: the data as imported (${original.rows.length.toLocaleString()} rows).\n` : ''}- \`lineage.json\`: every version from import to now, with the operation that produced each.
+- \`workflow.json\`: the repeatable cleaning steps${skipped.length ? ` (${skipped.length} step(s) could not be recorded as repeatable: ${skipped.join('; ')})` : ''}.
+- \`analyses.json\`: saved statistical tests, regressions and forecasts with their full results.
+- \`analysis.ipynb\`: a Jupyter notebook that reloads the data and repeats the model and tests with pandas, scikit-learn and SciPy.
+- \`report.pdf\`: the report.
+${activeModel ? '- `model_card.md`: the active registered model’s card.\n' : ''}` },
+        { path: 'data/current.csv', data: rowsToCsv(dataset.rows, columns) },
+        ...(original ? [{ path: 'data/original.csv', data: rowsToCsv(original.rows, original.columns.map(c => c.name)) }] : []),
+        { path: 'lineage.json', data: JSON.stringify(chain.map((v, i) => ({ version: i + 1, id: v.id, parentId: v.parentId, label: v.label, createdAt: new Date(v.createdAt).toISOString(), rows: v.rowCount, columns: v.columnCount, operation: v.operation ?? null })), null, 2) },
+        { path: 'workflow.json', data: JSON.stringify({ steps, notRepeatable: skipped }, null, 2) },
+        { path: 'analyses.json', data: JSON.stringify(runsForData.map(r => ({ kind: r.kind, title: r.title, createdAt: new Date(r.createdAt).toISOString(), dataVersion: versionLabel(r.versionId), params: r.params, result: r.result })), null, 2) },
+        { path: 'analysis.ipynb', data: buildNotebook({ datasetName: dataset.filename, dataFile: 'data/current.csv', versionLabel: chain[chain.length - 1]?.label ?? 'current', model: activeModel && chain.some(v => v.id === activeModel.versionId) && activeModel.versionId === activeVersionId ? activeModel : null, tests: runsForData }) },
+        { path: 'report.pdf', data: doc.output('arraybuffer') },
+      ];
+      if (activeModel) {
+        const label = versions.find(v => v.id === activeModel.versionId)?.label ?? 'no longer saved';
+        files.push({ path: 'model_card.md', data: modelCardMarkdown(activeModel, dataset.filename, label) });
+      }
+      const zip = createZip(files);
+      const url = URL.createObjectURL(new Blob([zip], { type: 'application/zip' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${baseName}_reproducibility.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setLogs(prev => [...prev, `Saved ${baseName}_reproducibility.zip (${files.length} files).`]);
+    } catch (err: any) {
+      setLogs(prev => [...prev, `Couldn’t create the package: ${err.message || err}`]);
+    } finally {
+      setPackaging(false);
     }
   };
 
@@ -186,6 +307,9 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => window.print()} className="btn btn-secondary">
             <Printer className="w-4 h-4" /> Print
+          </button>
+          <button type="button" onClick={handleDownloadPackage} disabled={packaging} className="btn btn-secondary" title="Data, lineage, analyses, notebook and report in one ZIP">
+            <Package className="w-4 h-4" /> Reproducibility Package
           </button>
           <button type="button" onClick={handleDownloadPDF} className="btn btn-primary" title="Download an A4 PDF">
             <Download className="w-4 h-4" /> Download PDF
@@ -399,6 +523,55 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult }: ReportsHub
           Review findings against your own domain knowledge before acting on them.
         </p>
       </div>
+
+      {(chain.length > 0 || savedRuns.length > 0) && (
+        <div className="card p-5 sm:p-6 space-y-6 print:hidden" aria-labelledby="provenance-heading">
+          <div>
+            <h2 id="provenance-heading" className="card-title">Provenance and saved analyses</h2>
+            <p className="mt-1 text-sm text-label-2">Where the numbers come from. Ticked analyses are added to the PDF and the package.</p>
+          </div>
+          {chain.length > 0 && (
+            <div>
+              <p className="field-label">How this data was produced</p>
+              <ol className="space-y-1 text-sm">
+                {chain.map((v, i) => (
+                  <li key={v.id} className="flex gap-2">
+                    <span className="text-label-3 tabular-nums w-7 shrink-0">v{i + 1}</span>
+                    <span className="text-label">{v.label}</span>
+                    <span className="text-label-3 tabular-nums">· {v.rowCount.toLocaleString()} × {v.columnCount}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {savedRuns.length > 0 && (
+            <div>
+              <p className="field-label">Saved analyses on this data</p>
+              <ul className="space-y-3">
+                {savedRuns.map(run => {
+                  const d = describeRun(run);
+                  return (
+                    <li key={run.id} className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        aria-label={`Include ${d.heading}`}
+                        checked={!excluded.has(run.id)}
+                        onChange={e => setExcluded(prev => { const n = new Set(prev); if (e.target.checked) n.delete(run.id); else n.add(run.id); return n; })}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-label">{d.heading}</p>
+                        {d.lines.map(l => <p key={l} className="text-sm text-label-2">{l}</p>)}
+                        <p className="text-xs text-label-3">Data {versionLabel(run.versionId)} · {new Date(run.createdAt).toLocaleString()}</p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {expertMode && <ExecutivePDFReport dataset={dataset} aiAnalysis={aiAnalysis} mlResult={mlResult} />}
       {expertMode && <ETLPipelineExport />}

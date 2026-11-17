@@ -11,15 +11,20 @@ import {
   OperationResult, TableInput, applyOperation,
 } from '../operations/registry';
 import { QualityRule, RuleKind, evaluateRules, validateRule } from '../operations/qualityRules';
-import { loadRules, saveRules, saveVersion } from '../utils/workspaceStore';
+import {
+  DatasetVersion, SavedWorkflow, deleteWorkflow, getVersion, listVersions, listWorkflows, loadRules, saveRules, saveVersion, saveWorkflow,
+} from '../utils/workspaceStore';
+import { lineage } from '../utils/provenance';
+import { runWorkflow, workflowSteps } from '../operations/workflows';
 import { ACCEPT_ATTRIBUTE, readDataFile } from '../utils/fileImport';
 import Orb from './Orb';
 
-type Tab = 'standardise' | 'filter' | 'duplicates' | 'rules' | 'combine' | 'summarise';
+type Tab = 'standardise' | 'filter' | 'duplicates' | 'rules' | 'combine' | 'summarise' | 'workflows';
 
 interface Preview {
   result: OperationResult;
-  applied: AppliedOperation;
+  /** The single operation, or undefined for a multi-step workflow. */
+  applied?: AppliedOperation;
   /** The data and tab it was made for; it's stale once either changes. */
   source: Dataset;
   tab: Tab;
@@ -28,7 +33,8 @@ interface Preview {
 interface MoreCleanToolsProps {
   dataset: Dataset;
   datasetId: string | null;
-  onApply: (result: OperationResult, applied: AppliedOperation) => void;
+  activeVersionId?: string | null;
+  onApply: (result: OperationResult, applied?: AppliedOperation) => void;
 }
 
 const AGG_LABELS: Record<AggregateFn, string> = {
@@ -44,7 +50,7 @@ const RULE_LABELS: Record<RuleKind, string> = {
 };
 
 /** Previewable cleaning and reshaping tools, all running the shared operation registry. */
-export default function MoreCleanTools({ dataset, datasetId, onApply }: MoreCleanToolsProps) {
+export default function MoreCleanTools({ dataset, datasetId, activeVersionId = null, onApply }: MoreCleanToolsProps) {
   const [tab, setTab] = useState<Tab>('standardise');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -185,7 +191,7 @@ export default function MoreCleanTools({ dataset, datasetId, onApply }: MoreClea
         <div className="segmented w-max" role="tablist" aria-label="More cleaning tools">
           {([
             ['standardise', 'Standardise'], ['filter', 'Filter rows'], ['duplicates', 'Duplicates'],
-            ['rules', 'Quality rules'], ['combine', 'Combine'], ['summarise', 'Summarise'],
+            ['rules', 'Quality rules'], ['combine', 'Combine'], ['summarise', 'Summarise'], ['workflows', 'Workflows'],
           ] as [Tab, string][]).map(([id, label]) => (
             <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setError(null); }}>{label}</button>
           ))}
@@ -492,6 +498,16 @@ export default function MoreCleanTools({ dataset, datasetId, onApply }: MoreClea
           </div>
         )}
 
+        {tab === 'workflows' && (
+          <WorkflowsTab
+            dataset={dataset}
+            datasetId={datasetId}
+            activeVersionId={activeVersionId}
+            onPreview={(result) => { setError(null); setPreview({ result, source: dataset, tab: 'workflows' }); }}
+            onError={setError}
+          />
+        )}
+
         {error && (
           <p role="alert" className="mt-4 flex items-start gap-2 rounded-xl bg-red/10 px-3 py-2.5 text-sm text-red">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
@@ -541,6 +557,111 @@ function PreviewPanel({ before, preview, onApply, onCancel }: { before: Dataset;
         <button type="button" onClick={onApply} className="btn btn-primary">Apply</button>
         <button type="button" onClick={onCancel} className="btn btn-secondary">Cancel</button>
       </div>
+    </div>
+  );
+}
+
+function makeWorkflow(name: string, steps: AppliedOperation[], datasetName: string, versionLabel: string): SavedWorkflow {
+  return { id: crypto.randomUUID(), name, steps, createdAt: Date.now(), source: { datasetName, versionLabel } };
+}
+
+function WorkflowsTab({ dataset, datasetId, activeVersionId, onPreview, onError }: {
+  dataset: Dataset; datasetId: string | null; activeVersionId: string | null;
+  onPreview: (r: OperationResult) => void; onError: (e: string | null) => void;
+}) {
+  const [chain, setChain] = useState<DatasetVersion[]>([]);
+  const [saved, setSaved] = useState<SavedWorkflow[]>([]);
+  const [name, setName] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [running, setRunning] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [versions, workflows] = await Promise.all([datasetId ? listVersions(datasetId) : Promise.resolve([]), listWorkflows()]);
+      if (cancelled) return;
+      setChain(lineage(versions, activeVersionId));
+      setSaved(workflows);
+    })().catch(err => onError(String(err?.message || err)));
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId, activeVersionId]);
+
+  const { steps, skipped } = workflowSteps(chain);
+
+  const save = async () => {
+    const w = makeWorkflow(name.trim() || `Steps from ${dataset.filename}`, steps, dataset.filename, chain[chain.length - 1]?.label ?? '');
+    await saveWorkflow(w);
+    setSaved(prev => [w, ...prev]);
+    setName('');
+    setMessage(`Saved “${w.name}” with ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
+  };
+
+  const preview = async (w: SavedWorkflow) => {
+    setRunning(w.id);
+    onError(null);
+    try {
+      const r = await runWorkflow(dataset, w.steps, getVersion);
+      onPreview({ dataset: r.dataset, summary: `Applied workflow “${w.name}”: ${r.stepSummaries.join(' ')}` });
+    } catch (err) {
+      onError((err as Error).message);
+    } finally {
+      setRunning(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <p className="text-sm text-label-2">
+          A workflow is the list of cleaning steps that produced this version. Save it, then run it on a new file
+          (for example next month’s export) to clean it the same way.
+        </p>
+        {steps.length === 0 ? (
+          <p className="text-sm text-label-3">No repeatable steps yet: steps made with the Clean tools and More tools can be saved.</p>
+        ) : (
+          <>
+            <ol className="list-decimal pl-5 text-sm text-label space-y-0.5">
+              {chain.slice(1).filter(v => v.operation).map(v => <li key={v.id}>{v.label}</li>)}
+            </ol>
+            {skipped.length > 0 && (
+              <p className="text-xs text-orange">Not repeatable, so left out: {skipped.join('; ')}.</p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <input className="input w-64" aria-label="Workflow name" placeholder="Workflow name" value={name} onChange={e => setName(e.target.value)} />
+              <button type="button" onClick={save} className="btn btn-secondary">Save Workflow</button>
+            </div>
+            {message && <p role="status" className="text-sm text-green">{message}</p>}
+          </>
+        )}
+      </div>
+
+      {saved.length > 0 && (
+        <div>
+          <p className="field-label">Saved workflows</p>
+          <ul className="rounded-2xl bg-well divide-y divide-separator">
+            {saved.map(w => (
+              <li key={w.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-label">{w.name}</p>
+                  <p className="text-xs text-label-2">{w.steps.length} step{w.steps.length === 1 ? '' : 's'} · from {w.source.datasetName}</p>
+                </div>
+                <button type="button" className="btn btn-sm btn-secondary" disabled={running === w.id} onClick={() => preview(w)}>
+                  {running === w.id ? <><Orb state="working" label="Running the workflow" /> Running…</> : 'Preview on This Data'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-icon w-8 h-8 text-red hover:bg-red/10"
+                  aria-label={`Delete workflow ${w.name}`}
+                  onClick={async () => { await deleteWorkflow(w.id); setSaved(prev => prev.filter(x => x.id !== w.id)); }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

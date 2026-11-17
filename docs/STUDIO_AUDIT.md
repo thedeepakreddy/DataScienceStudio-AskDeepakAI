@@ -276,6 +276,12 @@ pull requests of about the size of the recent ones.
 - Model card (Markdown): intended use, data version, evaluation, metrics, top features, validation checks, limitations.
 - Python: 80 tests; Vitest: 69 tests.
 
+**Phase 7 status: done.**
+- Report → “Provenance and saved analyses”: the chain of data versions from import to now, and every saved test, regression, forecast and A/B test on this data with its real numbers; ticked ones go into the PDF (new “Saved analyses” and “Provenance” sections, including the model’s seed, split and tuning).
+- Reproducibility package (.zip): current and original data as CSV, lineage with each version’s operation, the repeatable workflow, saved analyses with full results, a Jupyter notebook, the PDF, and the active model’s card. A test runs the generated notebook and checks it reproduces the service’s exact accuracy and p-value.
+- Workflows (Clean → More tools → Workflows): save the repeatable steps behind a version and run them on a new file with a preview; join/append steps reload their second table from its saved version; steps that can’t be repeated are listed.
+- CI now runs the frontend unit tests (`npm test`). Vitest: 78 tests.
+
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the
 foundation is stable, as the plan itself recommends.

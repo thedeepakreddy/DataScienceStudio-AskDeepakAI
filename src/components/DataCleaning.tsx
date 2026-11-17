@@ -20,12 +20,13 @@ interface DataCleaningProps {
   onResetOriginal: () => void;
   /** The saved dataset this version belongs to (for its quality rules). */
   datasetId?: string | null;
+  activeVersionId?: string | null;
   /** Steps back to the previous version, when there is one. */
   onUndo?: () => void;
   canUndo?: boolean;
 }
 
-export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal, datasetId = null, onUndo, canUndo = false }: DataCleaningProps) {
+export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal, datasetId = null, activeVersionId = null, onUndo, canUndo = false }: DataCleaningProps) {
   const { expertMode, setCleaningSteps } = usePipelineContext();
   const [selectedCol, setSelectedCol] = useState(dataset.columns[0]?.name || '');
   const [imputeStrategy, setImputeStrategy] = useState<'mean' | 'median' | 'zero' | 'mode'>('mean');
@@ -643,8 +644,9 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
       <MoreCleanTools
         dataset={dataset}
         datasetId={datasetId}
+        activeVersionId={activeVersionId}
         onApply={(result, applied) => {
-          setOperations(prev => [...prev, { id: crypto.randomUUID(), type: 'registry', column: '', params: { summary: result.summary, op: applied.op } }]);
+          setOperations(prev => [...prev, { id: crypto.randomUUID(), type: 'registry', column: '', params: { summary: result.summary, op: applied?.op ?? 'workflow' } }]);
           onUpdateDataset(result.dataset, applied, result.summary);
           triggerSuccess(result.summary);
         }}

@@ -186,7 +186,7 @@ function ModelsTab({ dataset, datasetId, activeVersionId, mlResult, models, refr
         },
         modelKey: mlResult.modelKey!, modelId: mlResult.modelId ?? null,
         algorithm: mlResult.modelAlgorithm, task: mlResult.modelType,
-        metrics: mlResult.metrics, cv: mlResult.cv as RegisteredModel['cv'], split: mlResult.split, seed: mlResult.seed,
+        metrics: mlResult.metrics, cv: mlResult.cv as RegisteredModel['cv'], split: mlResult.split, seed: mlResult.seed, tuning: mlResult.tuning,
         topFeatures: (mlResult.featureImportance || []).slice(0, 10),
         schema: buildSchema(dataset, mlResult.features ?? []),
         gate, intendedUse: use, createdAt: Date.now(), active: false,

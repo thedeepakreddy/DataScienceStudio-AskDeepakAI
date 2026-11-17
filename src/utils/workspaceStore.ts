@@ -15,7 +15,7 @@ import type { RegisteredModel } from './modelRegistry';
 // every analysis run is recorded against the version it ran on.
 
 const DB_NAME = 'askdeepak-studio';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 /** Versions kept per dataset; the oldest unpinned ones are pruned past this. */
 export const MAX_VERSIONS_PER_DATASET = 25;
 
@@ -99,6 +99,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('rules')) {
         db.createObjectStore('rules');
+      }
+      if (!db.objectStoreNames.contains('workflows')) {
+        db.createObjectStore('workflows', { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains('registry')) {
         const s = db.createObjectStore('registry', { keyPath: 'id' });
@@ -305,6 +308,37 @@ export async function deleteDashboard(id: string): Promise<void> {
   await done(tx);
 }
 
+// --- Workflows (saved sequences of operations) ----------------------------------
+
+export interface SavedWorkflow {
+  id: string;
+  name: string;
+  steps: AppliedOperation[];
+  createdAt: number;
+  /** Where the steps were taken from, for provenance. */
+  source: { datasetName: string; versionLabel: string };
+}
+
+export async function saveWorkflow(w: SavedWorkflow): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('workflows', 'readwrite');
+  tx.objectStore('workflows').put(w);
+  await done(tx);
+}
+
+export async function listWorkflows(): Promise<SavedWorkflow[]> {
+  const db = await openDb();
+  const all = await promisify(db.transaction('workflows').objectStore('workflows').getAll()) as SavedWorkflow[];
+  return all.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function deleteWorkflow(id: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('workflows', 'readwrite');
+  tx.objectStore('workflows').delete(id);
+  await done(tx);
+}
+
 // --- Model registry -----------------------------------------------------------
 
 export async function saveRegisteredModel(m: RegisteredModel): Promise<void> {
@@ -354,7 +388,8 @@ export async function loadSession(): Promise<WorkspaceSession | undefined> {
 /** Deletes every saved version, run, model file and the session. */
 export async function clearWorkspace(): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards', 'registry'], 'readwrite');
+  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards', 'registry', 'workflows'], 'readwrite');
+  tx.objectStore('workflows').clear();
   tx.objectStore('registry').clear();
   tx.objectStore('dashboards').clear();
   tx.objectStore('models').clear();
@@ -383,6 +418,7 @@ interface WorkspaceFile {
   rules?: Record<string, QualityRule[]>;
   dashboards?: SavedDashboard[];
   registry?: RegisteredModel[];
+  workflows?: SavedWorkflow[];
 }
 
 const toBase64 = (buf: ArrayBuffer) => {
@@ -400,8 +436,8 @@ const fromBase64 = (b64: string) => {
 
 export async function exportWorkspace(): Promise<string> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry']);
-  const [versions, runs, models, session, ruleKeys, ruleValues, dashboards, registry] = await Promise.all([
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows']);
+  const [versions, runs, models, session, ruleKeys, ruleValues, dashboards, registry, workflows] = await Promise.all([
     promisify(tx.objectStore('versions').getAll()),
     promisify(tx.objectStore('runs').getAll()),
     promisify(tx.objectStore('models').getAll()),
@@ -410,6 +446,7 @@ export async function exportWorkspace(): Promise<string> {
     promisify(tx.objectStore('rules').getAll()),
     promisify(tx.objectStore('dashboards').getAll()),
     promisify(tx.objectStore('registry').getAll()),
+    promisify(tx.objectStore('workflows').getAll()),
   ]);
   const file: WorkspaceFile = {
     format: WORKSPACE_FORMAT,
@@ -422,6 +459,7 @@ export async function exportWorkspace(): Promise<string> {
     rules: Object.fromEntries((ruleKeys as string[]).map((k, i) => [k, (ruleValues as QualityRule[][])[i]])),
     dashboards: dashboards as SavedDashboard[],
     registry: registry as RegisteredModel[],
+    workflows: workflows as SavedWorkflow[],
   };
   return JSON.stringify(file);
 }
@@ -446,8 +484,9 @@ export async function importWorkspace(text: string): Promise<{ versions: number;
   if (!file.versions.every(validVersion)) throw new Error('The workspace file has a damaged dataset version.');
 
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry'], 'readwrite');
-  ['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry'].forEach(n => tx.objectStore(n).clear());
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows'], 'readwrite');
+  ['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows'].forEach(n => tx.objectStore(n).clear());
+  (file.workflows ?? []).forEach(w => { if (w && typeof w.id === 'string') tx.objectStore('workflows').put(w); });
   (file.registry ?? []).forEach(m => { if (m && typeof m.id === 'string') tx.objectStore('registry').put(m); });
   (file.dashboards ?? []).forEach(d => { if (d && typeof d.id === 'string') tx.objectStore('dashboards').put(d); });
   Object.entries(file.rules ?? {}).forEach(([k, r]) => { if (Array.isArray(r)) tx.objectStore('rules').put(r, k); });
