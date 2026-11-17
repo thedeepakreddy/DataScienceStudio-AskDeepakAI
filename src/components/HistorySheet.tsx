@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertTriangle, CheckCircle2, History, Lock, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, History, Lock, Upload, XCircle } from 'lucide-react';
+import Orb from './Orb';
 import { DatasetVersion, RunRecord, listRuns, listVersions } from '../utils/workspaceStore';
 
 const RUN_KIND_LABEL: Record<RunRecord['kind'], string> = {
@@ -31,11 +32,40 @@ interface HistorySheetProps {
   activeVersionId: string | null;
   onUseVersion: (version: DatasetVersion) => void;
   onClear: () => Promise<void>;
+  onExport: () => Promise<void>;
+  onImport: (file: File) => Promise<{ versions: number; runs: number; models: number }>;
   storageError: string | null;
 }
 
 /** Saved versions of the current dataset and the history of analysis runs. */
-export default function HistorySheet({ onClose, datasetId, activeVersionId, onUseVersion, onClear, storageError }: HistorySheetProps) {
+export default function HistorySheet({ onClose, datasetId, activeVersionId, onUseVersion, onClear, onExport, onImport, storageError }: HistorySheetProps) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [transfer, setTransfer] = useState<{ busy?: 'export' | 'import'; message?: string; error?: string }>({});
+
+  const runExport = async () => {
+    setTransfer({ busy: 'export' });
+    try {
+      await onExport();
+      setTransfer({ message: 'Workspace exported.' });
+    } catch (err: any) {
+      setTransfer({ error: `Export failed: ${err?.message || err}` });
+    }
+  };
+
+  const runImport = async (file: File | undefined) => {
+    if (!file) return;
+    if (!window.confirm('Importing replaces everything saved in this browser with the file’s contents. Continue?')) return;
+    setTransfer({ busy: 'import' });
+    try {
+      const c = await onImport(file);
+      const n = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`;
+      setTransfer({ message: `Imported ${n(c.versions, 'version')}, ${n(c.runs, 'run')} and ${n(c.models, 'model file')}.` });
+    } catch (err: any) {
+      setTransfer({ error: err?.message || String(err) });
+    } finally {
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  };
   const [versions, setVersions] = useState<DatasetVersion[] | null>(null);
   const [runs, setRuns] = useState<RunRecord[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -164,11 +194,36 @@ export default function HistorySheet({ onClose, datasetId, activeVersionId, onUs
           )}
         </section>
 
+        <section className="mt-6">
+          <h3 className="text-[15px] font-semibold text-label">Back up or move your work</h3>
+          <p className="mt-1 text-xs text-label-2">
+            Export saves every version, run and model file to one file. Import it here or in another browser.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={runExport} disabled={!!transfer.busy} aria-busy={transfer.busy === 'export'} className="btn btn-sm btn-secondary">
+              {transfer.busy === 'export' ? <><Orb state="composing" label="Exporting" /> Exporting…</> : <><Download className="w-4 h-4" /> Export Workspace</>}
+            </button>
+            <button type="button" onClick={() => fileInput.current?.click()} disabled={!!transfer.busy} aria-busy={transfer.busy === 'import'} className="btn btn-sm btn-secondary">
+              {transfer.busy === 'import' ? <><Orb state="working" label="Importing" /> Importing…</> : <><Upload className="w-4 h-4" /> Import Workspace</>}
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              aria-label="Workspace file to import"
+              onChange={e => runImport(e.target.files?.[0])}
+            />
+          </div>
+          {transfer.message && <p role="status" className="mt-2 text-sm text-green">{transfer.message}</p>}
+          {transfer.error && <p role="alert" className="mt-2 text-sm text-red">{transfer.error}</p>}
+        </section>
+
         <div className="mt-6 pt-4 border-t border-separator space-y-3">
           <p className="flex items-start gap-2 text-xs text-label-3 leading-relaxed">
             <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             Saved only in this browser, on this device. Nothing is kept on the server. Clearing your browser data
-            removes it.
+            removes it, so export a copy of anything you want to keep.
           </p>
           {confirmClear ? (
             <div className="flex flex-wrap items-center gap-2">

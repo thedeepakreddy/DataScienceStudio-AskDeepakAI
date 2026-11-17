@@ -44,10 +44,12 @@ import { STAGES, STAGE_ORDER } from './stages';
 import { apiFetch, API_SETTLED_EVENT } from './utils/api';
 import StatisticsStage from './components/StatisticsStage';
 import HistorySheet from './components/HistorySheet';
+import JobsButton from './components/JobsButton';
 import { WorkspaceContext, RunInput } from './contexts/WorkspaceContext';
 import { describeChange } from './utils/describeChange';
+import type { AppliedOperation } from './operations/registry';
 import {
-  DatasetVersion, clearWorkspace, getVersion, loadSession, recordRun, saveSession, saveVersion,
+  DatasetVersion, clearWorkspace, exportWorkspace, getVersion, importWorkspace, loadSession, recordRun, saveModelFile, saveSession, saveVersion,
 } from './utils/workspaceStore';
 
 type Theme = 'light' | 'dark';
@@ -233,18 +235,38 @@ export default function App() {
   };
 
   // Saves run one after another so each new version links to the one before.
-  const persistVersion = (dataset: Dataset, label: string, isImport: boolean) => {
+  const persistVersion = (dataset: Dataset, label: string, isImport: boolean, operation?: AppliedOperation) => {
     saveQueue.current = saveQueue.current
       .then(async () => {
         const v = await saveVersion(dataset, {
           parentId: isImport ? null : activeVersionRef.current,
           label,
+          operation,
           keep: originalVersionRef.current ? [originalVersionRef.current] : [],
         });
         applyVersionIds(v, isImport ? v.id : undefined);
         setStorageError(null);
       })
       .catch(storageFailed);
+  };
+
+  // Copies the trained model file into the browser, so it can still be
+  // downloaded after the ML service restarts. Runs in the background.
+  const keepModelFile = (result: MLResult, target: string) => {
+    const versionId = activeVersionRef.current;
+    fetch(`/api/ml/download/${encodeURIComponent(result.modelId!)}`)
+      .then(async res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await saveModelFile({
+          modelId: result.modelId!,
+          filename: `${target}_${(result.modelAlgorithm || 'model').replace(/\s+/g, '')}.joblib`,
+          bytes: await res.arrayBuffer(),
+          versionId,
+          target,
+          algorithm: result.modelAlgorithm,
+        });
+      })
+      .catch(err => console.warn('Could not keep a copy of the model file', err));
   };
 
   const logRun = useCallback((run: RunInput) => {
@@ -263,18 +285,19 @@ export default function App() {
     persistVersion(dataset, 'Imported', true);
   };
 
-  const handleUpdateDataset = (updated: Dataset) => {
+  const handleUpdateDataset = (updated: Dataset, operation?: AppliedOperation) => {
     const label = describeChange(activeDatasetRef.current, updated);
     activeDatasetRef.current = updated;
     setActiveDataset(updated);
     // Reset AI analysis since data changed
     setAiAnalysis(null);
     setMlResult(null);
-    if (label !== 'No changes') persistVersion(updated, label, false);
+    if (label !== 'No changes') persistVersion(updated, label, false, operation);
   };
 
-  const handleResetOriginal = () => {
-    if (originalDataset) {
+  const handleResetOriginal = (): Dataset | null => {
+    if (!originalDataset) return null;
+    {
       activeDatasetRef.current = originalDataset;
       setActiveDataset(originalDataset);
       setAiAnalysis(null);
@@ -284,6 +307,7 @@ export default function App() {
         setActiveVersionId(originalVersionRef.current);
       });
     }
+    return originalDataset;
   };
 
   const handleUseVersion = (version: DatasetVersion) => {
@@ -312,28 +336,34 @@ export default function App() {
     }
   };
 
+  // Loads the saved session (on start-up, and after importing a workspace).
+  const restoreSaved = async (isCancelled: () => boolean = () => false): Promise<boolean> => {
+    const session = await loadSession();
+    if (!session?.activeVersionId) return false;
+    const active = await getVersion(session.activeVersionId);
+    if (!active || isCancelled()) return false;
+    const original = session.originalVersionId ? await getVersion(session.originalVersionId) : undefined;
+    if (isCancelled()) return false;
+    activeDatasetRef.current = active.dataset;
+    setActiveDataset(active.dataset);
+    setOriginalDataset(original?.dataset ?? active.dataset);
+    applyVersionIds(active, original?.id ?? active.id);
+    setMlResult((session.mlResult as MLResult) ?? null);
+    setAiAnalysis(session.aiAnalysis ?? null);
+    if (session.aiAnalysis) setHasRunEda(true);
+    const tab = STAGE_ORDER.includes(session.activeTab as PipelineStage) ? (session.activeTab as PipelineStage) : 'ingest';
+    setVisited(new Set(STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(tab) + 1)));
+    setActiveTabState(tab);
+    setRestoredFrom(active.filename);
+    return true;
+  };
+
   // Restore the last session once, on load.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const session = await loadSession();
-        if (!session?.activeVersionId) return;
-        const active = await getVersion(session.activeVersionId);
-        if (!active || cancelled) return;
-        const original = session.originalVersionId ? await getVersion(session.originalVersionId) : undefined;
-        if (cancelled) return;
-        activeDatasetRef.current = active.dataset;
-        setActiveDataset(active.dataset);
-        setOriginalDataset(original?.dataset ?? active.dataset);
-        applyVersionIds(active, original?.id ?? active.id);
-        setMlResult((session.mlResult as MLResult) ?? null);
-        setAiAnalysis(session.aiAnalysis ?? null);
-        if (session.aiAnalysis) setHasRunEda(true);
-        const tab = STAGE_ORDER.includes(session.activeTab as PipelineStage) ? (session.activeTab as PipelineStage) : 'ingest';
-        setVisited(new Set(STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(tab) + 1)));
-        setActiveTabState(tab);
-        setRestoredFrom(active.filename);
+        await restoreSaved(() => cancelled);
       } catch (err) {
         if (!cancelled) storageFailed(err);
       } finally {
@@ -344,6 +374,35 @@ export default function App() {
     // Runs once on mount by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleExportWorkspace = async () => {
+    await saveQueue.current;
+    const text = await exportWorkspace();
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `data-science-studio-workspace-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportWorkspace = async (file: File) => {
+    await saveQueue.current;
+    const counts = await importWorkspace(await file.text());
+    const restored = await restoreSaved();
+    if (!restored) {
+      applyVersionIds(null, null);
+      activeDatasetRef.current = null;
+      setOriginalDataset(null);
+      setActiveDataset(null);
+      setMlResult(null);
+      setAiAnalysis(null);
+      setActiveTab('ingest');
+    }
+    return counts;
+  };
 
   // Keep the session saved as you work (after the restore attempt).
   useEffect(() => {
@@ -451,6 +510,7 @@ export default function App() {
       }
 
       setMlResult(parsed);
+      if (parsed.modelId) keepModelFile(parsed, targetCol);
       const m = parsed.metrics || {};
       const isClf = parsed.modelType === 'classification';
       const score = isClf ? m.accuracy : m.r2Score;
@@ -547,6 +607,8 @@ export default function App() {
             </div>
 
             <MLServiceWakeButton />
+
+            <JobsButton />
 
             <button
               type="button"
@@ -876,6 +938,8 @@ export default function App() {
             activeVersionId={activeVersionId}
             onUseVersion={handleUseVersion}
             onClear={handleClearSavedWork}
+            onExport={handleExportWorkspace}
+            onImport={handleImportWorkspace}
             storageError={storageError}
           />
         )}

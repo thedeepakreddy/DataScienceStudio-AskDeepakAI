@@ -52,6 +52,7 @@ import MLOpsDashboard from './MLOpsDashboard';
 import AgentAnalysis from './AgentAnalysis';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import Orb from './Orb';
+import { getModelFile } from '../utils/workspaceStore';
 
 interface MLPipelineProps {
   dataset: Dataset;
@@ -216,16 +217,27 @@ export default function MLPipeline({
     if (!mlResult?.modelId) return;
     setDownloadingModel(true);
     try {
-      const res = await fetch(`/api/ml/download/${encodeURIComponent(mlResult.modelId)}`);
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Download failed.');
+      let blob: Blob;
+      let filename = `${target}_${(mlResult.modelAlgorithm || 'model').replace(/\s+/g, '')}.joblib`;
+      const res = await fetch(`/api/ml/download/${encodeURIComponent(mlResult.modelId)}`).catch(() => null);
+      if (res?.ok) {
+        blob = await res.blob();
+      } else {
+        // The ML service may have restarted and forgotten the model; use the
+        // copy saved in this browser after training.
+        const saved = await getModelFile(mlResult.modelId).catch(() => undefined);
+        if (!saved) {
+          const body = res ? await res.json().catch(() => ({})) : {};
+          throw new Error(body.error || 'The model is no longer on the ML service and no saved copy was found. Train again.');
+        }
+        blob = new Blob([saved.bytes], { type: 'application/octet-stream' });
+        filename = saved.filename;
+        setProgressLog(prev => [...prev, 'Downloaded the copy of this model saved in your browser.']);
       }
-      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${target}_${(mlResult.modelAlgorithm || 'model').replace(/\s+/g, '')}.joblib`;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

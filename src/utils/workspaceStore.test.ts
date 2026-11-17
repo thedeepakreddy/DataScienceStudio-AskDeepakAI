@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   MAX_VERSIONS_PER_DATASET, _resetConnectionForTests, clearWorkspace, getVersion, listRuns,
   listVersions, loadSession, recordRun, saveSession, saveVersion,
+  MAX_SAVED_MODELS, exportWorkspace, getModelFile, importWorkspace, saveModelFile,
 } from './workspaceStore';
 import type { Dataset } from '../types';
 
@@ -66,5 +67,37 @@ describe('workspace store', () => {
     expect(await loadSession()).toBeUndefined();
     expect(await getVersion(v.id)).toBeUndefined();
     expect(await listRuns()).toEqual([]);
+  });
+
+  it('keeps model files and prunes the oldest', async () => {
+    for (let i = 0; i < MAX_SAVED_MODELS + 2; i++) {
+      await saveModelFile({ modelId: `m${i}`, filename: 'x.joblib', bytes: new Uint8Array([i, 1, 2]).buffer, versionId: null });
+    }
+    expect(await getModelFile('m0')).toBeUndefined();
+    const last = await getModelFile(`m${MAX_SAVED_MODELS + 1}`);
+    expect(new Uint8Array(last!.bytes)).toEqual(new Uint8Array([MAX_SAVED_MODELS + 1, 1, 2]));
+  });
+
+  it('exports and imports the whole workspace', async () => {
+    const v = await saveVersion(ds(3), { parentId: null, label: 'Imported', operation: undefined });
+    const child = await saveVersion(ds(2), { parentId: v.id, label: 'Removed 1 row', operation: { op: 'delete_rows', params: { indices: [0] } } });
+    await recordRun({ kind: 'ab-test', versionId: child.id, title: 'A/B', summary: 'p = 0.2', status: 'succeeded' });
+    await saveModelFile({ modelId: 'm1', filename: 'm.joblib', bytes: new Uint8Array([7, 8, 9]).buffer, versionId: child.id });
+    await saveSession({ activeVersionId: child.id, originalVersionId: v.id, activeTab: 'stats', mlResult: null, aiAnalysis: null });
+    const text = await exportWorkspace();
+
+    await clearWorkspace();
+    expect(await getVersion(child.id)).toBeUndefined();
+
+    expect(await importWorkspace(text)).toEqual({ versions: 2, runs: 1, models: 1 });
+    expect((await getVersion(child.id))?.operation).toEqual({ op: 'delete_rows', params: { indices: [0] } });
+    expect((await loadSession())?.activeTab).toBe('stats');
+    expect(new Uint8Array((await getModelFile('m1'))!.bytes)).toEqual(new Uint8Array([7, 8, 9]));
+    expect((await listRuns())[0].versionId).toBe(child.id);
+  });
+
+  it('rejects files that are not workspace exports', async () => {
+    await expect(importWorkspace('not json')).rejects.toThrow('valid JSON');
+    await expect(importWorkspace('{"format":"other"}')).rejects.toThrow('isn’t a Data Science Studio');
   });
 });

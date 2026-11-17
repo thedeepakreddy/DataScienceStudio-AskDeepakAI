@@ -4,6 +4,7 @@
  */
 
 import { Dataset, DatasetColumn } from '../types';
+import { profileColumn } from './columnProfile';
 
 // Date.parse is far too lenient on its own: V8's legacy parser reads an ID such
 // as "C-10251" as the year 10251. Require the string to look like a date first.
@@ -116,7 +117,6 @@ export function parseCSV(text: string, filename: string): Dataset {
   const columns: DatasetColumn[] = cleanHeaders.map(name => {
     // Collect non-empty values
     const values = rows.map(r => r[name]).filter(v => v !== undefined && v !== '');
-    const missingCount = rows.length - values.length;
 
     // Detect Column Type
     // Try to parse as numbers
@@ -167,64 +167,7 @@ export function parseCSV(text: string, filename: string): Dataset {
       }
     });
 
-    // Compute Statistics
-    const validCells = rows.map(r => r[name]).filter(v => v !== null && v !== undefined);
-    const distinctSet = new Set(validCells);
-    const distinctCount = distinctSet.size;
-
-    const statistics: DatasetColumn['statistics'] = {};
-
-    if (detectedType === 'numeric') {
-      const numericCells = validCells as number[];
-      if (numericCells.length > 0) {
-        let min = numericCells[0];
-        let max = numericCells[0];
-        for (let idx = 1; idx < numericCells.length; idx++) {
-          const v = numericCells[idx];
-          if (v < min) min = v;
-          if (v > max) max = v;
-        }
-        const sum = numericCells.reduce((a, b) => a + b, 0);
-        const mean = sum / numericCells.length;
-        
-        // Median
-        const sorted = [...numericCells].sort((a, b) => a - b);
-        const mid = Math.floor(sorted.length / 2);
-        const median = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-
-        // StdDev
-        const sqDiffSum = numericCells.reduce((accum, val) => accum + Math.pow(val - mean, 2), 0);
-        const stdDev = Math.sqrt(sqDiffSum / numericCells.length);
-
-        statistics.min = parseFloat(min.toFixed(4));
-        statistics.max = parseFloat(max.toFixed(4));
-        statistics.mean = parseFloat(mean.toFixed(4));
-        statistics.median = parseFloat(median.toFixed(4));
-        statistics.stdDev = parseFloat(stdDev.toFixed(4));
-      }
-    }
-
-    // Most Common of Categorical or Numeric
-    const valueCounts: Record<string, number> = {};
-    validCells.forEach(v => {
-      const strVal = String(v);
-      valueCounts[strVal] = (valueCounts[strVal] || 0) + 1;
-    });
-
-    const sortedFreq = Object.entries(valueCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([value, count]) => ({ value, count }));
-
-    statistics.mostCommon = sortedFreq;
-
-    return {
-      name,
-      type: detectedType,
-      missingCount,
-      distinctCount,
-      statistics,
-    };
+    return profileColumn(name, detectedType, rows);
   });
 
   return {

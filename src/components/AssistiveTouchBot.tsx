@@ -11,12 +11,13 @@ import { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
 import { STAGES } from '../stages';
+import { AppliedOperation, OperationError, OperationId, OperationParams, applyOperation } from '../operations/registry';
 import type { PipelineStage } from '../contexts/PipelineContext';
 
 interface AssistiveTouchBotProps {
   activeDataset: Dataset | null;
-  onUpdateDataset: (updated: Dataset) => void;
-  onResetOriginal: () => void;
+  onUpdateDataset: (updated: Dataset, operation?: AppliedOperation) => void;
+  onResetOriginal: () => Dataset | null;
   activeTab: string;
   setActiveTab: (tab: any) => void;
   triggerAIScan: () => Promise<void>;
@@ -254,6 +255,23 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     const executedLogs: string[] = [];
     if (!commands || commands.length === 0) return executedLogs;
 
+    // Each step builds on the one before (e.g. "drop A, then fill B").
+    let working: Dataset | null = activeDataset;
+    const findCol = (name: unknown) =>
+      typeof name === 'string' ? working?.columns.find(c => c.name.toLowerCase() === name.toLowerCase())?.name : undefined;
+    const runOp = <K extends OperationId>(op: K, params: OperationParams[K]) => {
+      if (!working) return;
+      try {
+        const r = applyOperation(working, op, params);
+        working = r.dataset;
+        onUpdateDataset(working, { op, params } as AppliedOperation);
+        executedLogs.push(r.summary);
+      } catch (err) {
+        if (!(err instanceof OperationError)) throw err;
+        executedLogs.push(`Couldn’t do that: ${err.message}`);
+      }
+    };
+
     for (const cmd of commands) {
       const { label, orb } = describeAction(cmd);
       setActivity(prev => ({
@@ -271,81 +289,25 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
             break;
 
           case 'RESET_DATASET':
-            onResetOriginal();
+            working = onResetOriginal() ?? working;
             executedLogs.push('Restored the original dataset');
             break;
 
-          case 'DROP_COLUMN':
-            if (activeDataset && cmd.column) {
-              const targetColName = activeDataset.columns.find(
-                c => c.name.toLowerCase() === cmd.column.toLowerCase()
-              )?.name;
-
-              if (targetColName) {
-                const refreshedCols = activeDataset.columns.filter(c => c.name !== targetColName);
-                const refreshedRows = activeDataset.rows.map(row => {
-                  const copy = { ...row };
-                  delete copy[targetColName];
-                  return copy;
-                });
-
-                onUpdateDataset({
-                  ...activeDataset,
-                  columns: refreshedCols,
-                  rows: refreshedRows,
-                  rowCount: refreshedRows.length
-                });
-                executedLogs.push(`Removed column "${targetColName}"`);
-              } else {
-                executedLogs.push(`Column "${cmd.column}" not found`);
-              }
-            }
+          case 'DROP_COLUMN': {
+            const col = findCol(cmd.column);
+            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found`); break; }
+            runOp('drop_columns', { columns: [col] });
             break;
+          }
 
-          case 'FILL_MISSING':
-            if (activeDataset && cmd.column) {
-              const targetCol = activeDataset.columns.find(
-                c => c.name.toLowerCase() === cmd.column.toLowerCase()
-              );
-
-              if (targetCol) {
-                const strategy = cmd.strategy || 'mean';
-                let fillVal: any = 0;
-
-                if (targetCol.type === 'numeric') {
-                  if (strategy === 'mean') fillVal = targetCol.statistics.mean || 0;
-                  else if (strategy === 'median') fillVal = targetCol.statistics.median || 0;
-                  else fillVal = 0;
-                } else {
-                  fillVal = targetCol.statistics.mostCommon?.[0]?.value || 'Unknown';
-                }
-
-                const cleanedRows = activeDataset.rows.map(row => {
-                  const val = row[targetCol.name];
-                  if (val === null || val === undefined || val === '') {
-                    return { ...row, [targetCol.name]: fillVal };
-                  }
-                  return row;
-                });
-
-                const updatedCols = activeDataset.columns.map(col => {
-                  if (col.name === targetCol.name) {
-                    return { ...col, missingCount: 0 };
-                  }
-                  return col;
-                });
-
-                onUpdateDataset({
-                  ...activeDataset,
-                  columns: updatedCols,
-                  rows: cleanedRows
-                });
-                executedLogs.push(`Imputed missing values in "${targetCol.name}" using strategy "${strategy}" (${fillVal})`);
-              } else {
-                executedLogs.push(`Column "${cmd.column}" not found to perform imputation`);
-              }
-            }
+          case 'FILL_MISSING': {
+            const col = findCol(cmd.column);
+            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found to fill`); break; }
+            const isNumeric = working.columns.find(c => c.name === col)?.type === 'numeric';
+            const requested = ['mean', 'median', 'mode', 'zero'].includes(cmd.strategy) ? cmd.strategy : 'mean';
+            runOp('fill_missing', { column: col, strategy: isNumeric ? requested : 'mode' });
             break;
+          }
 
           case 'RUN_EDA_SCAN':
             // Wait for the analysis, so the chat shows it running until it is done.
@@ -372,128 +334,36 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
             }
             break;
 
-          case 'FILTER_ROWS':
-            if (activeDataset && cmd.column && cmd.operator) {
-              const targetColName = activeDataset.columns.find(
-                c => c.name.toLowerCase() === cmd.column.toLowerCase()
-              )?.name;
-
-              if (targetColName) {
-                const operator = cmd.operator;
-                const filterVal = cmd.value;
-
-                const filteredRows = activeDataset.rows.filter(row => {
-                  const val = row[targetColName];
-                  if (val === null || val === undefined) return false;
-
-                  if (operator === '==') return String(val).toLowerCase() === String(filterVal).toLowerCase();
-                  if (operator === '!=') return String(val).toLowerCase() !== String(filterVal).toLowerCase();
-                  if (operator === '>') return Number(val) > Number(filterVal);
-                  if (operator === '<') return Number(val) < Number(filterVal);
-                  return true;
-                });
-
-                onUpdateDataset({
-                  ...activeDataset,
-                  rows: filteredRows,
-                  rowCount: filteredRows.length
-                });
-
-                executedLogs.push(`Filtered dataset: Kept rows where "${targetColName}" ${operator} "${filterVal}" (${filteredRows.length} left)`);
-              }
-            }
+          case 'FILTER_ROWS': {
+            const col = findCol(cmd.column);
+            const operator = ({ '==': 'equals', '!=': 'not_equals', '>': 'greater_than', '<': 'less_than' } as const)[cmd.operator as '==' | '!=' | '>' | '<'];
+            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found to filter`); break; }
+            if (!operator) { executedLogs.push(`Invalid filter "${cmd.operator}"`); break; }
+            runOp('filter_rows', { column: col, operator, value: cmd.value });
             break;
+          }
 
           case 'ADD_COLUMN':
-            if (activeDataset && cmd.column) {
-              const newColName = cmd.column;
-              const newColType = cmd.columnType || 'categorical';
-              const defaultVal = cmd.value !== undefined ? cmd.value : '';
-
-              if (!activeDataset.columns.some(c => c.name.toLowerCase() === newColName.toLowerCase())) {
-                const newColMeta = {
-                  name: newColName,
-                  type: newColType as any,
-                  missingCount: 0,
-                  distinctCount: 1,
-                  statistics: {
-                    min: newColType === 'numeric' ? Number(defaultVal) || 0 : undefined,
-                    max: newColType === 'numeric' ? Number(defaultVal) || 0 : undefined,
-                    mean: newColType === 'numeric' ? Number(defaultVal) || 0 : undefined,
-                    median: newColType === 'numeric' ? Number(defaultVal) || 0 : undefined,
-                    mostCommon: [{ value: String(defaultVal), count: activeDataset.rows.length }]
-                  }
-                };
-
-                const updatedRows = activeDataset.rows.map(row => ({
-                  ...row,
-                  [newColName]: defaultVal
-                }));
-
-                onUpdateDataset({
-                  ...activeDataset,
-                  columns: [...activeDataset.columns, newColMeta],
-                  rows: updatedRows
-                });
-                executedLogs.push(`Added column "${newColName}" of type "${newColType}" filled with "${defaultVal}"`);
-              } else {
-                executedLogs.push(`Column "${newColName}" already exists`);
-              }
-            }
+            if (!working || !cmd.column) break;
+            runOp('add_column', {
+              name: cmd.column,
+              type: ['numeric', 'boolean', 'categorical'].includes(cmd.columnType) ? cmd.columnType : 'categorical',
+              value: cmd.value ?? null,
+            });
             break;
 
           case 'ADD_ROW':
-            if (activeDataset) {
-              const newRow: Record<string, any> = {};
-              activeDataset.columns.forEach(col => {
-                if (col.type === 'numeric') {
-                  newRow[col.name] = 0;
-                } else if (col.type === 'boolean') {
-                  newRow[col.name] = false;
-                } else {
-                  newRow[col.name] = '';
-                }
-              });
-
-              // Optional support for custom values filled by AI
-              if (cmd.values && typeof cmd.values === 'object') {
-                Object.keys(cmd.values).forEach(k => {
-                  const matchCol = activeDataset.columns.find(col => col.name.toLowerCase() === k.toLowerCase());
-                  if (matchCol) {
-                    newRow[matchCol.name] = cmd.values[k];
-                  }
-                });
-              }
-
-              const updatedRows = [...activeDataset.rows, newRow];
-              onUpdateDataset({
-                ...activeDataset,
-                rows: updatedRows,
-                rowCount: updatedRows.length
-              });
-              executedLogs.push(`Added an empty row`);
-            }
+            if (!working) break;
+            runOp('add_row', { values: cmd.values && typeof cmd.values === 'object' ? cmd.values : undefined });
             break;
 
           case 'DELETE_ROW':
-            if (activeDataset && cmd.index !== undefined) {
-              const idxToDelete = Number(cmd.index);
-              if (idxToDelete >= 0 && idxToDelete < activeDataset.rows.length) {
-                const refreshedRows = activeDataset.rows.filter((_, idx) => idx !== idxToDelete);
-                onUpdateDataset({
-                  ...activeDataset,
-                  rows: refreshedRows,
-                  rowCount: refreshedRows.length
-                });
-                executedLogs.push(`Deleted row ${idxToDelete}`);
-              } else {
-                executedLogs.push(`Invalid row index ${idxToDelete} specified`);
-              }
-            }
+            if (!working || cmd.index === undefined) break;
+            runOp('delete_rows', { indices: [Number(cmd.index)] });
             break;
 
           case 'EXECUTE_DATASET_JS':
-            if (activeDataset && cmd.jsCode) {
+            if (working && cmd.jsCode) {
               try {
                 // Run this LLM/user-generated code inside an isolated,
                 // opaque-origin sandboxed iframe rather than this page's own
@@ -501,13 +371,10 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                 // injection payload that tricks the chat model into emitting
                 // jsCode here, so it must never get direct access to this
                 // page's cookies, localStorage, or DOM.
-                const updated = await runSandboxedDatasetJs(cmd.jsCode, activeDataset);
+                const updated = await runSandboxedDatasetJs(cmd.jsCode, working);
                 if (updated && Array.isArray(updated.rows)) {
-                  onUpdateDataset({
-                    ...activeDataset,
-                    ...updated,
-                    rowCount: updated.rows.length
-                  });
+                  working = { ...working, ...updated, rowCount: updated.rows.length };
+                  onUpdateDataset(working);
                   let logMsg = `SQL Action Applied`;
                   if (cmd.sqlQuery) logMsg += ` [Query: "${cmd.sqlQuery}"]`;
                   if (cmd.explanation) logMsg += `: ${cmd.explanation}`;
