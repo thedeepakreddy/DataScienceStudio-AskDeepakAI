@@ -793,7 +793,7 @@ Respond strict JSON following the schema structure.`;
 // of returning a fabricated accuracy/R2/F1/etc. If the compute service is
 // unreachable, this returns a clear error rather than silently faking results.
 app.post('/api/run-ml-prediction', async (req, res) => {
-  const { target, features, modelType, hyperparameters, datasetRows } = req.body || {};
+  const { target, features, modelType, hyperparameters, datasetRows, skipNarrative } = req.body || {};
 
   const safeTarget = typeof target === 'string' ? target : '';
   const safeFeatures = Array.isArray(features) ? features.filter((f: any) => typeof f === 'string') : [];
@@ -863,6 +863,7 @@ app.post('/api/run-ml-prediction', async (req, res) => {
     features: safeFeatures,
     modelType: trainResult.task,
     modelAlgorithm: champion.modelName,
+    modelKey: champion.modelKey,
     modelId: champion.modelId,
     hyperparameters: safeHyperparameters,
     metrics: champion.metrics,
@@ -884,6 +885,11 @@ app.post('/api/run-ml-prediction', async (req, res) => {
     tuning: trainResult.tuning,
     seed: trainResult.seed,
   };
+
+  // Restoring a registered model only needs the fitted model, not a narrative.
+  if (skipNarrative === true) {
+    return res.json(baseResult);
+  }
 
   const client = getGeminiClient();
   const hasKey = aiKeyAvailable();
@@ -1732,6 +1738,16 @@ app.post('/api/hypothesis-lab/run-test', async (req, res) => {
   }
 });
 
+// Data drift between a model's training data and new data.
+app.post('/api/monitor/drift', async (req, res) => {
+  try {
+    return res.json(await callMlService('/monitor/drift', { body: req.body }));
+  } catch (err: any) {
+    const status = typeof err.status === 'number' && err.status >= 400 && err.status < 500 ? 400 : 503;
+    return res.status(status).json({ error: err.message || 'ML compute service unavailable.' });
+  }
+});
+
 // Baseline forecasting with backtesting (Model step).
 app.post('/api/forecast', async (req, res) => {
   try {
@@ -2386,7 +2402,9 @@ app.post('/api/predict', async (req, res) => {
     return res.json(result);
   } catch (err: any) {
     console.error('[AskDeepakAI] /api/predict proxy failed:', err);
-    return res.status(503).json({ error: err.message || 'ML compute service unavailable.' });
+    // 404 means the service restarted and forgot the model; the studio then restores it.
+    const status = typeof err.status === 'number' && err.status >= 400 && err.status < 500 ? err.status : 503;
+    return res.status(status).json({ error: err.message || 'ML compute service unavailable.' });
   }
 });
 

@@ -47,6 +47,7 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 
 import forecasting
 import model_extras
+import monitoring
 import stats_engine
 
 try:
@@ -1183,6 +1184,21 @@ class StatsPowerRequest(BaseModel):
     n: float | None = None
     groups: int = Field(default=3, ge=2, le=50)
     alternative: Literal["two-sided", "less", "greater"] = "two-sided"
+
+
+class MonitorDriftRequest(BaseModel):
+    reference_data: list[dict[str, Any]]
+    current_data: list[dict[str, Any]]
+    features: list[str]
+    alpha: float = 0.05
+
+
+@app.post("/monitor/drift")
+def monitor_drift(request: MonitorDriftRequest):
+    try:
+        return monitoring.compare(request.reference_data, request.current_data, request.features, request.alpha)
+    except monitoring.DriftError as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
 
 class ForecastRequest(BaseModel):

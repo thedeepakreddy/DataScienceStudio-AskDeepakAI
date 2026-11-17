@@ -7,6 +7,7 @@ import type { Dataset } from '../types';
 import type { AppliedOperation } from '../operations/registry';
 import type { QualityRule } from '../operations/qualityRules';
 import type { KpiDefinition } from './kpiFormula';
+import type { RegisteredModel } from './modelRegistry';
 
 // The studio's saved work, kept in this browser's IndexedDB. The servers are
 // stateless (free hosting loses its disk on restart), so the browser is where
@@ -14,7 +15,7 @@ import type { KpiDefinition } from './kpiFormula';
 // every analysis run is recorded against the version it ran on.
 
 const DB_NAME = 'askdeepak-studio';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 /** Versions kept per dataset; the oldest unpinned ones are pruned past this. */
 export const MAX_VERSIONS_PER_DATASET = 25;
 
@@ -98,6 +99,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('rules')) {
         db.createObjectStore('rules');
+      }
+      if (!db.objectStoreNames.contains('registry')) {
+        const s = db.createObjectStore('registry', { keyPath: 'id' });
+        s.createIndex('datasetId', 'datasetId');
       }
       if (!db.objectStoreNames.contains('dashboards')) {
         const s = db.createObjectStore('dashboards', { keyPath: 'id' });
@@ -300,6 +305,38 @@ export async function deleteDashboard(id: string): Promise<void> {
   await done(tx);
 }
 
+// --- Model registry -----------------------------------------------------------
+
+export async function saveRegisteredModel(m: RegisteredModel): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('registry', 'readwrite');
+  tx.objectStore('registry').put(m);
+  await done(tx);
+}
+
+/** A dataset's registered models, newest version first. */
+export async function listRegisteredModels(datasetId: string): Promise<RegisteredModel[]> {
+  const db = await openDb();
+  const all = await promisify(db.transaction('registry').objectStore('registry').index('datasetId').getAll(datasetId)) as RegisteredModel[];
+  return all.sort((a, b) => b.version - a.version);
+}
+
+/** Makes one model the active one for its dataset (used for predictions); others become inactive. */
+export async function setActiveModel(datasetId: string, id: string): Promise<void> {
+  const all = await listRegisteredModels(datasetId);
+  const db = await openDb();
+  const tx = db.transaction('registry', 'readwrite');
+  all.forEach(m => tx.objectStore('registry').put({ ...m, active: m.id === id }));
+  await done(tx);
+}
+
+export async function deleteRegisteredModel(id: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('registry', 'readwrite');
+  tx.objectStore('registry').delete(id);
+  await done(tx);
+}
+
 // --- Session ----------------------------------------------------------------
 
 export async function saveSession(session: Omit<WorkspaceSession, 'savedAt'>): Promise<void> {
@@ -317,7 +354,8 @@ export async function loadSession(): Promise<WorkspaceSession | undefined> {
 /** Deletes every saved version, run, model file and the session. */
 export async function clearWorkspace(): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards'], 'readwrite');
+  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards', 'registry'], 'readwrite');
+  tx.objectStore('registry').clear();
   tx.objectStore('dashboards').clear();
   tx.objectStore('models').clear();
   tx.objectStore('rules').clear();
@@ -344,6 +382,7 @@ interface WorkspaceFile {
   models: (Omit<SavedModelFile, 'bytes'> & { bytesBase64: string })[];
   rules?: Record<string, QualityRule[]>;
   dashboards?: SavedDashboard[];
+  registry?: RegisteredModel[];
 }
 
 const toBase64 = (buf: ArrayBuffer) => {
@@ -361,8 +400,8 @@ const fromBase64 = (b64: string) => {
 
 export async function exportWorkspace(): Promise<string> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards']);
-  const [versions, runs, models, session, ruleKeys, ruleValues, dashboards] = await Promise.all([
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry']);
+  const [versions, runs, models, session, ruleKeys, ruleValues, dashboards, registry] = await Promise.all([
     promisify(tx.objectStore('versions').getAll()),
     promisify(tx.objectStore('runs').getAll()),
     promisify(tx.objectStore('models').getAll()),
@@ -370,6 +409,7 @@ export async function exportWorkspace(): Promise<string> {
     promisify(tx.objectStore('rules').getAllKeys()),
     promisify(tx.objectStore('rules').getAll()),
     promisify(tx.objectStore('dashboards').getAll()),
+    promisify(tx.objectStore('registry').getAll()),
   ]);
   const file: WorkspaceFile = {
     format: WORKSPACE_FORMAT,
@@ -381,6 +421,7 @@ export async function exportWorkspace(): Promise<string> {
     models: (models as SavedModelFile[]).map(({ bytes, ...m }) => ({ ...m, bytesBase64: toBase64(bytes) })),
     rules: Object.fromEntries((ruleKeys as string[]).map((k, i) => [k, (ruleValues as QualityRule[][])[i]])),
     dashboards: dashboards as SavedDashboard[],
+    registry: registry as RegisteredModel[],
   };
   return JSON.stringify(file);
 }
@@ -405,8 +446,9 @@ export async function importWorkspace(text: string): Promise<{ versions: number;
   if (!file.versions.every(validVersion)) throw new Error('The workspace file has a damaged dataset version.');
 
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards'], 'readwrite');
-  ['versions', 'runs', 'models', 'session', 'rules', 'dashboards'].forEach(n => tx.objectStore(n).clear());
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry'], 'readwrite');
+  ['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry'].forEach(n => tx.objectStore(n).clear());
+  (file.registry ?? []).forEach(m => { if (m && typeof m.id === 'string') tx.objectStore('registry').put(m); });
   (file.dashboards ?? []).forEach(d => { if (d && typeof d.id === 'string') tx.objectStore('dashboards').put(d); });
   Object.entries(file.rules ?? {}).forEach(([k, r]) => { if (Array.isArray(r)) tx.objectStore('rules').put(r, k); });
   file.versions.forEach(v => tx.objectStore('versions').put(v));

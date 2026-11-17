@@ -266,6 +266,16 @@ pull requests of about the size of the recent ones.
 - Forecasting: naive, seasonal naive, moving average, drift, linear trend, Holt and Holt-Winters, each scored by rolling-origin backtesting; the best forecasts, with 80%/95% ranges from its real backtest errors.
 - Python: 75 tests (including a hand-calculated backtest error and same-seed reproducibility).
 
+**Phase 6 status: done.**
+- Model → Deploy & monitor replaces the old “Model monitoring” panel (which trained a separate model and compared the two halves of the data).
+- Registry (in the browser): register the trained model with a name and intended use; versions v1, v2…; one active model; “Make Active” is an instant rollback; delete.
+- Validation gate before registering: must beat the majority-class / average baseline, show no leakage, and not rely on an ID column (failures block); cross-validation stability, test/CV agreement and test size give warnings recorded in the model card.
+- Predictions: a form built from the training data’s columns with warnings for out-of-range or unseen values; whole-file predictions with CSV download.
+- If the ML service has restarted, a registered model is rebuilt from its recipe (same data version, columns, settings and seed) — verified to reproduce the same test score — instead of uploading model files to the server.
+- Monitoring: new data vs the training data per feature (PSI with training-data bins, KS or chi-squared test, values outside the training range, unseen categories), plus accuracy / R² on new rows when they include the outcome.
+- Model card (Markdown): intended use, data version, evaluation, metrics, top features, validation checks, limitations.
+- Python: 80 tests; Vitest: 69 tests.
+
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the
 foundation is stable, as the plan itself recommends.

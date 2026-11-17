@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py stats_engine.py model_extras.py forecasting.py ./
+COPY main.py stats_engine.py model_extras.py forecasting.py monitoring.py ./
 
 EXPOSE 8000
 

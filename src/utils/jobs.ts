@@ -28,6 +28,8 @@ const JOB_LABELS: [RegExp, string][] = [
   [/^\/api\/stats\/regression\b/, 'Regression'],
   [/^\/api\/stats\/power\b/, 'Power analysis'],
   [/^\/api\/forecast\b/, 'Forecasting'],
+  [/^\/api\/monitor\/drift\b/, 'Drift check'],
+  [/^\/api\/predict\b/, 'Predicting'],
   [/^\/api\/hypothesis-lab\/generate\b/, 'Suggesting hypotheses'],
   [/^\/api\/hypothesis-lab\/interpret\b/, 'Explaining a test result'],
   [/^\/api\/ab-test-interpreter\b/, 'Writing an A/B test memo'],

@@ -47,6 +47,7 @@ import HistorySheet from './components/HistorySheet';
 import JobsButton from './components/JobsButton';
 import ExperimentsPanel from './components/ExperimentsPanel';
 import ForecastPanel from './components/ForecastPanel';
+import DeployPanel from './components/DeployPanel';
 import { WorkspaceContext, RunInput } from './contexts/WorkspaceContext';
 import { describeChange } from './utils/describeChange';
 import type { AppliedOperation } from './operations/registry';
@@ -904,6 +905,7 @@ export default function App() {
                   onRerun={p => { triggerPrediction(p.target, p.features, p.modelType, p.hyperparameters).catch(() => {}); }}
                   onOpenVersion={handleUseVersion}
                 />
+                <DeployPanel dataset={activeDataset} datasetId={datasetId} activeVersionId={activeVersionId} mlResult={mlResult} />
                 <ForecastPanel dataset={activeDataset} />
               </div>
             )}

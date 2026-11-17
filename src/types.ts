@@ -53,6 +53,8 @@ export interface MLResult {
   leakageWarnings?: { column: string; reason: string }[];
   modelType: 'classification' | 'regression' | 'timeseries';
   modelAlgorithm: string;
+  /** Service key of the algorithm (random_forest, xgboost, ...). */
+  modelKey?: string;
   modelId?: string; // real trained-model id in the Python service, used for /predict and /download
   hyperparameters: Record<string, any>;
   metrics: {

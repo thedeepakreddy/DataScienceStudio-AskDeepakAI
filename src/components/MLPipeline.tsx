@@ -48,7 +48,6 @@ import {
   UnsupervisedResult
 } from '../utils/mlEngine';
 import ModelExplainer from './ModelExplainer';
-import MLOpsDashboard from './MLOpsDashboard';
 import AgentAnalysis from './AgentAnalysis';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import Orb from './Orb';
@@ -1438,8 +1437,6 @@ export default function MLPipeline({
             {/* MODEL EXPLAINER MODULE — narrates the real feature importances above */}
             <ModelExplainer result={mlResult} />
 
-            {/* MLOps Dashboard */}
-            <MLOpsDashboard dataset={dataset} target={target} features={selectedFeatures} />
 
           </div>
 
