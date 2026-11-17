@@ -41,10 +41,21 @@ system (`src/agent/tools.ts`, `/api/chat-bot`) is removed.
 they open the step, choose options, type and click buttons marked with
 `data-agent="…"` (`src/swarm/interaction.ts`, `src/swarm/uiScripts.ts`).
 Every action emits an event (agent, task, run, pointer), which
-`AgentCursorLayer` draws: one pointer per running task with a label, a
-selection box over the area being worked on, a small box round every
-control it reaches, chooses, types into or clicks (labelled with the action),
-and a ripple on clicks. Results
+`AgentCursorLayer` draws with two cursors per running task, both from the
+same agent:
+- the **partner** (a lighter twin with a small name tag) flies to the spot,
+  presses at the top-left corner and drags a selection box open to the
+  bottom-right, round the area being worked on and round every control the
+  agent reaches, chooses, types into or clicks; it then holds the corner;
+- the **worker** sets off as the drag starts, arrives as the box finishes
+  opening, and does the real action inside it (labelled with the action),
+  with a ripple on clicks.
+
+The agent waits for this before acting (`interactions.addGate`), so what you
+see is the order things really happen; the wait is capped at 2 s so drawing
+can never stall an agent. The flight and the drag follow the live corners
+while the page is still scrolling, so runs take about as long as before.
+Results
 come from the studio’s own logged runs and data versions, never from the
 animation. One agent holds the page at a time and releases it while it waits
 for a result. A real click or key press anywhere outside the agents’ own UI

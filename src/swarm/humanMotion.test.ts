@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { humanDuration, humanPath } from './humanMotion';
+import { HumanMover, humanDuration, humanPath } from './humanMotion';
 
 const seeded = (seed = 3) => { let s = seed; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; }; };
 
@@ -35,5 +35,30 @@ describe('human cursor motion', () => {
     const r = () => 0.5;
     expect(humanDuration(800, r)).toBeGreaterThan(humanDuration(80, r));
     expect(humanDuration(5000, r)).toBeLessThanOrEqual(1150);
+  });
+});
+
+describe('following a moving target', () => {
+  it('ends exactly on where the target is now', async () => {
+    const frames: Array<() => void> = [];
+    const g = globalThis as unknown as { requestAnimationFrame: (f: (t: number) => void) => number; cancelAnimationFrame: (n: number) => void };
+    const oldRaf = g.requestAnimationFrame, oldCancel = g.cancelAnimationFrame;
+    let clock = 0;
+    g.requestAnimationFrame = f => { frames.push(() => f(clock)); return frames.length; };
+    g.cancelAnimationFrame = () => {};
+    const realNow = performance.now.bind(performance);
+    (performance as { now: () => number }).now = () => clock;
+    try {
+      const m = new HumanMover(null, { x: 0, y: 0 });
+      let target = { x: 100, y: 100 };
+      const done = m.moveTo({ x: 100, y: 100 }, { duration: 100, follow: () => target });
+      for (let i = 0; i <= 12; i++) { clock = i * 10; if (i === 5) target = { x: 100, y: 260 }; frames.shift()?.(); }
+      await done;
+      expect(m.x).toBeCloseTo(100, 5);
+      expect(m.y).toBeCloseTo(260, 5);
+    } finally {
+      g.requestAnimationFrame = oldRaf; g.cancelAnimationFrame = oldCancel;
+      (performance as { now: () => number }).now = realNow;
+    }
   });
 });

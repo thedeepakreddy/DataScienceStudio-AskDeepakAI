@@ -34,8 +34,8 @@ export function CursorGlyph({ color, size = 22 }: { color: string; size?: number
 }
 
 /** The name tag: rounded, with a tight corner pointing back at the arrow. */
-export function NameTag({ color, name, detail, flip = false, small = false, dim = false }: {
-  color: string; name: string; detail?: string; flip?: boolean; small?: boolean; dim?: boolean;
+export function NameTag({ color, name, detail, flip = false, small = false, dim = false, maxWidth = 280 }: {
+  color: string; name: string; detail?: string; flip?: boolean; small?: boolean; dim?: boolean; maxWidth?: number;
 }) {
   return (
     <span
@@ -45,7 +45,7 @@ export function NameTag({ color, name, detail, flip = false, small = false, dim 
         borderRadius: flip ? '10px 3px 10px 10px' : '3px 10px 10px 10px',
         ...(flip ? { right: 'calc(100% - 6px)' } : { left: 12 }),
         opacity: dim ? 0.78 : 1,
-        maxWidth: 280,
+        maxWidth,
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         boxShadow: '0 0 0 1px rgba(255,255,255,0.18) inset, 0 2px 6px rgba(0,0,0,0.18)',
@@ -55,6 +55,14 @@ export function NameTag({ color, name, detail, flip = false, small = false, dim 
       {detail && <span className="opacity-90"> · {detail}</span>}
     </span>
   );
+}
+
+/** Which side of a cursor at `x` its name tag goes, and how wide it may be, so it stays on screen. */
+export function tagPlacement(x: number) {
+  if (typeof window === 'undefined') return { flip: false, maxWidth: 280 };
+  const right = window.innerWidth - x - 20, left = x - 14;
+  const flip = right < 220 && left > right;
+  return { flip, maxWidth: Math.round(Math.max(110, Math.min(280, (flip ? left : right) - 8))) };
 }
 
 /**
@@ -78,11 +86,11 @@ export function HumanPointer({ x, y, snap, color, name, detail, waiting, maxDura
   useEffect(() => { mover.current?.moveTo({ x, y } as Point, { maxDuration }); }, [x, y, maxDuration]);
   useEffect(() => { if (snap) mover.current?.jump({ x, y }); }, [snap]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const flip = typeof window !== 'undefined' && x > window.innerWidth - 220;
+  const { flip, maxWidth: tagWidth } = tagPlacement(x);
   return (
     <div ref={el} className={`absolute left-0 top-0 will-change-transform ${className}`} style={style}>
       <div className="-ml-[2.5px] -mt-[2.5px]"><CursorGlyph color={color} /></div>
-      <NameTag color={color} name={name} detail={waiting ? `waiting: ${detail ?? ''}` : detail} flip={flip} dim={waiting} />
+      <NameTag color={color} name={name} detail={waiting ? `waiting: ${detail ?? ''}` : detail} flip={flip} dim={waiting} maxWidth={tagWidth} />
     </div>
   );
 }

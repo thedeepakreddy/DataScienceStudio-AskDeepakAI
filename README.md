@@ -92,7 +92,7 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
    - Fixes the Data Quality Agent finds while working are added as new tasks, and they wait for approval too.
 3. **Watch them work on your page.**
    - Each agent's cursor moves like a hand: curved paths, natural acceleration, a slight overshoot.
-   - It opens the right step, drags a selection box over the area it's working in, and boxes every control it reaches, chooses, types into or clicks.
+   - Every agent works as a pair of cursors. Its partner drags a selection box open, corner to corner, round the area and round each control; then the worker moves into the open box and does the real click, choice or typing there.
    - Only one agent holds the page at a time. A tap or key press of your own pauses the team ("Agents paused — you're in control"), and you can Resume or Stop.
 4. **Checked, not trusted.** Every task self-checks its own result (for example, no missing values left, or every kept row matches the filter). Risky results then get an **independent review** using a different method:
    - a permutation test for statistical tests,
