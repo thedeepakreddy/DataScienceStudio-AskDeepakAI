@@ -34,7 +34,8 @@ type AiKeyContext = {
   visitorKeyResult?: { ok: true } | { ok: false; kind: GeminiFailureKind; detail: string };
 };
 const aiKeyContext = new AsyncLocalStorage<AiKeyContext>();
-const USER_KEY_SHAPE = /^[A-Za-z0-9_\-]{20,200}$/;
+// Classic keys (AIza…) and newer AI Studio keys, which can contain dots (AQ.…).
+const USER_KEY_SHAPE = /^[A-Za-z0-9._~+/=-]{20,300}$/;
 
 app.use('/api', (req, _res, next) => {
   const raw = req.get('X-Gemini-Api-Key');

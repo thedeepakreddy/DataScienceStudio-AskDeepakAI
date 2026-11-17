@@ -89,7 +89,8 @@ export class Driver {
     return interactions.emit({ runId: this.ctx.runId, taskId: this.ctx.taskId, agent: this.ctx.agent, pointerId: this.ctx.taskId, action, label, ...extra });
   }
 
-  private get pace() { return this.ctx.pace ?? 450; }
+  // Long enough for the pointer to finish its curved, human-paced move.
+  private get pace() { return this.ctx.pace ?? 640; }
 
   /** Waits for a control to appear (after a step change), up to `timeout`. */
   async waitFor(target: string, timeout = 5000): Promise<HTMLElement> {

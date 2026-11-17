@@ -3,83 +3,98 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, X } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { BrainCircuit, FileText, LayoutDashboard, ScanSearch, ShieldCheck, Sigma, TrendingUp, Undo2, Wand2, X } from 'lucide-react';
 import { AGENTS, AgentRole } from '../swarm/agents';
+import { HumanMover, Point } from '../swarm/humanMotion';
+import { CursorGlyph } from './AgentCursor';
 import Orb from './Orb';
 
-// The welcome the agent team gives each time the studio opens (about seven
-// seconds): their cursors fly in, drag a selection box open over the title,
-// each drag out a box with one thing they can do, then point to the floating
-// Ask AI button, where the user gives them tasks. The × in the top-left, Esc
-// or a tap anywhere skips it. This is a greeting, not work: nothing on the
-// page is touched.
+// The agent team's welcome, each time the studio opens (about seven seconds).
+//
+// 1. The swarm streams in from every edge on curved, hand-like paths,
+//    leaving fading trails.
+// 2. The Orchestrator types "Welcome to"; three agents drag selection boxes
+//    over "Data", "Science" and "Studio", revealing each word.
+// 3. Nine agents each drag a box out; when they let go it lands as a card
+//    with one thing the team can do.
+// 4. A line draws from the closing words to the floating Ask AI button and
+//    the swarm flies into it: that's where you give them work.
+//
+// The × (with a ring showing time left), Esc or a tap anywhere skips it.
+// With reduced motion it is a still composition. Nothing on the page is
+// touched.
 
-const SKILLS: { text: string; role: AgentRole }[] = [
-  { text: 'Clean & fix your data', role: 'data_engineer' },
-  { text: 'Explore & profile', role: 'data_scientist' },
-  { text: 'Test what’s significant', role: 'statistician' },
-  { text: 'Train & compare models', role: 'ml_engineer' },
-  { text: 'Forecast the future', role: 'data_scientist' },
-  { text: 'Build dashboards', role: 'bi_analyst' },
-  { text: 'Write the report', role: 'research_analyst' },
-  { text: 'Check every result twice', role: 'verifier' },
-  { text: 'Undo anything, anytime', role: 'orchestrator' },
+const CARDS: { text: string; short: string; role: AgentRole; Icon: typeof Wand2 }[] = [
+  { text: 'Clean & fix your data', short: 'Clean', role: 'data_engineer', Icon: Wand2 },
+  { text: 'Explore & profile', short: 'Explore', role: 'data_quality', Icon: ScanSearch },
+  { text: 'Test what’s significant', short: 'Test', role: 'statistician', Icon: Sigma },
+  { text: 'Train & compare models', short: 'Train', role: 'ml_engineer', Icon: BrainCircuit },
+  { text: 'Forecast the future', short: 'Forecast', role: 'data_scientist', Icon: TrendingUp },
+  { text: 'Build dashboards', short: 'Dashboards', role: 'bi_analyst', Icon: LayoutDashboard },
+  { text: 'Write the report', short: 'Report', role: 'research_analyst', Icon: FileText },
+  { text: 'Check every result twice', short: 'Double-check', role: 'verifier', Icon: ShieldCheck },
+  { text: 'Undo anything, anytime', short: 'Undo', role: 'orchestrator', Icon: Undo2 },
 ];
-// The cursors after the nine skill-makers.
-const EXTRA: AgentRole[] = ['orchestrator', 'data_quality', 'statistician', 'ml_engineer', 'data_engineer', 'research_analyst'];
+const WORDS = ['Data', 'Science', 'Studio'];
+// Who selects each word (they go on to make cards afterwards).
+const WORD_AGENTS = [0, 4, 5];
+const TYPIST = 9;
+const ROAMERS: AgentRole[] = ['statistician', 'ml_engineer', 'data_engineer', 'research_analyst', 'verifier'];
+const TOTAL_MS = 7000;
 
 type Size = 'desktop' | 'tablet' | 'phone';
 const sizeOf = (w: number): Size => (w >= 1024 ? 'desktop' : w >= 640 ? 'tablet' : 'phone');
-const LAYOUT = {
-  desktop: { cursors: 15, cols: 3, perGroup: 9 },
-  tablet: { cursors: 12, cols: 2, perGroup: 9 },
-  phone: { cursors: 10, cols: 1, perGroup: 3 },
-} as const;
+const COUNT: Record<Size, number> = { desktop: 15, tablet: 12, phone: 10 };
 
-interface Cursor { x: number; y: number; dur: number; delay: number; hidden: boolean }
-type Phase = 'enter' | 'title' | 'skills' | 'ask';
-
+const roleOf = (i: number): AgentRole => (i < 9 ? CARDS[i].role : i === TYPIST ? 'orchestrator' : ROAMERS[(i - 10) % ROAMERS.length]);
 const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const askButton = () => document.querySelector<HTMLElement>('[aria-label="Open the AI assistant"]');
+const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/** A CSS colour variable's actual value, for drawing on the canvas. */
+function resolveColor(cssVar: string) {
+  const name = cssVar.match(/var\((--[^)]+)\)/)?.[1];
+  return (name && getComputedStyle(document.documentElement).getPropertyValue(name).trim()) || '#5b6b8c';
+}
 
 export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
   const size = sizeOf(view.w);
-  const { cursors: count, cols, perGroup } = LAYOUT[size];
-  const roles: AgentRole[] = [...SKILLS.map(s => s.role), ...EXTRA].slice(0, count);
+  const count = COUNT[size];
   const still = reducedMotion();
 
-  const [phase, setPhase] = useState<Phase>(still ? 'ask' : 'enter');
-  const [group, setGroup] = useState(0);
-  const [revealed, setRevealed] = useState<number[]>(() => (still ? [0, 1, 2, 3, 4, 5, 6, 7, 8] : []));
-  const [titleOpen, setTitleOpen] = useState(still);
+  const [phase, setPhase] = useState<'intro' | 'sub' | 'ask'>(still ? 'ask' : 'intro');
   const [leaving, setLeaving] = useState(false);
-  const [ask, setAsk] = useState<DOMRect | null>(null);
-  const [angle, setAngle] = useState(0);
-  const [cursors, setCursors] = useState<Cursor[]>(() => {
-    // Off-screen, all round the edges, so they fly in from everywhere.
-    const { w, h } = { w: window.innerWidth, h: window.innerHeight };
-    const n = LAYOUT[sizeOf(w)].cursors;
-    return Array.from({ length: n }, (_, i) => {
-      const a = (i / n) * Math.PI * 2 + 0.4;
-      return { x: w / 2 + Math.cos(a) * Math.max(w, h) * 0.75, y: h / 2 + Math.sin(a) * Math.max(w, h) * 0.75, dur: 0, delay: 0, hidden: false };
-    });
-  });
+  const [ask, setAsk] = useState<{ ring: DOMRect; path: string } | null>(null);
+  const [scale, setScale] = useState(1);
 
-  const titleRef = useRef<HTMLDivElement | null>(null);
-  const slotRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const tipRef = useRef<HTMLDivElement | null>(null);
+  const root = useRef<HTMLDivElement | null>(null);
+  const column = useRef<HTMLDivElement | null>(null);
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  const eyebrow = useRef<HTMLSpanElement | null>(null);
+  const words = useRef<(HTMLSpanElement | null)[]>([]);
+  const wordBoxes = useRef<(HTMLDivElement | null)[]>([]);
+  const cards = useRef<(HTMLDivElement | null)[]>([]);
+  const cardBoxes = useRef<(HTMLDivElement | null)[]>([]);
+  const tip = useRef<HTMLDivElement | null>(null);
+  const caret = useRef<HTMLSpanElement | null>(null);
+  const grid = useRef<HTMLDivElement | null>(null);
+  const cursorEls = useRef<(HTMLDivElement | null)[]>([]);
+  const tagEls = useRef<(HTMLSpanElement | null)[]>([]);
+  const movers = useRef<HumanMover[]>([]);
   const closed = useRef(false);
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   const close = useCallback(() => {
     if (closed.current) return;
     closed.current = true;
+    movers.current.forEach(m => m.stop());
     setLeaving(true);
-    setTimeout(onClose, 320);
+    setTimeout(onClose, 420);
   }, [onClose]);
 
-  // Esc closes; the layout follows the window size.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
     const onResize = () => setView({ w: window.innerWidth, h: window.innerHeight });
@@ -88,280 +103,472 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
   }, [close]);
 
-  // The choreography. Targets are read from the laid-out boxes when each step runs.
-  useEffect(() => {
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
-    const move = (i: number, x: number, y: number, dur = 700, delay = 0) =>
-      setCursors(prev => prev.map((c, k) => (k === i ? { ...c, x, y, dur, delay } : c)));
-    const n = LAYOUT[sizeOf(window.innerWidth)].cursors;
-    const layout = LAYOUT[sizeOf(window.innerWidth)];
+  // Shrink the whole composition on short screens (e.g. a phone held sideways).
+  useLayoutEffect(() => {
+    const el = column.current;
+    if (!el) return;
+    const h = el.scrollHeight;
+    const room = view.h - 72;
+    setScale(h > room ? Math.max(0.6, room / h) : 1);
+  }, [view, size]);
 
-    const finish = (t: number) => {
-      // Point at the Ask AI button, then fly into it.
-      at(t, () => {
-        const w = window.innerWidth, h = window.innerHeight;
-        const r = askButton()?.getBoundingClientRect() ?? new DOMRect(w - 80, h - 200, 64, 64);
-        setAsk(r);
-        setPhase('ask');
-        // The arrow points from the tip to the button (measured once the tip has moved into place).
-        at(60, () => {
-          const tip = tipRef.current?.getBoundingClientRect();
-          if (tip) setAngle(Math.atan2(r.top + r.height / 2 - (tip.top + tip.height / 2), r.left + r.width / 2 - (tip.left + tip.width / 2)));
-        });
-        // Gather on the side of the button that faces the screen, never off the edge.
-        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-        const facing = Math.atan2(h / 2 - cy, w / 2 - cx);
-        setCursors(prev => prev.map((c, i) => {
-          const a = facing + ((i / Math.max(1, prev.length - 1)) - 0.5) * 2.4;
-          const rad = r.width * 0.8 + 18 + (i % 3) * 22;
-          const x = Math.min(w - 26, Math.max(8, cx + Math.cos(a) * rad));
-          const y = Math.min(h - 26, Math.max(8, cy + Math.sin(a) * rad));
-          return { ...c, x, y, dur: 800, delay: i * 35 };
-        }));
-      });
-      // Then they fly into the button.
-      at(t + 1450, () => {
-        const r = askButton()?.getBoundingClientRect();
-        if (r) setCursors(prev => prev.map((c, i) => ({ ...c, x: r.left + r.width / 2, y: r.top + r.height / 2, dur: 500, delay: i * 20 })));
-      });
-      at(t + 1750, () => setCursors(prev => prev.map((c, i) => ({ ...c, hidden: true, delay: i * 15 }))));
-      at(t + 2350, close);
+  // The ring round Ask AI and the line drawn to it from the closing words.
+  const pointToAsk = useCallback(() => {
+    const w = window.innerWidth, h = window.innerHeight;
+    const r = askButton()?.getBoundingClientRect() ?? new DOMRect(w - 84, h - 200, 64, 64);
+    const ring = new DOMRect(Math.min(w - r.width - 20, Math.max(4, r.left - 8)), Math.min(h - r.height - 20, Math.max(4, r.top - 8)), r.width + 16, r.height + 16);
+    const t = tip.current?.getBoundingClientRect();
+    let path = '';
+    if (t) {
+      const narrow = w < 640;
+      const sx = narrow ? t.left + t.width / 2 : t.right + 10;
+      const sy = narrow ? t.bottom + 8 : t.top + t.height / 2;
+      const ex = ring.left + ring.width / 2 - (ring.left > sx ? ring.width / 2 + 6 : -ring.width / 2 - 6);
+      const ey = ring.top + ring.height / 2;
+      path = `M ${sx} ${sy} C ${sx + (ex - sx) * 0.55} ${sy}, ${ex - (ex - sx) * 0.1} ${sy + (ey - sy) * 0.35}, ${ex} ${ey}`;
+    }
+    setAsk({ ring, path });
+    return ring;
+  }, []);
+
+  // The choreography.
+  useEffect(() => {
+    if (still) {
+      cards.current.forEach(c => { if (c) c.dataset.landed = '1'; });
+      words.current.forEach(wd => { if (wd) { wd.style.opacity = '1'; wd.style.clipPath = 'none'; } });
+      if (eyebrow.current) eyebrow.current.textContent = 'Welcome to';
+      requestAnimationFrame(() => pointToAsk());
+      const t = setTimeout(close, 6500);
+      return () => clearTimeout(t);
+    }
+
+    const w = window.innerWidth, h = window.innerHeight;
+    const n = COUNT[sizeOf(w)];
+    // Every cursor starts just off-screen, spread round all four edges.
+    movers.current = Array.from({ length: n }, (_, i) => {
+      const a = (i / n) * Math.PI * 2 + 0.5;
+      const R = Math.hypot(w, h) * 0.62;
+      return new HumanMover(cursorEls.current[i], { x: w / 2 + Math.cos(a) * R, y: h / 2 + Math.sin(a) * R });
+    });
+    const m = movers.current;
+    let alive = true;
+
+    // Name tags sit to the left near the right edge.
+    const face = (i: number, x: number) => {
+      const tag = tagEls.current[i];
+      if (!tag) return;
+      const flip = x > window.innerWidth - 190;
+      tag.style.left = flip ? '' : '12px';
+      tag.style.right = flip ? 'calc(100% - 6px)' : '';
+      tag.style.borderRadius = flip ? '10px 3px 10px 10px' : '3px 10px 10px 10px';
+    };
+    const go = (i: number, to: Point, opts: Parameters<HumanMover['moveTo']>[1] = {}) => {
+      if (!alive || !m[i]) return Promise.resolve();
+      face(i, to.x);
+      return m[i].moveTo(to, opts);
     };
 
-    if (still) {
-      at(50, () => setAsk(askButton()?.getBoundingClientRect() ?? null));
-      at(7000, close);
-      return () => timers.forEach(clearTimeout);
-    }
+    // A drag: from the top-left of `rect` to its bottom-right, the marquee following the hand.
+    const drag = async (i: number, rect: DOMRect, box: HTMLDivElement | null, onProgress?: (x: number) => void) => {
+      const pad = 6;
+      const sx = rect.left - pad, sy = rect.top - pad;
+      await go(i, { x: sx, y: sy }, { maxDuration: 620, arc: 0.22 });
+      if (!alive) return;
+      if (box) { box.style.display = 'block'; box.style.opacity = '1'; }
+      await go(i, { x: rect.right + pad, y: rect.bottom + pad }, {
+        duration: 520 + Math.min(260, rect.width * 0.4), arc: 0.05, overshoot: false,
+        onFrame: p => {
+          if (box) {
+            box.style.left = `${Math.min(sx, p.x)}px`;
+            box.style.top = `${Math.min(sy, p.y)}px`;
+            box.style.width = `${Math.abs(p.x - sx)}px`;
+            box.style.height = `${Math.abs(p.y - sy)}px`;
+          }
+          onProgress?.(p.x);
+        },
+      });
+      if (box) { box.style.opacity = '0'; setTimeout(() => { if (box) box.style.display = 'none'; }, 320); }
+    };
 
-    // 1. Fly in and gather round the middle.
-    at(60, () => setCursors(prev => prev.map((c, i) => {
-      const a = (i / n) * Math.PI * 2;
-      const w = window.innerWidth, h = window.innerHeight;
-      const r = 0.55 + ((i * 37) % 10) / 25;
-      return { ...c, x: w / 2 + Math.cos(a) * w * 0.32 * r, y: h / 2 + Math.sin(a) * h * 0.3 * r, dur: 850, delay: i * 30 };
-    })));
-
-    // 2. The Orchestrator drags the title box open; the rest surround it.
-    at(950, () => {
-      setPhase('title');
-      const t = titleRef.current?.getBoundingClientRect();
-      if (!t) return;
-      move(0, t.left, t.top, 450);
-      setCursors(prev => prev.map((c, i) => {
-        if (i === 0) return c;
-        const p = (i - 1) / (prev.length - 1);
-        const per = 2 * (t.width + t.height);
-        let d = p * per;
-        const pt = d < t.width ? [t.left + d, t.top - 6]
-          : (d -= t.width) < t.height ? [t.right + 6, t.top + d]
-          : (d -= t.height) < t.width ? [t.right - d, t.bottom + 6]
-          : [t.left - 6, t.bottom - (d - t.width)];
-        return { ...c, x: pt[0], y: pt[1], dur: 700, delay: i * 25 };
-      }));
-    });
-    at(1450, () => {
-      const t = titleRef.current?.getBoundingClientRect();
-      setTitleOpen(true);
-      if (t) move(0, t.right - 8, t.bottom - 8, 850);
-    });
-
-    // 3. Each agent drags out a box with one thing the team can do.
-    const start = 2450;
-    const stagger = layout.perGroup === 9 ? 230 : 260;
-    const groups = Math.ceil(SKILLS.length / layout.perGroup);
-    const groupTime = layout.perGroup * stagger + 650;
-    at(start, () => setPhase('skills'));
-    for (let g = 0; g < groups; g++) {
-      const g0 = start + g * groupTime;
-      at(g0, () => { setGroup(g); setRevealed([]); });
-      for (let k = 0; k < layout.perGroup; k++) {
-        const i = g * layout.perGroup + k;
-        if (i >= SKILLS.length) break;
-        at(g0 + 40 + k * stagger, () => {
-          const r = slotRefs.current[k]?.getBoundingClientRect();
-          if (r) move(i, r.left + 4, r.top + 4, 320);
+    // Short comet trails behind every cursor, redrawn from the last ~0.35s each frame.
+    const cv = canvas.current;
+    const ctx = cv?.getContext('2d') ?? null;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv) { cv.width = w * dpr; cv.height = h * dpr; }
+    const colors = Array.from({ length: n }, (_, i) => resolveColor(AGENTS[roleOf(i)].color));
+    const trails: { x: number; y: number; t: number }[][] = m.map(() => []);
+    const LIFE = 360;
+    let raf = 0;
+    const paint = (now: number) => {
+      if (ctx) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        ctx.lineCap = 'round';
+        m.forEach((mv, i) => {
+          const tr = trails[i];
+          const last = tr[tr.length - 1];
+          if (!last || Math.hypot(mv.x - last.x, mv.y - last.y) > 0.6) tr.push({ x: mv.x, y: mv.y, t: now });
+          while (tr.length && now - tr[0].t > LIFE) tr.shift();
+          ctx.strokeStyle = colors[i];
+          for (let k = 1; k < tr.length; k++) {
+            const life = 1 - (now - tr[k].t) / LIFE;
+            ctx.globalAlpha = 0.5 * life * life;
+            ctx.lineWidth = 0.6 + 2.2 * life;
+            ctx.beginPath();
+            ctx.moveTo(tr[k - 1].x + 3, tr[k - 1].y + 3);
+            ctx.lineTo(tr[k].x + 3, tr[k].y + 3);
+            ctx.stroke();
+          }
         });
-        at(g0 + 40 + k * stagger + 330, () => {
-          const r = slotRefs.current[k]?.getBoundingClientRect();
-          setRevealed(prev => [...prev, k]);
-          if (r) move(i, r.right - 10, r.bottom - 8, 480);
-        });
+        ctx.globalAlpha = 1;
       }
-    }
-    // The extra cursors hover above the boxes meanwhile.
-    at(start + 200, () => setCursors(prev => prev.map((c, i) => {
-      if (i < SKILLS.length) return c;
-      const t = titleRef.current?.getBoundingClientRect();
-      if (!t) return c;
-      const k = i - SKILLS.length;
-      return { ...c, x: t.left + ((k + 0.5) / Math.max(1, prev.length - SKILLS.length)) * t.width, y: t.bottom + 14, dur: 900, delay: k * 60 };
-    })));
+      raf = requestAnimationFrame(paint);
+    };
+    raf = requestAnimationFrame(paint);
 
-    finish(start + groups * groupTime);
-    return () => timers.forEach(clearTimeout);
+    // Roaming cursors drift round the composition while the others work.
+    const roam = async (i: number) => {
+      while (alive && phaseRef.current !== 'ask') {
+        const c = column.current?.getBoundingClientRect();
+        if (!c) break;
+        // Stay in the margins round the composition, never over the words.
+        const W = window.innerWidth, H = window.innerHeight;
+        const side = Math.floor(Math.random() * 4);
+        const x = side === 0 ? c.left - 40 - Math.random() * Math.max(10, c.left - 60)
+          : side === 1 ? c.right + 20 + Math.random() * Math.max(10, W - c.right - 140)
+          : c.left + Math.random() * c.width;
+        const y = side === 2 ? c.top - 30 - Math.random() * Math.max(10, c.top - 60)
+          : side === 3 ? c.bottom + 20 + Math.random() * Math.max(10, H - c.bottom - 60)
+          : c.top + Math.random() * c.height;
+        await go(i, { x: Math.min(W - 30, Math.max(10, x)), y: Math.min(H - 30, Math.max(10, y)) }, { maxDuration: 1100 });
+        await wait(150 + Math.random() * 450);
+      }
+    };
+
+    const run = async () => {
+      await wait(30);
+      // 1. Stream in round the title.
+      const c = column.current?.getBoundingClientRect() ?? new DOMRect(w * 0.2, h * 0.2, w * 0.6, h * 0.6);
+      m.forEach((_, i) => {
+        const a = (i / n) * Math.PI * 2;
+        const r = 0.42 + ((i * 37) % 10) / 30;
+        go(i, { x: c.left + c.width / 2 + Math.cos(a) * c.width * r, y: c.top + c.height * 0.32 + Math.sin(a) * c.height * r * 0.7 }, { duration: 900 + (i % 4) * 90, delay: i * 40, arc: 0.3 });
+      });
+      await wait(900);
+
+      // 2. "Welcome to", typed by the Orchestrator…
+      const eb = eyebrow.current?.getBoundingClientRect();
+      const text = 'Welcome to';
+      if (eb) {
+        await go(TYPIST, { x: eb.left - 4, y: eb.bottom - 2 }, { maxDuration: 380 });
+        go(TYPIST, { x: eb.left + eb.width * 0.95, y: eb.bottom }, { duration: text.length * 42, arc: 0.02, overshoot: false, tremor: false });
+      }
+      (async () => {
+        for (let k = 1; k <= text.length && alive; k++) {
+          if (eyebrow.current) eyebrow.current.textContent = text.slice(0, k);
+          await wait(42);
+        }
+        await wait(500);
+        if (caret.current) caret.current.style.display = 'none';
+      })();
+
+      // …while three agents select the words, revealing each one.
+      WORDS.forEach((_, k) => {
+        const el = words.current[k];
+        const r = el?.getBoundingClientRect();
+        if (!el || !r) return;
+        setTimeout(() => {
+          if (!alive) return;
+          el.style.opacity = '1';
+          el.style.clipPath = 'inset(-20% 100% -20% 0)';
+          drag(WORD_AGENTS[k], r, wordBoxes.current[k], x => {
+            const right = Math.max(0, Math.min(100, ((r.right - x) / r.width) * 100));
+            el.style.clipPath = `inset(-20% ${right}% -20% 0)`;
+          }).then(() => { el.style.clipPath = 'none'; });
+        }, 120 + k * 280);
+      });
+      await wait(1500);
+      if (!alive) return;
+      setPhase('sub');
+      for (let i = 10; i < n; i++) roam(i);
+
+      // 3. Nine agents drag out the cards.
+      const builds = CARDS.map((_, k) => wait(k * 150).then(async () => {
+        const el = cards.current[k];
+        const r = el?.getBoundingClientRect();
+        if (!el || !r || !alive) return;
+        await drag(k, r, cardBoxes.current[k]);
+        el.dataset.landed = '1';
+        // Step back a little from the finished card.
+        go(k, { x: r.right + 10 + Math.random() * 14, y: r.bottom + 6 + Math.random() * 12 }, { maxDuration: 420, overshoot: false });
+      }));
+      await Promise.all(builds);
+      await wait(150);
+      if (!alive) return;
+
+      // 4. Point to Ask AI, then fly into it. If the closing words would sit
+      // under the button (short screens), the composition slides up first.
+      phaseRef.current = 'ask';
+      const btn = askButton()?.getBoundingClientRect();
+      const t = tip.current?.getBoundingClientRect();
+      const col = column.current;
+      const gr = grid.current;
+      if (btn && t && col && gr) {
+        const overlap = t.bottom + 22 - (btn.top - 10);
+        const sideBySide = btn.left > t.right + 12;
+        const headroom = Math.max(0, col.getBoundingClientRect().top - 44);
+        if (!sideBySide && overlap > 0) {
+          if (headroom >= overlap) {
+            col.style.transition = 'transform 520ms cubic-bezier(.22,.61,.36,1)';
+            col.style.transform = `${scale < 1 ? `scale(${scale}) ` : ''}translateY(${-overlap / (scale || 1)}px)`;
+            await wait(540);
+          } else {
+            // No room above: the cards bow out and the closing words take their place.
+            // Collapse smoothly so the title glides instead of jumping.
+            gr.style.overflow = 'hidden';
+            gr.style.maxHeight = `${gr.scrollHeight}px`;
+            void gr.offsetHeight;
+            gr.style.transition = 'opacity 300ms ease, filter 300ms ease, max-height 520ms cubic-bezier(.22,.61,.36,1), margin 520ms cubic-bezier(.22,.61,.36,1)';
+            gr.style.opacity = '0';
+            gr.style.filter = 'blur(4px)';
+            gr.style.maxHeight = '0px';
+            gr.style.marginTop = '0px';
+            await wait(540);
+          }
+        }
+      }
+      setPhase('ask');
+      await wait(60);
+      const ring = pointToAsk();
+      const cx = ring.left + ring.width / 2, cy = ring.top + ring.height / 2;
+      const facing = Math.atan2(h / 2 - cy, w / 2 - cx);
+      // Names fade so the arrows read as one flock heading for the button.
+      tagEls.current.forEach((t, i) => { if (t) { t.style.transition = `opacity 300ms ease ${i * 30}ms`; t.style.opacity = '0'; } });
+      m.forEach((_, i) => {
+        const a = facing + (i / Math.max(1, n - 1) - 0.5) * 2.2;
+        const rad = ring.width * 0.75 + 16 + (i % 3) * 18;
+        go(i, { x: Math.min(w - 24, Math.max(8, cx + Math.cos(a) * rad)), y: Math.min(h - 24, Math.max(8, cy + Math.sin(a) * rad)) }, { delay: 300 + i * 45, maxDuration: 900, arc: 0.28 });
+      });
+      await wait(300 + n * 45 + 900);
+      m.forEach((_, i) => {
+        const el = cursorEls.current[i];
+        go(i, { x: cx - 3, y: cy - 3 }, { duration: 360, delay: i * 25, overshoot: false });
+        if (el) { el.style.transition = `opacity 260ms ease ${i * 25 + 180}ms`; el.style.opacity = '0'; }
+      });
+      await wait(360 + n * 25 + 300);
+      if (alive) close();
+    };
+    run();
+
+    return () => { alive = false; cancelAnimationFrame(raf); m.forEach(mv => mv.stop()); };
     // The choreography runs once per opening.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const skills = SKILLS.slice(group * perGroup, group * perGroup + perGroup);
-  const width = Math.min(880, view.w - 32);
+  const phone = size === 'phone';
+  const gridWidth = size === 'desktop' ? Math.min(960, view.w - 96) : view.w - (phone ? 32 : 64);
 
   return (
     <div
+      ref={root}
       role="dialog"
       aria-modal="true"
       aria-label="Welcome to Data Science Studio"
       data-swarm-ui
       onClick={close}
       className="fixed inset-0 z-[10001] overflow-hidden select-none cursor-default"
-      style={{
-        background: 'color-mix(in srgb, var(--canvas) 88%, transparent)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
-        opacity: leaving ? 0 : 1,
-        transition: 'opacity 300ms ease',
-      }}
+      style={{ opacity: leaving ? 0 : 1, transition: 'opacity 420ms ease' }}
     >
-      {/* Close: small and dim, top-left, clear of the notch. */}
+      {/* The stage: the studio blurred behind soft drifting light and a dot grid. */}
+      <div className="absolute inset-0" style={{ background: 'color-mix(in srgb, var(--canvas) 84%, transparent)', backdropFilter: 'blur(22px) saturate(1.15)', WebkitBackdropFilter: 'blur(22px) saturate(1.15)' }} />
+      {([
+        ['--agent-orchestrator', '-12vmax', '-14vmax', 0],
+        ['--agent-ml-engineer', '58vw', '-10vmax', -4],
+        ['--agent-statistician', '46vw', '56vh', -8],
+        ['--agent-data-engineer', '-10vmax', '48vh', -2],
+      ] as const).map(([c, left, top, delay]) => (
+        <div
+          key={c}
+          aria-hidden="true"
+          className="absolute rounded-full pointer-events-none"
+          style={{
+            left, top, width: '52vmax', height: '52vmax',
+            background: `radial-gradient(circle, color-mix(in srgb, var(${c}) 30%, transparent) 0%, transparent 62%)`,
+            filter: 'blur(30px)', opacity: 0.75,
+            animation: `welcome-drift 14s ease-in-out ${delay}s infinite alternate`,
+          }}
+        />
+      ))}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: 'radial-gradient(circle, color-mix(in srgb, var(--label) 13%, transparent) 1px, transparent 1.5px)',
+          backgroundSize: '26px 26px',
+          maskImage: 'radial-gradient(ellipse 70% 65% at 50% 45%, black 20%, transparent 75%)',
+          WebkitMaskImage: 'radial-gradient(ellipse 70% 65% at 50% 45%, black 20%, transparent 75%)',
+        }}
+      />
+      <canvas ref={canvas} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />
+
+      {/* Skip: small and dim, top-left, clear of the notch; the ring shows the time left. */}
       <button
         type="button"
         onClick={e => { e.stopPropagation(); close(); }}
         aria-label="Close welcome"
-        className="absolute z-10 w-9 h-9 rounded-full flex items-center justify-center text-label-2 opacity-45 hover:opacity-100 focus-visible:opacity-100 hover:bg-fill transition-opacity"
+        className="absolute z-20 w-10 h-10 rounded-full flex items-center justify-center text-label-2 opacity-50 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
         style={{ top: 'max(12px, env(safe-area-inset-top))', left: 'max(12px, env(safe-area-inset-left))' }}
       >
-        <X className="w-5 h-5" />
+        <svg width="36" height="36" viewBox="0 0 36 36" className="absolute inset-0.5 -rotate-90" aria-hidden="true">
+          <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeOpacity="0.18" strokeWidth="1.5" />
+          {!still && (
+            <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="100.53" style={{ animation: `welcome-progress ${TOTAL_MS}ms linear forwards` }} />
+          )}
+        </svg>
+        <X className="w-4 h-4" />
       </button>
 
-      <div
-        className="absolute inset-0 flex flex-col items-center justify-center mx-auto"
-        style={{ paddingTop: 'max(56px, env(safe-area-inset-top))', paddingBottom: size === 'phone' ? 150 : 110, paddingLeft: 16, paddingRight: 16 }}
-      >
-        {/* The title, revealed by the Orchestrator's selection box. */}
-        <div
-          ref={titleRef}
-          className="relative rounded-[14px] border-2 text-center px-5 py-4 sm:px-10 sm:py-7"
-          style={{
-            maxWidth: width,
-            borderColor: 'var(--blue)',
-            background: 'color-mix(in srgb, var(--blue) 6%, transparent)',
-            opacity: phase === 'enter' ? 0 : 1,
-            animation: titleOpen ? 'agent-drag 850ms cubic-bezier(.22,.61,.36,1) both' : undefined,
-            clipPath: titleOpen ? undefined : 'inset(0 100% 100% 0 round 14px)',
-          }}
-        >
-          <span className="absolute -top-3 left-4 px-2 py-0.5 rounded-full text-[11px] font-semibold text-white" style={{ background: 'var(--blue)' }}>
-            {AGENTS.orchestrator.name}
-          </span>
-          {['-left-1 -top-1', '-right-1 -top-1', '-left-1 -bottom-1', '-right-1 -bottom-1'].map(c => (
-            <span key={c} className={`absolute ${c} w-2 h-2 rounded-sm bg-raised border-2`} style={{ borderColor: 'var(--blue)' }} aria-hidden="true" />
-          ))}
-          <h1 className="font-editorial font-semibold text-label tracking-tight" style={{ fontSize: 'clamp(30px, 5.4vw, 60px)', lineHeight: 1.06 }}>
-            Welcome to Data Science Studio
+      {/* The composition. */}
+      <div className="absolute inset-0 flex items-center justify-center px-4" style={{ paddingTop: 'max(52px, env(safe-area-inset-top))', paddingBottom: phone ? 120 : 96 }}>
+        <div ref={column} className="flex flex-col items-center text-center" style={{ transform: scale < 1 ? `scale(${scale})` : undefined }}>
+          <p className="h-5 font-semibold uppercase text-label-2" style={{ fontSize: phone ? 11 : 13, letterSpacing: '0.32em' }}>
+            <span ref={eyebrow} />
+            {!still && <span ref={caret} aria-hidden="true" className="inline-block w-[1.5px] h-[1em] align-[-2px] ml-1" style={{ background: AGENTS.orchestrator.color, animation: 'welcome-caret 0.9s steps(1) infinite' }} />}
+          </p>
+
+          <h1
+            className="font-editorial font-semibold text-label mt-3"
+            style={{ fontSize: phone ? 'clamp(38px, 11.5vw, 52px)' : 'clamp(52px, 7.6vw, 96px)', lineHeight: 0.98, letterSpacing: '-0.025em', maxWidth: gridWidth }}
+          >
+            {WORDS.map((wd, k) => (
+              <React.Fragment key={wd}>
+                <span
+                  ref={el => { words.current[k] = el; }}
+                  className={`inline-block ${k === 2 ? 'italic font-normal' : ''}`}
+                  style={{ opacity: 0, paddingInline: '0.04em' }}
+                >
+                  {wd}
+                </span>
+                {k < WORDS.length - 1 && ' '}
+              </React.Fragment>
+            ))}
           </h1>
-          <p className="font-editorial italic text-label-2 mt-2" style={{ fontSize: 'clamp(17px, 2.1vw, 22px)' }}>
+
+          <p
+            className="welcome-reveal font-editorial italic text-label-2 mt-4"
+            data-on={phase !== 'intro' ? '1' : '0'}
+            style={{ fontSize: phone ? 17 : 'clamp(18px, 1.9vw, 23px)' }}
+          >
             Your team of AI agents
           </p>
-        </div>
 
-        {/* What the team can do: one box per agent. */}
-        <div
-          className="grid gap-2.5 sm:gap-3 mt-6 sm:mt-8"
-          style={{ width, gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, display: size === 'phone' && phase === 'ask' ? 'none' : undefined }}
-        >
-          {skills.map((s, k) => {
-            const color = AGENTS[s.role].color;
-            const shown = revealed.includes(k);
-            return (
-              <div
-                key={`${group}-${k}`}
-                ref={el => { slotRefs.current[k] = el; }}
-                className="relative rounded-[14px] border-2 px-4 py-3 sm:py-3.5"
-                style={{
-                  borderColor: color,
-                  background: `color-mix(in srgb, ${color} 8%, var(--raised))`,
-                  opacity: shown ? 1 : 0,
-                  animation: shown ? 'agent-drag 480ms cubic-bezier(.22,.61,.36,1) both' : undefined,
-                }}
-              >
-                <span className="absolute -top-2.5 left-3 px-1.5 py-px rounded-full text-[10px] font-semibold text-white whitespace-nowrap" style={{ background: color }}>
-                  {AGENTS[s.role].name}
-                </span>
-                <p className="font-editorial font-semibold text-label" style={{ fontSize: 'clamp(16px, 1.7vw, 19px)' }}>{s.text}</p>
-              </div>
-            );
-          })}
-        </div>
+          {/* What the team can do. */}
+          <div ref={grid} className="grid mt-7 sm:mt-10" style={{ width: gridWidth, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: phone ? 8 : 12 }}>
+            {CARDS.map((c, k) => {
+              const color = AGENTS[c.role].color;
+              return (
+                <div
+                  key={c.text}
+                  ref={el => { cards.current[k] = el; }}
+                  className={`welcome-card rounded-2xl border border-separator text-left ${phone ? 'flex flex-col items-center gap-1.5 px-1.5 py-3' : 'flex items-center gap-3 px-4 py-3.5'}`}
+                  style={{ background: 'color-mix(in srgb, var(--raised) 82%, transparent)', boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 10px 30px -12px rgba(0,0,0,0.18)' }}
+                >
+                  <span
+                    className={`welcome-icon shrink-0 rounded-xl flex items-center justify-center ${phone ? 'w-8 h-8' : 'w-10 h-10'}`}
+                    style={{ background: `color-mix(in srgb, ${color} 13%, transparent)`, color }}
+                  >
+                    <c.Icon className={phone ? 'w-4 h-4' : 'w-[19px] h-[19px]'} strokeWidth={1.9} />
+                  </span>
+                  {phone ? (
+                    <span className="font-editorial font-semibold text-label text-[14px] leading-tight text-center">{c.short}</span>
+                  ) : (
+                    <span className="min-w-0">
+                      <span className="block font-semibold uppercase text-[10px] tracking-[0.14em]" style={{ color }}>{AGENTS[c.role].name}</span>
+                      <span className="block font-editorial font-semibold text-label leading-snug" style={{ fontSize: size === 'desktop' ? 18 : 16 }}>{c.text}</span>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
-        {/* Where to give them work. */}
-        <div
-          ref={tipRef}
-          className="mt-6 sm:mt-8 text-center"
-          style={{ maxWidth: width, opacity: phase === 'ask' ? 1 : 0, transform: phase === 'ask' ? 'none' : 'translateY(8px)', transition: 'opacity 400ms ease, transform 400ms ease' }}
-        >
-          <p className="font-editorial font-semibold text-label" style={{ fontSize: 'clamp(19px, 2.4vw, 26px)' }}>
-            Just ask — we’ll do it right here on your page.
-          </p>
-          <p className="mt-1.5 text-label-2 inline-flex items-center gap-1.5 flex-wrap justify-center" style={{ fontSize: 'clamp(14px, 1.5vw, 16px)' }}>
-            {size === 'phone' ? 'To give the agents a task, tap' : 'To give the agents a task, tap the floating'} <span className="font-semibold text-blue">Ask AI</span>{size === 'phone' ? '' : ' button'}
-            <ArrowRight className="w-4 h-4 text-blue shrink-0" style={{ transform: `rotate(${angle}rad)`, transition: 'transform 300ms' }} aria-hidden="true" />
-          </p>
+          {/* Where to give them work. */}
+          <div ref={tip} className="welcome-reveal mt-8 sm:mt-10" data-on={phase === 'ask' ? '1' : '0'}>
+            <p className="font-editorial font-semibold text-label" style={{ fontSize: phone ? 20 : 'clamp(21px, 2.3vw, 28px)', letterSpacing: '-0.01em' }}>
+              Just ask — we’ll do it right here on your page.
+            </p>
+            <p className="mt-1.5 text-label-2" style={{ fontSize: phone ? 14 : 16 }}>
+              To give the agents a task, tap <span className="font-semibold" style={{ color: AGENTS.orchestrator.color }}>Ask AI</span>{phone ? '.' : ', the floating button.'}
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* The swarm. */}
-      {!still && cursors.map((c, i) => {
-        const role = roles[i] ?? 'orchestrator';
-        const color = AGENTS[role].color;
-        return (
-          <div
-            key={i}
-            className="absolute left-0 top-0 pointer-events-none"
-            aria-hidden="true"
-            style={{
-              transform: `translate(${c.x}px, ${c.y}px) scale(${c.hidden ? 0.5 : 1})`,
-              opacity: c.hidden ? 0 : 1,
-              transition: `transform ${c.dur}ms cubic-bezier(.22,.61,.36,1) ${c.delay}ms, opacity 300ms ease ${c.delay}ms`,
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 22 22" className="-ml-[3px] -mt-[2px] drop-shadow">
-              <path d="M3 2 L3 18 L7.5 13.8 L10.6 20.4 L13.4 19.1 L10.4 12.6 L16.6 12.4 Z" fill={color} stroke="white" strokeWidth="1.4" strokeLinejoin="round" />
-            </svg>
-            {phase !== 'ask' && (
-              <span
-                className={`block -mt-1 w-max rounded-full px-2 py-0.5 font-medium text-white shadow-md whitespace-nowrap ${size === 'phone' ? 'text-[9px]' : 'text-[11px]'}`}
-                // Near the right edge the name sits to the left of the pointer.
-                style={{ background: color, transform: c.x > view.w - 150 ? 'translateX(calc(-100% - 2px))' : 'translateX(14px)' }}
-              >
-                {AGENTS[role].name}
-              </span>
-            )}
-          </div>
-        );
-      })}
-      {/* A ring round the real Ask AI button. */}
+      {/* The line to Ask AI, with a dot travelling along it. */}
+      {ask?.path && (
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
+          <defs>
+            <mask id="welcome-line-mask">
+              <path d={ask.path} fill="none" stroke="white" strokeWidth="6" pathLength={1} strokeDasharray="1" style={{ animation: 'welcome-draw 700ms cubic-bezier(.22,.61,.36,1) both' }} />
+            </mask>
+          </defs>
+          <path d={ask.path} fill="none" stroke={AGENTS.orchestrator.color} strokeOpacity="0.7" strokeWidth="1.6" strokeDasharray="3 6" strokeLinecap="round" mask="url(#welcome-line-mask)" />
+          <circle r="3.2" fill={AGENTS.orchestrator.color}>
+            <animateMotion dur="1.6s" repeatCount="indefinite" path={ask.path} begin="0.6s" />
+          </circle>
+        </svg>
+      )}
+
+      {/* Ask AI: the button itself is under the welcome, so it is shown here. */}
       {ask && (
         <div
           className="absolute z-10 rounded-full border-2 pointer-events-none flex items-center justify-center"
           style={{
-            left: Math.min(view.w - ask.width - 20, Math.max(4, ask.left - 8)), top: Math.min(view.h - ask.height - 20, Math.max(4, ask.top - 8)),
-            width: ask.width + 16, height: ask.height + 16,
-            borderColor: 'var(--blue)', animation: 'agent-target 400ms ease-out both, welcome-pulse 1.2s ease-in-out 400ms infinite',
+            left: ask.ring.left, top: ask.ring.top, width: ask.ring.width, height: ask.ring.height,
+            borderColor: AGENTS.orchestrator.color, background: 'var(--raised)',
+            animation: 'agent-target 400ms ease-out both, welcome-pulse 1.4s ease-in-out 400ms infinite',
           }}
         >
-          {/* The button itself sits under the welcome, so show the assistant here. */}
           <Orb state="breathing" size={64} label="Ask AI" />
           <span
-            className="absolute whitespace-nowrap px-2.5 py-1 rounded-full text-[11px] font-semibold text-white shadow-lg"
-            style={{ background: 'var(--blue)', ...(ask.top > 60 ? { top: -32 } : { bottom: -32 }), ...(ask.left > view.w / 2 ? { right: 0 } : { left: 0 }) }}
+            className="absolute whitespace-nowrap px-2.5 py-1 text-[11px] font-semibold text-white shadow-lg"
+            style={{
+              background: AGENTS.orchestrator.color, borderRadius: 999,
+              ...(ask.ring.top > 60 ? { top: -32 } : { bottom: -32 }), ...(ask.ring.left > view.w / 2 ? { right: 0 } : { left: 0 }),
+            }}
           >
-            Ask AI · assign tasks here
+            {phone ? 'Ask AI' : 'Ask AI · give the team a task'}
           </span>
         </div>
       )}
 
+      {/* Live selection boxes, drawn by the cursors as they drag. */}
+      {WORDS.map((wd, k) => {
+        const color = AGENTS[roleOf(WORD_AGENTS[k])].color;
+        return <div key={wd} ref={el => { wordBoxes.current[k] = el; }} className="welcome-marquee" style={{ borderColor: color, background: `color-mix(in srgb, ${color} 9%, transparent)` }} />;
+      })}
+      {CARDS.map((c, k) => {
+        const color = AGENTS[c.role].color;
+        return <div key={c.text} ref={el => { cardBoxes.current[k] = el; }} className="welcome-marquee" style={{ borderColor: color, background: `color-mix(in srgb, ${color} 7%, transparent)`, borderRadius: 16 }} />;
+      })}
+
+      {/* The swarm. */}
+      {!still && Array.from({ length: count }, (_, i) => {
+        const role = roleOf(i);
+        const color = AGENTS[role].color;
+        return (
+          <div key={i} ref={el => { cursorEls.current[i] = el; }} className="absolute left-0 top-0 z-30 pointer-events-none will-change-transform" aria-hidden="true" style={{ transform: 'translate3d(-100px,-100px,0)' }}>
+            <div className="-ml-[2.5px] -mt-[2.5px]"><CursorGlyph color={color} size={phone ? 19 : 22} /></div>
+            <span
+              ref={el => { tagEls.current[i] = el; }}
+              className={`absolute whitespace-nowrap font-medium text-white ${phone ? 'top-[15px] text-[9.5px] px-1.5 py-[2px]' : 'top-[17px] text-[11px] px-2 py-[3px]'}`}
+              style={{ left: 12, background: color, borderRadius: '3px 10px 10px 10px', boxShadow: '0 0 0 1px rgba(255,255,255,0.18) inset, 0 2px 6px rgba(0,0,0,0.18)' }}
+            >
+              {AGENTS[role].name}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

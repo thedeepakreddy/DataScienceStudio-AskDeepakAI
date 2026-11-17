@@ -130,6 +130,31 @@
 }
 
 /* --- Dark appearance ------------------------------------------------------ */
+/* Agent colours: rich, slightly muted tones (ink, copper, garnet…), so
+   cursors read clearly without shouting over the studio. */
+:root {
+  --agent-orchestrator: #34518a;
+  --agent-data-engineer: #a85d36;
+  --agent-data-scientist: #6a568f;
+  --agent-statistician: #2b746c;
+  --agent-ml-engineer: #9c3a55;
+  --agent-bi-analyst: #3a7194;
+  --agent-research-analyst: #4c7136;
+  --agent-data-quality: #8c6a1e;
+  --agent-verifier: #873838;
+}
+:root[data-theme="dark"] {
+  --agent-orchestrator: #5b78b3;
+  --agent-data-engineer: #c07a52;
+  --agent-data-scientist: #8a76b0;
+  --agent-statistician: #44958b;
+  --agent-ml-engineer: #b95571;
+  --agent-bi-analyst: #5590b3;
+  --agent-research-analyst: #6b9152;
+  --agent-data-quality: #a88634;
+  --agent-verifier: #a85656;
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
 
@@ -692,6 +717,26 @@
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--blue) 45%, transparent); }
   50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--blue) 0%, transparent); }
 }
+/* Welcome: drifting light, live marquees and cards that land when dropped. */
+@keyframes welcome-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(4vmax, -3vmax, 0) scale(1.12); }
+}
+@keyframes welcome-caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes welcome-progress { from { stroke-dashoffset: 100.53; } to { stroke-dashoffset: 0; } }
+@keyframes welcome-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.welcome-card {
+  opacity: 0;
+  transform: translateY(10px) scale(0.94);
+  filter: blur(6px);
+  transition: opacity 420ms ease, transform 620ms cubic-bezier(0.34, 1.56, 0.64, 1), filter 420ms ease;
+}
+.welcome-card[data-landed="1"] { opacity: 1; transform: none; filter: none; }
+.welcome-card .welcome-icon { transform: scale(0.4) rotate(-12deg); transition: transform 560ms cubic-bezier(0.34, 1.7, 0.64, 1) 90ms; }
+.welcome-card[data-landed="1"] .welcome-icon { transform: none; }
+.welcome-reveal { opacity: 0; transform: translateY(10px); filter: blur(4px); transition: opacity 600ms ease, transform 700ms cubic-bezier(0.22, 0.61, 0.36, 1), filter 600ms ease; }
+.welcome-reveal[data-on="1"] { opacity: 1; transform: none; filter: none; }
+.welcome-marquee { position: absolute; display: none; border: 1.5px dashed; border-radius: 10px; pointer-events: none; transition: opacity 300ms ease; }
 /* Editorial type for the welcome, in the style of Medium. */
 .font-editorial {
   font-family: "Source Serif 4", "Source Serif Pro", Charter, "Iowan Old Style", Georgia, serif;
