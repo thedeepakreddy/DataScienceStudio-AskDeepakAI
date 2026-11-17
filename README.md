@@ -1,335 +1,424 @@
-#  AskDeepakAI - Data Science Studio
-[![CI](https://github.com/thedeepakreddy/AskDeepakAI-DataScientist/actions/workflows/ci.yml/badge.svg)](https://github.com/thedeepakreddy/AskDeepakAI-DataScientist/actions/workflows/ci.yml)
+# AskDeepakAI · Data Science Studio
 
-> Interactive, telemetry-free Data Science Workstation & Automated Machine Learning modeling engine powered by Google Gemini.
+[![CI](https://github.com/thedeepakreddy/DataScienceStudio-AskDeepakAI/actions/workflows/ci.yml/badge.svg)](https://github.com/thedeepakreddy/DataScienceStudio-AskDeepakAI/actions/workflows/ci.yml)
 
----
-
-##  The Problem
-
-Most "AutoML" side projects fall into one of two traps: an LLM narrates plausible-sounding metrics instead of computing them, or the "platform" is a thin wrapper around a single hardcoded `sklearn` call. Neither actually does machine learning, and neither survives a technical interviewer asking "wait, where does that number come from?"
-
-This project was rebuilt to close that gap. Every metric a user sees — accuracy, R², the cross-validation scores behind model selection, SHAP feature importances, KS-test drift statistics — is produced by a real Python microservice running real `scikit-learn` / `XGBoost` training and real `pandas` / `NumPy` analysis on the actual uploaded dataset. Google Gemini is deliberately confined to narration and UX (chat, plain-English summaries, code generation): its response schemas structurally omit numeric fields, so it is not just discouraged but *unable* to be the source of a number anyone could make a decision on. Where Gemini is unavailable, the app falls back to template narration built from those same real numbers rather than degrading silently.
+> An end-to-end data science studio with a team of AI agents that works right on your page. Import, clean, explore, test, model, dashboard and report. Every number comes from a real engine, never from an AI's imagination.
 
 ---
 
-##  10-Second Recruiter Summary
-*   **What is it?** A Full-Stack Data Science, AI, and MLOps workstation that automates data ingestion, cleaning, EDA, and machine learning pipelines entirely in the browser.
-*   **The Big Innovation:** Features dual interfaces. **Beginner Mode** abstracts complex math away for business users, while **Expert Mode** unlocks production-grade MLOps configurations, ETL pipeline exports, and Python FastAPI integrations.
-*   **Tech Stack:** React (TypeScript, Vite, Tailwind, Recharts) frontend, Node.js/Express orchestration backend, Python (FastAPI, Scikit-learn, XGBoost) microservice, and Google Gemini API for semantic AI reasoning.
-*   **Key Features:** An agentic analysis mode (Gemini function-calling a real reason → act → observe loop against the ML service), a visual SQL builder, zero-telemetry local CSV processing, data drift monitoring (KS-Tests), hyperparameter tuning, and a 3D-orbiting intelligent Chatbot assistant.
+## Contents
+
+- [At a glance](#at-a-glance)
+- [Why it exists](#why-it-exists)
+- [Your agent team](#your-agent-team)
+- [The seven steps](#the-seven-steps)
+- [Your work is saved, versioned and reproducible](#your-work-is-saved-versioned-and-reproducible)
+- [Beginner and Expert modes](#beginner-and-expert-modes)
+- [AI: Gemini, your own key, and working without AI](#ai-gemini-your-own-key-and-working-without-ai)
+- [Architecture](#architecture)
+- [Technology](#technology)
+- [Tests and CI](#tests-and-ci)
+- [Run it locally](#run-it-locally)
+- [Deploy on Render (free tier)](#deploy-on-render-free-tier)
+- [Project structure](#project-structure)
+- [Known limits](#known-limits)
+- [Further reading](#further-reading)
 
 ---
 
-##  In-Depth Overview
+## At a glance
 
-**AskDeepakAI Data Scientist** is an end-to-end full-stack data intelligence platform empowering data engineers, analysts, and business decision-makers to transform raw datasets into clean, analyzed, modeled, and stakeholder-ready resources. 
-
-Unlike locked-down SaaS BI tools or heavy CLI-only Python environments, this project couples an incredibly responsive **React (TypeScript) visual workspace** with a secure **Node.js (Express) backend engine** and a dedicated **Python FastAPI MLOps Microservice**.
-
----
-
-##  Two Experiences: Beginner vs. Expert Mode
-
-The platform is dynamically architected to serve two entirely different user personas at the toggle of a switch in the header:
-
-### Beginner Mode (Streamlined for Business)
-Designed for Product Managers, Students, and Business Analysts who need quick insights without getting bogged down by statistical jargon or code.
-*   **Simplified Ingestion:** Focuses purely on easy drag-and-drop local CSV uploads.
-*   **Automated Cleaning & EDA:** The AI acts as your pilot, automatically detecting schema issues, suggesting a business hypothesis, and displaying only top-level data health summaries.
-*   **One-Click Auto-ML:** Train AI models with a single click. Complex parameters are hidden. Outputs are presented in simple "Good/Bad" business terms (e.g., plain English accuracy summaries).
-*   **Basic Dashboarding:** The MLOps dashboard displays simple, reassuring green/red badges indicating whether data health is "Stable" or "Drifted", hiding the complex mathematics behind the scenes.
-
-### Expert Mode (Unrestricted MLOps & Data Engineering)
-Unlocks the true power of the platform. Designed for Senior Data Scientists and ML Engineers who demand total control over their algorithms and data pipelines.
-*   **Database Syncs & SQL:** Unlocks the Visual Pipeline Builder allowing direct connection to PostgreSQL and Snowflake databases via scheduled `node-cron` jobs, plus an interactive SQL Assistant for querying.
-*   **Advanced Analytics Labs:** Unlocks the Hypothesis Lab, A/B Testing Interpreters, Feature Correlation Matrix, and multi-dimensional Distribution Charts.
-*   **Granular ML Control & Leakage Audits:** Unlocks Custom Hyperparameter Tuning (Estimators, depths, CV ratios, tree constraints) and rigorous Data Leakage Risk monitors.
-*   **Python MLOps & Data Drift:** Deploys Native Python compute microservices for training `scikit-learn` models. Unlocks advanced Recharts visualizations for **Data Drift**, comparing production inference payloads against training distributions via Kolmogorov-Smirnov (KS) statistical tests.
-*   **Developer Exports:** Unlocks Executive PDF generation, ETL Python code snippet generation, customizable Legacy Dashboards, and real-time backend operational Terminal Logs.
+- **What it is:** a full-stack data science workstation in the browser. It covers seven steps: **Import, Clean, Explore, Statistics, Model, Dashboard and Report**.
+- **The agent team:** nine specialist AI agents, led by an Orchestrator you talk to in the floating **Ask AI** chat.
+  - They plan your request, then carry it out on your own screen: you watch their cursors click, type and select real controls.
+  - Results are checked, risky ones are reviewed independently, and the whole run can be undone in one click.
+- **Real numbers only:**
+  - Statistics, models, forecasts and drift come from a Python service (scikit-learn, XGBoost, SHAP, SciPy, pandas, NumPy).
+  - Simple data work runs in the browser.
+  - Gemini writes words, plans and code. It is never the source of a metric.
+- **Few AI calls:** common requests are planned by built-in rules with **zero** AI calls. Anything else takes one call.
+- **Free to host:** your work lives in your browser (IndexedDB) and the servers are stateless, so it runs on Render's free tier.
+- **Stack:** React 19 + TypeScript + Vite + Tailwind v4 · Node/Express · Python FastAPI · Google Gemini.
 
 ---
 
-##  Industry-Grade Architecture & Enterprise Readiness
+## Why it exists
 
-This application is engineered to meet strict industry standards for reliability, security, and scalability:
+Most "AutoML" side projects fall into one of two traps:
+- an LLM narrates plausible-sounding metrics instead of computing them, or
+- the "platform" is a thin wrapper around one hard-coded `sklearn` call.
 
-*   **Offline-First & Zero-Telemetry Data Privacy:** CSV parsing and data transformation occur strictly client-side via secure Web Workers. No proprietary row-level data is ever transmitted to remote AI endpoints, preventing highly sensitive enterprise data leakage (PII/PHI).
-*   **Microservice Decoupling:** The heavy lifting of statistical computation, inference generation, and hyperparameter cross-validation is offloaded to a designated Python FastAPI microservice, preserving the Node.js orchestrator strictly for state management and API proxying. 
-*   **Production Code Generation:** It behaves as an ETL compiler. The platform doesn't just display insights; it generates 1-to-1 deployable Python scripts detailing explicit cleaning drops, target variables, and ML hyperparameters, immediately verifiable by Data Engineering teams.
-*   **Continuous Data Drift Monitoring:** Implements production-grade Kolmogorov-Smirnov (KS) tests to instantly flag feature distribution shifts (Data Drift) between historical training baselines and real-world incoming inferences.
+This studio is built to survive the question *"where does that number come from?"*:
 
----
-
-##  Comprehensive Feature Breakdown
-
-### Data Engineering (Automated Ingestion & Sync)
-*   **External Database Connectors**: Integrates securely with Snowflake, PostgreSQL, and other cloud databases for automated data pooling.
-*   **Cron-Scheduled Ingestion Jobs**: Implements a robust `node-cron` orchestrator to fetch data directly from databases at a given time interval.
-*   **Visual Pipeline Builder**: Drag-and-drop React interface abstracting API connections. Users simply select a timeline dropdown and provide connection strings to generate a fully automated ingestion pipeline.
-
-### Business Intelligence (BI & Semantic Modeling)
-*   **AI-Driven SQL Semantic Modeling**: Interrogates incoming schema changes automatically, using Gemini to enforce column validation mapping, detecting NULL variance or data type changes before persisting ingestion.
-*   **Interactive Multi-Metric Slicers**: Fast segment slicer panels let you slice complex numerical properties or categorical states dynamically.
-*   **Dynamic Data Visualizations**: Real-time visual plots using `Recharts` output scatter point graphs, line summaries, bar groupings, and percentage-based pie aggregations.
-
-### MLOps Workstation (Python Compute & Drift Monitoring)
-*   **Native Python ML Microservice**: A brand new dedicated FastAPI inference and computation layer using `scikit-learn` and `XGBoost`. Exceeds API limits by keeping core algorithmic mathematics running natively.
-*   **One-Click Deployment**: Directly from the React frontend, users hit '1-Click Deploy', which serializes models into persistent `joblib` artifacts via the backend API.
-*   **Data Drift Monitoring**: Features an interactive visual data drift monitor powered by Recharts comparing real-time inference payload distributions against training data baseline splits via Kolmogorov-Smirnov statistical tests.
-
-### Stage 1: Data Ingestion
-*   **Zero-Telemetry CSV Parsing**: Fluid file processor handles your raw matrices and CSV uploads completely inside your browser locally, guaranteeing no sensitive files hit external remote storage.
-
-### Stage 2: Cleaning Studio (Quality Audit & Resolution)
-*   **Automated Quality Audit System**: Single-click diagnostic scan runs across your dataset to discover Missing Values, Outliers, and Identical Duplicates.
-*   **Missing Value Imputations**: Resolve empty row issues interactively. You can Drop Missing values entirely, or intelligently Fill them (using Mean, Median, Mode, Forward Fill, or Backward Fill).
-*   **Outlier Normalization**: Utilizes standard robust statistical boundaries (1.5x IQR method) to automatically trim or cap extreme numeric anomalies that skew predictive machines.
-*   **Duplicate Elimination**: One-click deduplication instantly drops redundant rows to maintain uncorrupted data validity.
-
-### Stage 3: Exploration (EDA & Hypotheses)
-*   **Semantic Data Profiling**: Connects to Google Gemini to interpret column name contexts, synthesize underlying business vectors, and deliver descriptive data commentary natively mapping back to your initial business goal.
-*   **Hypothesis Testing Lab**:
-    *   **Auto-Generate Deep Hypotheses**: Click the generator and Gemini proposes testable business hypotheses with the real columns they involve, pre-wired to the same real statistical engine below.
-    *   **Test Your Own Hypothesis**: Write your question in plain text (e.g., "Do customers with high tenure have lower churn rates?"), pick the two real columns it's about, and AskDeepakAI runs a genuine statistical test between them — Pearson correlation, a Welch's t-test, one-way ANOVA, or a chi-squared test of independence, chosen automatically from the columns' real data types via `scipy.stats` — then has Gemini narrate what the real result means in plain English.
-
-### Stage 4: Machine Learning Modeling (AutoML)
-*   **Feature Architect & Optimizer**: Easily review columns to tag high-importance predictive variables, set specific Target variables, or selectively uncheck noise variables. The AI acts as a co-pilot, pre-selecting optimal Target metrics.
-*   **Interactive Simulation Parameters**: Custom hyperparameters let you seamlessly tune tree structural constraints, Random Forest iterations, estimator depths, and custom Cross-Validation Testing ratios (Test Splits).
-*   **Algorithmic Benchmarking Outputs**: Depending on the target column class, the workspace auto-detects Regression or Classification algorithms natively. Generates visual scorecards of metrics including **R-squared ($R^2$)**, **Mean Squared Error (MSE)**, **Accuracy**, **Precision**, and **F1-Score**.
-*   **Model Explainer Visualizer**: Generates interactive global feature importance metrics in a horizontal visualization, illustrating how specific parameters shift the specific algorithmic logic weights.
-*   **Agentic Analysis Mode**: Gemini reasons over the champion model's real metrics and a real EDA summary, then executes real diagnostic/fix steps against the ML service — a genuine reason → act → observe loop using Gemini's function-calling API (never free-text command parsing), constrained to a fixed, whitelisted set of real functions (`retrain_with_transform`, `drop_feature`, `check_multicollinearity` via real VIF). Every step's before/after metric is real; the agent's `reasoning` text is the only LLM-authored part of a step and is never treated as a source of truth for a number. Capped at 5 steps, with an explicit stop reason shown (cap reached, plateaued, or the agent judged itself done) — never an opaque black box.
-
-### Stage 5: Stakeholder Dashboard
-*   **Interactive Multi-Metric Slicers**: Fast segment slicer panels let you slice complex numerical properties or categorical states dynamically.
-*   **Dynamic Data Visualizations**: Real-time visual plots using `Recharts` output scatter point graphs, line summaries, bar groupings, and percentage-based pie aggregations.
-*   **Business Translation Overlays**: Auto-generated strategic business indicators, metric impact translations, Risk Registers, and tactical recommendations designed for executives who don't read raw statistics.
-
-### Stage 6: Reports Hub
-*   **Data Dictionary Catalog**: Instantly renders out a well-typed data dictionary schema of the original and transformed feature mappings.
-*   **ETL Code Exporter**: Generates 1-to-1 reproducible native Python Pipeline code mimicking the precise data cleaning drops, imputations, and predictive states currently cached in your application.
-*   **Executive PDF Pipeline (Real-Data Business Briefing)**: Prints a polished, structured narrative — built from the actual dataset profile and real trained-model metrics, narrated by Gemini for a business audience — framing the ML mechanics as an executive business case briefing.
-
-### 🤖 AskDeepakAI Chat & Interactive AssistiveTouch Bot
-The application features a revolutionary interactive **3D-rotating robot assistant** orbiting the user's workspace on all screen layouts globally.
-*   **AI Prompt in Simple English**: Formulate standard conversational prompts ("Clean the data", "Remove the 'Id' column"). The agent translates prompt intent mathematically and executes dataset updates instantly.
-*   **Run Compact SQL Commands**: Execute direct logic commands directly against the frontend browser-state SQL-like runtime structures! Filter tables via user compact SQL directly in chat.
-*   **Run Python / JS Scripts**: Directly issue code block commands through the input field to alter the current row mappings with your custom developer logic.
-*   **3D Quantum Orbit Design**: The hovering bot incorporates multi-layered reflective graphics with active orbital ring visuals, responsive viewport-edge snapping physics, and simple interactive drag.
-
-### Workspace Adaptability & UX
-*   **Beginner vs. Expert User Context Toggle**: Switch seamlessly from 'Beginner' to 'Expert' modes right from the header. This dynamically switches the complexity of visual data! In "Beginner mode", the MLOps dashboard shows simple green/red badge indicators for data drift health. In "Expert Mode", it reveals complex Recharts line charts and statistical distribution metrics (KS-Tests).
-*   **Intelligent Stage Headers**: Contextually aware top-headers that provide a clear mission statement and description for every individual stage, anchoring the user on the specific task.
-*   **Advanced Dynamic Pipeline Progression (Stage Navigation)**: A powerful left-centered sticky navigation pill and bottom page navigation footers that collapse neatly out of the way, tracing locked statuses, completed dependencies, and transitioning elegantly fluidly up and down the data transformation chain without complex paginations.
-*   **Pipeline Progress Bar**: A sleek visual completion tracker showing absolute progression towards the stakeholder dashboard reporting.
-*   **Mobile Top-Bar Experience**: Completely responsive to horizontal tablet arrays and vertical smartphone screens.
+- **Metrics come from real engines.** Accuracy, R², cross-validation, SHAP importances, p-values, effect sizes, forecasts and drift statistics are all computed by real code on your actual data.
+- **Gemini can't invent numbers.** It is confined to narration, planning and code generation. Its response schemas leave out numeric result fields, so it cannot be the source of a number.
+- **Nothing is faked.** Simulated, canned or invented content was removed in a full audit (see [`docs/STUDIO_AUDIT.md`](docs/STUDIO_AUDIT.md)). Where an AI is unavailable, the studio falls back to text built from the same real numbers.
 
 ---
 
-## System Architecture Flow
+## Your agent team
 
-The workstation follows a modern client-server architecture, acting as an enterprise MLOps platform:
+Tap the floating **Ask AI** button and tell the team what you need in plain English. Examples:
+- *"Clean the data, test if contract relates to churn, train a model and write a report."*
+- *"Drop the customer_id column."*
+- *"What's the average tenure?"*
+
+The Orchestrator plans the work and hands each task to the right specialist:
+
+| Agent | Responsible for |
+|---|---|
+| Orchestrator | Plans the work, delegates it and writes the final report |
+| Data Engineer | Cleaning, transformations and data versions |
+| Data Quality Agent | Missing values, duplicates, leakage and consistency |
+| Data Scientist | Exploration, profiling and forecasting |
+| Statistician | Tests, assumptions and uncertainty |
+| ML Engineer | Training, evaluation and reproducibility |
+| BI Analyst | Dashboards and KPIs |
+| Research Analyst | Reports and evidence |
+| Verification Agent | Independent checks of risky results |
+
+**How a request runs**
+
+1. **Plan with as few AI calls as possible.** The request goes through three levels:
+   - Built-in rules come first. They handle commands ("drop the X column", "fill missing values with median", "open the dashboard", a `SELECT …`, "reset the data") and common analyses, with no AI call.
+   - A verified, cached plan for the same request and columns comes next.
+   - Only then is one AI call made. That call either returns a task plan or answers your question from the data's facts.
+
+   Every plan, whatever produced it, is validated before it runs. The checks cover known capabilities, valid inputs, real columns, dependencies, no loops and size limits.
+2. **Approve what matters.** Your approval depends on the kind of task:
+   - Read-only tasks start at once.
+   - Data changes wait for **Approve and Run**.
+   - Critical actions, such as custom code or registering a model, need their own approval.
+   - Fixes the Data Quality Agent finds while working are added as new tasks, and they wait for approval too.
+3. **Watch them work on your page.**
+   - Each agent's cursor moves like a hand: curved paths, natural acceleration, a slight overshoot.
+   - It opens the right step, drags a selection box over the area it's working in, and boxes every control it reaches, chooses, types into or clicks.
+   - Only one agent holds the page at a time. A tap or key press of your own pauses the team ("Agents paused — you're in control"), and you can Resume or Stop.
+4. **Checked, not trusted.** Every task self-checks its own result (for example, no missing values left, or every kept row matches the filter). Risky results then get an **independent review** using a different method:
+   - a permutation test for statistical tests,
+   - the validation gate for models,
+   - a recount for large row removals.
+
+   Disagreements are reported as contradictions, never hidden.
+5. **Self-healing.** If a task fails after retries, the team diagnoses it and tries one safe repair:
+   - wake the ML service,
+   - run the operation directly instead of through the page, or
+   - try once more with more time.
+
+   The incident only closes if the re-run succeeds. Anything else is escalated to you, and no AI call is involved.
+6. **A truthful report.** At the end you get a summary in the chat:
+   - what was done, and each task's check,
+   - reviews, contradictions and incidents,
+   - limitations,
+   - AI calls and tokens used,
+   - **Undo All**, which returns your data to how it was before the run.
+
+The **SQL** and **Code** tabs in the chat run a read-only query (results shown as a table) or your own JavaScript transform in a sandbox (always with its own approval). The **Agents** panel in the toolbar shows the details: task map, each task's check, messages between agents, incidents, telemetry and recent runs.
+
+**Welcome.** Each time the studio opens, the team introduces itself in about seven seconds:
+1. Cursors stream in from every edge.
+2. The Orchestrator types *Welcome to*, while three agents drag selection boxes that reveal **Data Science *Studio***.
+3. Nine agents each build a card for one thing the team can do.
+4. A line draws to the Ask AI button and the swarm flies into it.
+
+The × in the top-left (with a ring showing the time left), Esc or a tap skips it. It adapts to desktops, tablets and phones, and has a still version for reduced motion.
+
+> Agents can operate every feature that changes data or produces a result. A test (`src/swarm/coverage.test.ts`) fails if a new feature isn't registered for them. A few things are deliberately left to you, such as picking files from your computer or deleting all saved work. Details: [`docs/SWARM.md`](docs/SWARM.md).
+
+---
+
+## The seven steps
+
+### 1. Import
+- **File formats:** CSV/TSV (delimiter detected), Excel `.xlsx` (with a sheet picker), JSON / JSON Lines (nested objects flattened) and Parquet. Everything is parsed in the browser, up to 100 MB / 200,000 rows.
+- **Type detection:** numbers, categories, booleans, dates and ID-like columns.
+- **Sample datasets** to try things out.
+- **PostgreSQL:** a one-time copy of up to 2,000 rows from a table.
+
+### 2. Clean
+- **Fixes:**
+  - Fill missing values (mean, median, mode, zero).
+  - Remove or add columns and rows, calculated columns, one-hot encoding.
+  - Remove duplicates, filter rows.
+- **More tools**, each with a preview before applying: tidy text, change type (understands `$1,200`, `(300)`, `1.234,5`), replace values, join or append a second file, group-and-summarise, pivot.
+- **Quality rules** (not empty, unique, range, allowed values, pattern), re-checked after every change, with "remove the rows that break it".
+- **Quality audit** with fixes, **Undo**, **Reset to original**, and **Workflows**: save the steps and replay them on a new file.
+
+### 3. Explore
+- Overview, distributions, categories, outliers and correlations.
+- Deep analysis on the full data with pandas: skew, IQR outliers, missing-value report, correlation matrix.
+- **SQL editor** (Expert): write SQL or have AI write it. Every query passes a strict read-only check and runs in a fresh in-browser database. Any result can become the working data.
+- **AI advisory:** suggested target, risks and next steps, with a data-derived fallback when AI is unavailable.
+
+### 4. Statistics
+- **Compare & relate:** the test is chosen from the column types.
+  - The tests: Welch's t-test, Welch's ANOVA with Tukey HSD, Pearson, paired t-test or chi-squared.
+  - With each: an effect size (Hedges' g, η²/ω², r, dz, Cramér's V), a confidence interval and assumption checks (Shapiro–Wilk, Levene, expected counts).
+  - The matching non-parametric test (Mann–Whitney, Kruskal–Wallis, Spearman, Wilcoxon, Fisher's exact), recommended when an assumption fails.
+  - One- or two-sided tests, at levels 0.01/0.05/0.10.
+- **Multiple-test correction:** Holm, Bonferroni, Benjamini–Hochberg.
+- **Regression:** linear (OLS) and logistic, with coefficients, CIs, p-values, odds ratios, R² / pseudo-R² and collinearity detection.
+- **Sample size & power:** two-group, paired, ANOVA, correlation and two-proportion designs.
+- **A/B test interpreter:** z-test on conversion rates with lift and minimum detectable effect.
+- **Hypothesis lab:** AI proposes testable hypotheses on your real columns; the real engine tests them.
+
+### 5. Model
+- **AutoML:** five candidate models (Logistic/Linear Regression, Random Forest, Gradient Boosting, XGBoost, MLP), ranked by k-fold cross-validation, every one shown, with the reason the winner was chosen.
+- **Real preprocessing pipelines:** imputation, scaling and encoding, fitted on training rows only.
+- **Leakage-safe evaluation:** seeded runs (the same settings give identical scores), splits by time or by group, and leakage warnings.
+- **Hyperparameter tuning:** randomized search with cross-validation, showing every trial.
+- **Explainability:** SHAP feature importance (TreeExplainer / LinearExplainer).
+- **Experiments:** every run with its score, split, seed and data version. Re-run any one exactly.
+- **Forecasting:** naive, seasonal naive, moving average, drift, linear trend, Holt and Holt-Winters, scored by rolling-origin backtesting, with 80%/95% ranges from real backtest errors.
+- **Clustering** (k-means).
+- **Agentic analysis:** Gemini function-calling drives a reason → act → observe loop. It is limited to a fixed set of real ML-service functions (retrain with a transform, drop a feature, check multicollinearity via VIF), capped at 5 steps, with an explicit stop reason.
+- **Deploy & monitor:**
+  - A validation gate before registering: the model must beat the baseline, show no leakage and not rely on an ID column.
+  - A model registry with versions and instant rollback.
+  - Predictions from a form or a whole file.
+  - Drift monitoring: PSI, KS / chi-squared, out-of-range values and unseen categories.
+  - A model card.
+
+### 6. Dashboard
+- Charts built from your data. Click a bar or slice to filter every chart; active filters show as removable chips.
+- **KPI formulas** (e.g. `SUM(revenue) / COUNT()`), computed by a small dedicated parser. No code is executed.
+- Save, reopen, update and delete named dashboards per dataset.
+
+### 7. Report
+- **Executive PDF:** built from the real dataset profile, tests and model metrics. Includes saved analyses and provenance (model seed, split and tuning).
+- **Reproducibility package (.zip):**
+  - the current and original data as CSV,
+  - lineage, workflows and saved analyses,
+  - a **Jupyter notebook** that reproduces the studio's exact accuracy and p-value (tested),
+  - the PDF and the model card.
+- **Data dictionary** and **ETL code** export.
+
+---
+
+## Your work is saved, versioned and reproducible
+
+- **Data versions with lineage:** every change makes a new version that records its parent and the operation that made it. You can switch versions or undo at any time.
+- **Run history:** every test, model, forecast and analysis is logged with the data version it used.
+- **Workspace export/import:** move or back up all your work as one file.
+- **Trained models are kept in the browser.** If the ML service restarts, a registered model is rebuilt from its recipe (the same data, columns, settings and seed), which reproduces the same score.
+- **Jobs panel:** long requests are listed with their elapsed time and can be stopped.
+- **Session restore:** reload the page and you're where you left off. An unfinished agent run is recovered without repeating changes that were already applied.
+
+---
+
+## Beginner and Expert modes
+
+A switch in the toolbar:
+- **Beginner** keeps things simple: plain-English results, sensible defaults, fewer controls.
+- **Expert** unlocks the SQL editor, hypothesis lab, A/B testing, tuning, custom splits, detailed drift statistics and developer exports.
+
+The agents work in both.
+
+---
+
+## AI: Gemini, your own key, and working without AI
+
+- **Server key:** the server uses `GEMINI_API_KEY` when it's set.
+- **Your own key:** visitors can add their own free key from [Google AI Studio](https://aistudio.google.com/) (toolbar → key icon).
+  - Both classic keys (`AIza…`) and newer keys (`AQ.…`) are accepted. Spaces, quotes or a `GEMINI_API_KEY=` prefix picked up when pasting are removed automatically.
+  - The key is kept only in your browser and is sent only with your own requests. The server never stores it.
+- **Without any key:**
+  - Built-in rules still plan commands and analyses.
+  - Simple questions are answered from the data (row and column counts, missing values, a column's average, median, min, max or most common values).
+  - Narrations fall back to templates built from the real numbers.
+
+---
+
+## Architecture
 
 ```text
-┌──────────────────────────────────────────────────────────────────────────┐
-│                             REACT FRONTEND                               │
-│  - Visual Pipeline Builder                  - MLOps Real-time Dashboard  │
-│  - Beginner/Expert Toggle                   - Recharts Visualizations    │
-└─────────────────────┬───────────────────────────────▲────────────────────┘
-                      │                               │
-                      │ 1-Click Deploy / Config       │ Analytics, Drift Metrics,
-                      │ Connection strings            │ AI summaries
-                      ▼                               │
-┌─────────────────────┴───────────────────────────────┴────────────────────┐
-│                             NODE ORCHESTRATOR                            │
-│  - Express server executing node-cron scheduling jobs                    │
-│  - BI Semantic Modeling Engine (Data schema validation)                  │
-└────────────┬────────────────────────┬────────────────────────────────────┘
-             │                        │
-  Cloud Data │                        │ Secure requests to APIs & ML microservice
-             ▼                        ▼
-┌─────────────────────────┐   ┌─────────────────────────────────────────┐
-│     CLOUD DATA POOLS    │   │         PYTHON MLOPS MICROSERVICE       │
-│ - PostgreSQL            │   │ - FastAPI Endpoints (/api/train)        │
-│ - Snowflake             │   │ - Scikit-learn / XGBoost training       │
-│                         │   │ - Data Drift Monitor (KS-Tests)         │
-└─────────────────────────┘   └─────────────────────────────────────────┘
+┌──────────────────────────────── Browser ────────────────────────────────┐
+│ React 19 + TypeScript                                                   │
+│  • 7 steps (Import → Report), Ask AI chat, Agents panel, cursor layer   │
+│  • Agent swarm runtime: planner, task graph, approvals, page lock,      │
+│    reviews, self-healing, telemetry                                     │
+│  • In-browser engines: parsing, cleaning operations, SQL (read-only),   │
+│    KPI formulas, A/B maths                                              │
+│  • IndexedDB: datasets & versions, run history, dashboards, models,     │
+│    agent runs, plan cache                                               │
+└───────────────┬─────────────────────────────────────▲───────────────────┘
+                │ JSON requests (data or references)   │ results
+                ▼                                      │
+┌──────────────────────── Node / Express (stateless) ─┴───────────────────┐
+│  • Serves the app; proxies compute to the ML service (wakes it if idle) │
+│  • AI gateway: /api/swarm/plan and narration endpoints (Gemini,         │
+│    owner key or the visitor's own key)                                  │
+│  • Background jobs for long requests                                    │
+└───────────────┬─────────────────────────────────────────────────────────┘
+                │
+                ▼
+┌──────────────────────── Python FastAPI (stateless) ─────────────────────┐
+│  /train /predict /eda /forecast /stats/{compare,regression,power}       │
+│  /monitor/drift /hypothesis-test /agent/* /download/{id} /health        │
+│  scikit-learn · XGBoost · SHAP · SciPy · pandas · NumPy                 │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-This isn't just a diagram — it's backed by a [pytest suite](mlops_service/tests) that asserts real metric ranges and cross-checks EDA numbers against independent pandas computation, and a [CI workflow](.github/workflows/ci.yml) that runs it on every push.
+**Why the browser stores the work:** Render's free services lose their disk on restart and sleep when idle, so nothing is kept on the servers. The same entities can move to a server database later without changing the UI.
 
 ---
 
-## Live Demo
+## Technology
 
-🔗 **Hosted demo:** not currently deployed — the fastest way to see it live is the [Docker one-liner](#-alternative-one-command-local-dev-with-docker) below (`docker compose up --build`, then open `localhost:3000`).
+| Area | Technology |
+|---|---|
+| UI | React 19, TypeScript, Vite 6, Tailwind CSS v4, Motion, Recharts, Lucide |
+| Type | SF Pro / Inter for the studio; Source Serif 4 for the welcome |
+| In-browser data | AlaSQL (read-only SQL), read-excel-file, hyparquet, mathjs |
+| Storage | IndexedDB |
+| Server | Node.js, Express, esbuild bundle |
+| AI | Google Gemini via `@google/genai` (planning, narration, structured function-calling) |
+| Compute service | Python, FastAPI, scikit-learn, XGBoost, SHAP, SciPy, pandas, NumPy |
+| Reports | jsPDF, html2canvas, generated Jupyter notebooks |
+| Testing | Vitest (frontend), pytest (ML service) |
+| CI | GitHub Actions: typecheck, unit tests, ESLint, build, ruff, pytest |
+| Containers | Docker, docker-compose |
 
-The clip below is a real, unedited run captured directly against the running application (locally, via the Docker setup above) — a sample dataset going through server-side EDA, real 5-model AutoML training (Logistic Regression, Random Forest, Gradient Boosting, XGBoost, and an MLP, ranked by cross-validation, not just a single test-set score), and real SHAP feature importance for the winning model. Nothing shown is scripted or mocked.
+---
 
-![Demo: real server-side EDA, multi-model AutoML comparison, and SHAP explainability](docs/screenshots/demo.gif)
+## Tests and CI
+
+| Suite | What it covers |
+|---|---|
+| **Vitest (~130 tests)** | Operations registry, parsers, SQL safety, KPI parser, statistics helpers, provenance notebook, and the agent swarm (described below) |
+| **pytest (81 tests)** | Real metric ranges, EDA cross-checked against independent pandas computation, statistics against reference values (Cohen's tables, SciPy, scikit-learn, pingouin), forecast backtests, same-seed reproducibility, agent functions |
+
+The Vitest suite checks the agent swarm in detail:
+- the planner, runtime, approvals, reviews and self-healing,
+- the blueprint's acceptance tests A01–A25,
+- **coverage** (agents can operate every feature),
+- human-motion maths and Gemini key handling.
+
+Every push and pull request runs both suites, the typecheck and the build ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
+```bash
+npm run lint      # TypeScript typecheck
+npm test          # Vitest
+npm run build     # production build
+cd mlops_service && pytest tests && ruff check .
+```
+
+---
+
+## Run it locally
+
+**Requirements:** Node.js 18–22+, Python 3.11, and optionally a Gemini API key.
+
+```bash
+git clone https://github.com/thedeepakreddy/DataScienceStudio-AskDeepakAI.git
+cd DataScienceStudio-AskDeepakAI
+npm install
+```
+
+Create `.env` (optional, since visitors can also add their own key in the app):
+
+```env
+GEMINI_API_KEY=your_gemini_api_key
+```
+
+Start the ML service in one terminal:
+
+```bash
+cd mlops_service
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+Start the studio in another:
+
+```bash
+npm run dev        # http://localhost:3000
+```
+
+The server finds the ML service in this order:
+1. `ML_SERVICE_URL`, if set.
+2. Otherwise a service on `127.0.0.1:8000`.
+3. Otherwise the hosted free-tier ML service.
+
+### One command with Docker
+
+```bash
+GEMINI_API_KEY=your_gemini_api_key docker compose up --build
+```
+
+The studio is at `http://localhost:3000` and the ML service at `http://localhost:8000`. The containers talk to each other through `ML_SERVICE_URL=http://ml-service:8000`.
+
+---
+
+## Deploy on Render (free tier)
+
+**1. ML service.** A **Web Service** from this repo:
+- Root directory: `mlops_service`
+- Runtime: Docker (uses `mlops_service/Dockerfile`)
+
+**2. Studio.** A **Web Service** from this repo:
+- Runtime: Node
+- Build: `npm install && npm run build`
+- Start: `npm start`
+- Environment:
+  - `ML_SERVICE_URL` = the ML service's URL
+  - `GEMINI_API_KEY` = your key (optional)
+  - `NODE_ENV=production`
+
+Free services sleep when idle. The studio wakes the ML service for you ("Wake ML Engine" in the toolbar, and automatically when an agent needs it). The first request after a sleep can take about a minute.
+
+---
+
+## Project structure
+
+```text
+├── server.ts                 Express server: app, API, AI gateway, ML proxy, jobs
+├── src/
+│   ├── App.tsx               Steps, toolbar, workspace state, agent wiring
+│   ├── components/           Steps and panels (Clean, Statistics, Model, Deploy, …),
+│   │                         Ask AI chat, Agents panel, cursor layer, welcome
+│   ├── swarm/                Agent team: catalog, planner, runtime, UI scripts,
+│   │                         interaction engine, review, recovery, human motion
+│   ├── operations/           Data operations registry (shared by UI and agents)
+│   ├── utils/                Parsers, SQL safety, statistics helpers, storage, AI key
+│   └── index.css             Tailwind v4 theme, agent colours, animations
+├── mlops_service/            Python FastAPI compute service + pytest suite
+├── docs/
+│   ├── SWARM.md              How the agent team works; how to add a feature for agents
+│   ├── STUDIO_AUDIT.md       Feature audit (real / partial / fake) and phase log
+│   └── screenshots/
+├── Dockerfile, docker-compose.yml
+└── .github/workflows/ci.yml
+```
+
+Tailwind CSS v4 is configured in `src/index.css`. There is no `tailwind.config.js`.
+
+---
+
+## Known limits
+
+- **Your work is stored in your browser.** It isn't synced across devices (use workspace export/import), and browser storage quotas apply.
+- **Free hosting:** the ML service sleeps when idle and has little memory, so very large datasets or training many models at once can be slow.
+- **PostgreSQL import** is a one-time copy of up to 2,000 rows. Scheduled sync isn't offered.
+- **AI features need a Gemini key** (the owner's or your own). Everything else works without one.
+
+---
+
+## Further reading
+
+- [`docs/SWARM.md`](docs/SWARM.md): the agent team in depth, and how to make a new feature usable by agents.
+- [`docs/STUDIO_AUDIT.md`](docs/STUDIO_AUDIT.md): what was audited, removed and rebuilt, phase by phase.
+- [`CASE_STUDY.md`](CASE_STUDY.md): what was hard to build.
 
 <details>
-<summary>Static screenshots</summary>
+<summary>Screenshots from an earlier version</summary>
 
-**Real, server-side EDA** — pandas/NumPy statistics (mean, median, skew, IQR outliers, missing-value report, correlation matrix) computed on the actual uploaded data, with an AI-written summary that is structurally barred from inventing its own numbers:
-![Real server-side EDA](docs/screenshots/02-real-server-side-eda.png)
+Real server-side EDA, multi-model AutoML comparison and SHAP explainability. The interface has been redesigned since; the engines are the same.
 
-**Real multi-model AutoML comparison** — five candidate models trained and ranked by 5-fold cross-validation mean (with fold-to-fold std shown, not hidden), including the losers, with an explicit, visible reason for why the champion was chosen:
-![Real AutoML model comparison](docs/screenshots/03-real-automl-model-comparison.png)
-
-**Real SHAP explainability** — feature importance for the champion model computed via SHAP (TreeExplainer / LinearExplainer depending on the algorithm), not a hardcoded or LLM-guessed ranking:
-![Real SHAP feature importance](docs/screenshots/04-real-shap-feature-importance.png)
+![Demo](docs/screenshots/demo.gif)
 
 </details>
 
- Curious what was actually hard to build (and what's still fake vs. real)? See **[CASE_STUDY.md](CASE_STUDY.md)**.
-
 ---
 
-## Technology Stack
-
-| Component | Technology | Version / Focus |
-| :--- | :--- | :--- |
-| **Frontend UI** | **React** | v19.0.x — Modern functional hooks with concurrent rendering |
-| **Bundler / Build** | **Vite** | v6.x — Sub-millisecond dev starts with ES Module hot reloading |
-| **Styles** | **Tailwind CSS** | v4.x — High-fidelity utility classes & themes |
-| **Graphs & Charts** | **Recharts & Lucide** | Interactive visualizations, scatter plots, trend lines, SVG Icons |
-| **Server Engine** | **Node.js / Express** | Compact REST API wrapper and static web asset middleware, proxies to the Python ML microservice |
-| **AI Processing** | **Google GenAI SDK** | `@google/genai` v2.4.x — Gemini API integrations. Narration-only outside agentic mode (see [The Problem](#-the-problem)); in agentic mode, Gemini only *triggers* real functions via structured function-calling — it never computes a metric itself |
-| **Agent Orchestration** | **Gemini function-calling** | `FunctionCallingConfigMode.ANY` against a fixed, whitelisted tool set — reason → act → observe loop, capped at 5 steps, never free-text command parsing |
-| **Server Compiler** | **esbuild** | Ultra-fast JS/TS server compiler bundling to standalone CommonJS |
-| **ML Microservice** | **FastAPI** | Python compute engine — the source of every real number in the app |
-| **Model Training** | **scikit-learn / XGBoost** | Real `Pipeline`s (imputation + scaling/encoding + estimator), 5 candidate models, k-fold cross-validation |
-| **Explainability** | **SHAP** | `TreeExplainer` / `LinearExplainer` per algorithm — real feature attribution, not a guessed ranking |
-| **Data Analysis** | **pandas / NumPy / SciPy** | Real EDA (correlation, skew, IQR outliers), KS-test drift detection, real VIF multicollinearity checks |
-| **Testing** | **pytest** | 39 tests: real metric-range assertions, EDA numbers cross-checked against independent pandas computation, agent function coverage |
-| **Lint / CI** | **ruff, tsc, GitHub Actions** | Lint + test + typecheck + build on every push — see the badge at the top of this README |
-| **Containerization** | **Docker / docker-compose** | One-command local dev for the full stack — see [Local Development Setup](#-local-development-setup) |
-
----
-
-##  Local Development Setup
-
-To test, debug, or run the application on your computer:
-
-### Prerequisites
-*   **Node.js**: `v18.x` through `v22.x` (or later) recommended
-*   **Google Gemini API Key**: Obtain a developer key from [Google AI Studio](https://aistudio.google.com/)
-
-### Command Line Instruction
-
-1.  **Clone the Repository**:
-    ```bash
-    git clone https://github.com/thedeepakreddy/AskDeepakAI-DataScientist.git
-    cd AskDeepakAI-DataScientist
-    ```
-
-2.  **Install Node packages**:
-    ```bash
-    npm install
-    ```
-
-3.  **Configure Environment Variables**:
-    Create a `.env` file in your project's root folder:
-    ```bash
-    touch .env
-    ```
-    Populate it with your Gemini API key:
-    ```env
-    GEMINI_API_KEY=your_actual_google_gemini_api_key_here
-    NODE_ENV=development
-    ```
-
-4.  **Boot Development Servers (Frontend / Orchestrator)**:
-    ```bash
-    npm run dev
-    ```
-    *   This boots up the integrated Node-Vite development runtime port `3000`.
-
-5.  **Boot the MLOps Python Microservice**:
-    Open a second terminal window in the project directory:
-    ```bash
-    cd mlops_service
-    pip install -r requirements.txt
-    uvicorn main:app --reload --port 8000
-    ```
-    *   This boots up the Native Compute Engine for the 1-Click Deploy endpoints.
-
-###  Alternative: One-Command Local Dev with Docker
-
-If you have Docker installed, you can skip steps 2, 4, and 5 above and run the whole stack (frontend/orchestrator + Python ML microservice) with a single command:
-
-```bash
-GEMINI_API_KEY=your_actual_google_gemini_api_key_here docker compose up --build
-```
-
-*   The web app is served at `http://localhost:3000` and the ML microservice at `http://localhost:8000`.
-*   The two containers talk to each other over the Docker Compose network (`ML_SERVICE_URL=http://ml-service:8000`), so no manual wiring is needed.
-*   Dockerfiles live at `Dockerfile` (Node frontend/orchestrator, multi-stage build) and `mlops_service/Dockerfile` (Python ML microservice).
-
----
-
-##  Deploying to Render.com (Production)
-
-> **Architectural Note**: Python apps use Streamlit; full-stack TypeScript apps require standard virtual runtimes. Because **AskDeepakAI** is designed using TypeScript, Node, and React, **Render Web Services** is the perfect hosting environment.
-
-### 1. Push your latest code modifications to GitHub
-```bash
-git add .
-git commit -m "Deploy production update for AskDeepakAI"
-git push origin main
-```
-
-### 2. Set up your Web Service on Render
-1.  Log into your **[Render.com Dashboard](https://dashboard.render.com/)**.
-2.  Click **New +** and select **Web Service**.
-3.  Connect your GitHub repository: `AskDeepakAI-DataScientist`.
-4.  Configure the environment setup settings exactly like this:
-    *   **Name**: `ask-deepak-ai-datascientist`
-    *   **Runtime**: `Node`
-    *   **Branch**: `main`
-    *   **Build Command**: `npm install && npm run build`
-    *   **Start Command**: `npm start`
-    *   **Instance Type**: `Free` (or premium depending on requirements)
-
-### 3. Inject Production Environmental Secret
-Scroll down to **Environment Variables** inside the Render wizard and add this pair:
-*   **Key**: `GEMINI_API_KEY`
-*   **Value**: `[Paste your actual secret Google Gemini token here]`
-
-Render will automatically pull the branch, compile your React application bundle, transpile the TypeScript server, and make it available at your public URL!
-
----
-
-##  Git Directory Structure (For GitHub & Render Deployment)
-
-To deploy cleanly on Render, your GitHub repository should contain the following structure. 
-
-> **A Note on Tailwind CSS**: You might notice there is no `tailwind.config.js`. This is intentional! We are using **Tailwind CSS v4.x** with Vite, which is fully configured via CSS variables inside `src/index.css`.
-
-```text
-AskDeepakAI-DataScientist/
-├── .gitignore            <--  Ignores dist/ and node_modules/
-├── .env.example          <--  Example Template (Commit safely)
-├── package.json          <--  Packages & Render Build/Start Scripts
-├── package-lock.json     <--  Locks dependency versions for Render
-├── tsconfig.json         <--  TypeScript Configuration
-├── vite.config.ts        <--  Vite & Tailwind v4 plugin config
-├── server.ts             <--  Express NodeJS entrypoint wrapper
-├── mlops_service/        <--  Native Python FastAPI compute engine
-│   ├── main.py
-│   └── requirements.txt
-└── src/                  <--  UI React Pages, Styles, and Data Components
-    ├── index.css         <-- Contains Tailwind v4 @theme directives
-    ├── App.tsx 
-    └── components/
-
-##  Files to IGNORE in GitHub (Add to .gitignore)
-├── .env                  <--  SECRETS (Never commit your Gemini API Key)
-├── node_modules/         <--  Heavy folder, let Render run 'npm install'
-└── dist/                 <--  Compiled folder, let Render run 'npm run build'
-```
-
----
-
-*Engineered by Deepak with precision. Powered by Google Gemini.*
+*Built by Deepak Reddy.*
