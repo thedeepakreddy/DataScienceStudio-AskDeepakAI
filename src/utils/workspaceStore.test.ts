@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   MAX_VERSIONS_PER_DATASET, _resetConnectionForTests, clearWorkspace, getVersion, listRuns,
   listVersions, loadSession, recordRun, saveSession, saveVersion,
-  MAX_SAVED_MODELS, exportWorkspace, getModelFile, importWorkspace, saveModelFile,
+  MAX_SAVED_MODELS, exportWorkspace, getModelFile, importWorkspace, saveModelFile, loadRules, saveRules,
 } from './workspaceStore';
 import type { Dataset } from '../types';
 
@@ -84,6 +84,7 @@ describe('workspace store', () => {
     await recordRun({ kind: 'ab-test', versionId: child.id, title: 'A/B', summary: 'p = 0.2', status: 'succeeded' });
     await saveModelFile({ modelId: 'm1', filename: 'm.joblib', bytes: new Uint8Array([7, 8, 9]).buffer, versionId: child.id });
     await saveSession({ activeVersionId: child.id, originalVersionId: v.id, activeTab: 'stats', mlResult: null, aiAnalysis: null });
+    await saveRules(v.datasetId, [{ id: 'r', column: 'id', kind: 'unique' }]);
     const text = await exportWorkspace();
 
     await clearWorkspace();
@@ -94,6 +95,7 @@ describe('workspace store', () => {
     expect((await loadSession())?.activeTab).toBe('stats');
     expect(new Uint8Array((await getModelFile('m1'))!.bytes)).toEqual(new Uint8Array([7, 8, 9]));
     expect((await listRuns())[0].versionId).toBe(child.id);
+    expect(await loadRules(v.datasetId)).toEqual([{ id: 'r', column: 'id', kind: 'unique' }]);
   });
 
   it('rejects files that are not workspace exports', async () => {

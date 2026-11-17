@@ -6,7 +6,8 @@
 import React, { useState, useRef } from 'react';
 import { Upload, FileSpreadsheet, AlertTriangle, Sparkles, ArrowRight, ChevronRight, Users, TrendingUp, Activity, type LucideIcon } from 'lucide-react';
 import { Dataset } from '../types';
-import { parseCSV, loadSampleDataset } from '../utils/csvParser';
+import { loadSampleDataset } from '../utils/csvParser';
+import { ACCEPT_ATTRIBUTE, ImportError, MAX_FILE_BYTES, readDataFile } from '../utils/fileImport';
 import PipelineBuilder from './PipelineBuilder';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
@@ -108,29 +109,28 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
     }
   };
 
-  const processFile = (file: File) => {
-    setErrorLine(null);
-    if (!file.name.endsWith('.csv') && !file.name.endsWith('.txt')) {
-      setErrorLine('Only standard CSV or delimited TXT files are supported directly in the browser. Try loading a sample dataset below!');
-      return;
-    }
+  // Parsed in the browser: CSV, Excel, JSON and Parquet. Nothing is uploaded.
+  const [readingFile, setReadingFile] = useState(false);
+  const [excelFile, setExcelFile] = useState<{ file: File; sheets: string[]; sheet: string } | null>(null);
+  const [importNotes, setImportNotes] = useState<string[]>([]);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        const parsed = parseCSV(text, file.name);
-        onDatasetLoaded(parsed);
-        // Automatically fetch intel using the current problem input
-        fetchPipelineIntelligence(parsed, problemInput);
-      } catch (err: any) {
-        setErrorLine(err.message || 'Error occurred while parsing the CSV file. Verify columns and formatting.');
-      }
-    };
-    reader.onerror = () => {
-      setErrorLine('File read failed. Try again or check details.');
-    };
-    reader.readAsText(file);
+  const processFile = async (file: File, sheet?: string) => {
+    setErrorLine(null);
+    setReadingFile(true);
+    try {
+      const result = await readDataFile(file, { sheet });
+      setImportNotes(result.notes);
+      setExcelFile(result.sheets && result.sheets.length > 1
+        ? { file, sheets: result.sheets, sheet: sheet ?? result.sheets[0] }
+        : null);
+      onDatasetLoaded(result.dataset);
+      fetchPipelineIntelligence(result.dataset, problemInput);
+    } catch (err: any) {
+      setErrorLine(err instanceof ImportError ? err.message : `Couldn’t read this file: ${err?.message || err}`);
+    } finally {
+      setReadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -153,6 +153,8 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
 
   const loadSample = (key: 'churn' | 'saas' | 'hardware') => {
     setErrorLine(null);
+    setExcelFile(null);
+    setImportNotes([]);
     try {
       const parsed = loadSampleDataset(key);
       onDatasetLoaded(parsed);
@@ -185,22 +187,24 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
       }}
       role="button"
       tabIndex={0}
-      aria-label="Upload a CSV file"
+      aria-label="Upload a data file"
       className={`flex-1 rounded-2xl border-2 border-dashed text-center flex flex-col items-center justify-center ${
         compact ? 'px-6 py-8' : 'px-6 py-14 sm:py-20'
       } ${isDragging ? 'border-blue bg-blue/8' : 'border-separator-strong hover:border-blue hover:bg-blue/5'}`}
       id="file_drop_zone"
     >
-      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv,.txt" className="hidden" />
+      <input type="file" ref={fileInputRef} onChange={handleFileChange} accept={ACCEPT_ATTRIBUTE} className="hidden" />
       <div className="w-14 h-14 rounded-full bg-blue/12 text-blue flex items-center justify-center">
         <Upload className="w-6 h-6" />
       </div>
       <p className="mt-4 text-xl font-semibold tracking-tight text-label">
-        {isDragging ? 'Drop to import' : 'Drop a CSV file here'}
+        {readingFile ? 'Reading your file…' : isDragging ? 'Drop to import' : 'Drop a data file here'}
       </p>
       <p className="mt-1 text-sm text-label-2">or</p>
       <span className="btn btn-primary mt-3">Choose File</span>
-      <p className="mt-4 text-xs text-label-3">Comma-separated .csv or .txt with a header row</p>
+      <p className="mt-4 text-xs text-label-3">
+        CSV, Excel (.xlsx), JSON or Parquet with a header row · up to {MAX_FILE_BYTES / 1048576} MB · read in your browser
+      </p>
     </div>
   );
 
@@ -217,12 +221,28 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold tracking-tight text-label truncate">{currentDataset.filename}</h2>
                 <p className="text-sm text-label-2">Imported and ready to clean</p>
+                {importNotes.map(n => <p key={n} className="text-xs text-orange mt-0.5">{n}</p>)}
               </div>
             </div>
             <button type="button" onClick={onProceed} className="btn btn-primary btn-lg shrink-0">
               Continue to Clean <ArrowRight className="w-4 h-4" />
             </button>
           </div>
+
+          {excelFile && (
+            <div className="mt-4 flex items-center gap-2">
+              <label htmlFor="excel-sheet" className="text-sm text-label-2">Sheet</label>
+              <select
+                id="excel-sheet"
+                className="input w-auto"
+                value={excelFile.sheet}
+                disabled={readingFile}
+                onChange={e => processFile(excelFile.file, e.target.value)}
+              >
+                {excelFile.sheets.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </div>
+          )}
 
           <dl className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-px bg-separator rounded-xl overflow-hidden">
             {[

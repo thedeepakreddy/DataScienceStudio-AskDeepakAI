@@ -62,7 +62,7 @@ server database without changing the UI.
 
 | Runs in the browser (fast, small, deterministic) | Runs on the backend (Python ML service) |
 |---|---|
-| CSV parsing, schema/type detection | Excel, JSON, Parquet parsing |
+| CSV, Excel (.xlsx), JSON and Parquet parsing, schema/type detection | — |
 | Counts, missing values, duplicates, basic profile | Deep EDA (distributions, skew, IQR outliers) on full data |
 | Cleaning transforms: fill, drop, filter, add/remove columns, rename | Statistical tests, effect sizes, confidence intervals |
 | Group-by aggregations, KPI formulas, chart data | Regression, model training, cross-validation, tuning |
@@ -234,6 +234,13 @@ pull requests of about the size of the recent ones.
 - Operation registry (`src/operations/registry.ts`): every data change (remove/rename columns, fill missing, add column/row, delete/filter rows, remove duplicates, calculated columns, one-hot) is one pure, tested function used by both the Clean step and the assistant. Fixed on the way: median fill used the wrong middle value, min–max scaling assumed a max of 100, and uncomputable values became 0 instead of empty.
 - Jobs panel: every long request is listed with its elapsed time and can be stopped.
 - Vitest: 28 tests.
+
+**Phase 2 status: done.**
+- Import reads CSV/TSV (comma, semicolon or tab detected), Excel .xlsx (with a sheet picker), JSON / JSON Lines (nested objects flattened) and Parquet, all in the browser; up to 100 MB / 200,000 rows, with a note when rows are dropped.
+- Clean → More tools, each with a preview (summary, before/after size, first rows) before applying: tidy text, change type (understands "$1,200", "(300)", "1.234,5"), replace values, filter rows, remove duplicates, join or append a second file, group-and-summarise, pivot.
+- Quality rules (not empty, unique, range, allowed values, pattern), saved per dataset, re-checked after every change, with "remove the rows that break it".
+- Undo steps back to the previous version; versions are labelled with the operation's own description.
+- Vitest: 44 tests.
 
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the

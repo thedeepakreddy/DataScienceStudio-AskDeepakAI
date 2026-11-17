@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Trash2, RotateCcw, CheckCircle, Plus, Minus, AlertTriangle, X } from 'lucide-react';
+import { Trash2, RotateCcw, CheckCircle, Plus, Minus, AlertTriangle, X, Undo2 } from 'lucide-react';
+import MoreCleanTools from './MoreCleanTools';
 import { Dataset, CleaningOperation } from '../types';
 import DeepQualityAudit from './DeepQualityAudit';
 import { usePipelineContext } from '../contexts/PipelineContext';
@@ -15,11 +16,16 @@ import {
 
 interface DataCleaningProps {
   dataset: Dataset;
-  onUpdateDataset: (updated: Dataset, operation?: AppliedOperation) => void;
+  onUpdateDataset: (updated: Dataset, operation?: AppliedOperation, summary?: string) => void;
   onResetOriginal: () => void;
+  /** The saved dataset this version belongs to (for its quality rules). */
+  datasetId?: string | null;
+  /** Steps back to the previous version, when there is one. */
+  onUndo?: () => void;
+  canUndo?: boolean;
 }
 
-export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal }: DataCleaningProps) {
+export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal, datasetId = null, onUndo, canUndo = false }: DataCleaningProps) {
   const { expertMode, setCleaningSteps } = usePipelineContext();
   const [selectedCol, setSelectedCol] = useState(dataset.columns[0]?.name || '');
   const [imputeStrategy, setImputeStrategy] = useState<'mean' | 'median' | 'zero' | 'mode'>('mean');
@@ -93,7 +99,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
     try {
       const result = applyOperation(dataset, op, params);
       setOperations(prev => [...prev, { id: crypto.randomUUID(), ...record }]);
-      onUpdateDataset(result.dataset, { op, params } as AppliedOperation);
+      onUpdateDataset(result.dataset, { op, params } as AppliedOperation, result.summary);
       triggerSuccess(result.summary);
       return result;
     } catch (err) {
@@ -278,9 +284,16 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
             <h2 id="tools-heading" className="section-title">Fix and reshape</h2>
             <p className="mt-1 text-sm text-label-2">Every change applies instantly and shows up in the preview below.</p>
           </div>
-          <button type="button" onClick={resetAll} className="btn btn-secondary" disabled={operations.length === 0}>
-            <RotateCcw className="w-4 h-4" /> Reset to Original
-          </button>
+          <div className="flex gap-2">
+            {onUndo && (
+              <button type="button" onClick={onUndo} className="btn btn-secondary" disabled={!canUndo} title="Go back to the previous version">
+                <Undo2 className="w-4 h-4" /> Undo
+              </button>
+            )}
+            <button type="button" onClick={resetAll} className="btn btn-secondary" disabled={operations.length === 0}>
+              <RotateCcw className="w-4 h-4" /> Reset to Original
+            </button>
+          </div>
         </div>
 
         {operations.length > 0 && (
@@ -626,6 +639,16 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
           )}
         </div>
       </section>
+
+      <MoreCleanTools
+        dataset={dataset}
+        datasetId={datasetId}
+        onApply={(result, applied) => {
+          setOperations(prev => [...prev, { id: crypto.randomUUID(), type: 'registry', column: '', params: { summary: result.summary, op: applied.op } }]);
+          onUpdateDataset(result.dataset, applied, result.summary);
+          triggerSuccess(result.summary);
+        }}
+      />
 
       {/* Preview */}
       <section aria-labelledby="preview-heading">

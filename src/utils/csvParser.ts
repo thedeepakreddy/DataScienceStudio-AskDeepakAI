@@ -6,6 +6,18 @@
 import { Dataset, DatasetColumn } from '../types';
 import { profileColumn } from './columnProfile';
 
+/** Turns any imported cell into null, a number, a boolean or a string. */
+export function normaliseCell(v: unknown): string | number | boolean | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'bigint') return Number.isSafeInteger(Number(v)) ? Number(v) : v.toString();
+  if (typeof v === 'boolean') return v;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  if (typeof v === 'object') return JSON.stringify(v);
+  const str = String(v).trim();
+  return str === '' ? null : str;
+}
+
 // Date.parse is far too lenient on its own: V8's legacy parser reads an ID such
 // as "C-10251" as the year 10251. Require the string to look like a date first.
 const DATE_SHAPES = [
@@ -35,7 +47,25 @@ export function isIdentifierColumn(col: DatasetColumn, rowCount: number): boolea
   return nameIsId || uniqueText;
 }
 
-export function parseCSV(text: string, filename: string): Dataset {
+/** Comma, semicolon or tab - whichever splits the header line into the most fields. */
+export function detectDelimiter(text: string): ',' | ';' | '\t' {
+  const firstLine = text.slice(0, text.search(/\r?\n/) === -1 ? undefined : text.search(/\r?\n/));
+  const count = (d: string) => {
+    let n = 0;
+    let q = false;
+    for (const ch of firstLine) {
+      if (ch === '"') q = !q;
+      else if (ch === d && !q) n++;
+    }
+    return n;
+  };
+  const scores = { ',': count(','), ';': count(';'), '\t': count('\t') } as const;
+  return (Object.entries(scores).sort((a, b) => b[1] - a[1])[0][1] > 0
+    ? Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0]
+    : ',') as ',' | ';' | '\t';
+}
+
+export function parseCSV(text: string, filename: string, delimiter: ',' | ';' | '\t' = detectDelimiter(text)): Dataset {
   const lines: string[] = [];
   let currentWord = '';
   let inQuotes = false;
@@ -53,7 +83,7 @@ export function parseCSV(text: string, filename: string): Dataset {
       } else {
         inQuotes = !inQuotes;
       }
-    } else if (char === ',' && !inQuotes) {
+    } else if (char === delimiter && !inQuotes) {
       currentLine.push(currentWord.trim());
       currentWord = '';
     } else if ((char === '\r' || char === '\n') && !inQuotes) {
@@ -81,42 +111,48 @@ export function parseCSV(text: string, filename: string): Dataset {
   }
 
   const parsedLines = lines.map(l => JSON.parse(l) as string[]);
-  const headers = parsedLines[0].map(h => h.replace(/^"|"$/g, '').trim() || 'unnamed_column');
+  const headers = uniqueHeaders(parsedLines[0].map(h => h.replace(/^"|"$/g, '')));
   
-  // Deduplicate headers. Keep bumping the suffix until we land on a name
-  // that isn't already taken by an original header OR a previously
-  // deduplicated one - a single "_N" bump can otherwise collide with a
-  // real later header of that exact form (e.g. "Name", "Name_1", "Name"
-  // naively dedupes to "Name", "Name_1", "Name_1", silently merging two
-  // columns' data in the row-building loop below).
-  const usedHeaderNames = new Set<string>();
-  const cleanHeaders = headers.map(header => {
-    let name = header;
-    let suffix = 1;
-    while (usedHeaderNames.has(name)) {
-      name = `${header}_${suffix}`;
-      suffix++;
-    }
-    usedHeaderNames.add(name);
-    return name;
-  });
-
   const rawRows = parsedLines.slice(1);
   const rows: Record<string, any>[] = [];
 
   rawRows.forEach(rowCells => {
     if (rowCells.length === 0 || rowCells.every(c => c === '')) return;
     const rowObj: Record<string, any> = {};
-    cleanHeaders.forEach((header, index) => {
+    headers.forEach((header, index) => {
       rowObj[header] = rowCells[index] !== undefined ? rowCells[index] : '';
     });
     rows.push(rowObj);
   });
 
-  // Extract columns metadata
-  const columns: DatasetColumn[] = cleanHeaders.map(name => {
+  return datasetFromRecords(headers, rows, filename);
+}
+
+/** Unique, non-empty column names ("Name", "Name" -> "Name", "Name_1"). */
+export function uniqueHeaders(raw: unknown[]): string[] {
+  // Keep bumping the suffix until the name is free: a single "_N" bump can
+  // collide with a real later header of that exact form.
+  const used = new Set<string>();
+  return raw.map(h => {
+    const header = String(h ?? '').trim() || 'unnamed_column';
+    let name = header;
+    let suffix = 1;
+    while (used.has(name)) name = `${header}_${suffix++}`;
+    used.add(name);
+    return name;
+  });
+}
+
+/**
+ * Builds a dataset from rows of values (strings from CSV, or typed values from
+ * Excel, JSON and Parquet): detects each column's type, converts the values to
+ * it, and computes the column profile. `rows` is modified in place.
+ */
+export function datasetFromRecords(headers: string[], rows: Record<string, any>[], filename: string): Dataset {
+  rows.forEach(r => headers.forEach(h => { r[h] = normaliseCell(r[h]); }));
+  const columns: DatasetColumn[] = headers.map(name => {
     // Collect non-empty values
-    const values = rows.map(r => r[name]).filter(v => v !== undefined && v !== '');
+    const values = rows.map(r => r[name]).filter(v => v !== null && v !== undefined && v !== '');
 
     // Detect Column Type
     // Try to parse as numbers
@@ -152,7 +188,7 @@ export function parseCSV(text: string, filename: string): Dataset {
     // Cast rows accordingly
     rows.forEach(r => {
       const val = r[name];
-      if (val === undefined || val === '') {
+      if (val === null || val === undefined || val === '') {
         r[name] = null;
       } else if (detectedType === 'numeric') {
         const num = Number(val);

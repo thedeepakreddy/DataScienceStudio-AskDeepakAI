@@ -209,6 +209,7 @@ export default function App() {
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const [originalVersionId, setOriginalVersionId] = useState<string | null>(null);
+  const [activeParentId, setActiveParentId] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [restoredFrom, setRestoredFrom] = useState<string | null>(null);
@@ -224,9 +225,10 @@ export default function App() {
     setStorageError(`Your work couldn’t be saved in this browser: ${err?.message || err}. It still works, but won’t survive a reload.`);
   };
 
-  const applyVersionIds = (version: { id: string; datasetId: string } | null, original?: string | null) => {
+  const applyVersionIds = (version: { id: string; datasetId: string; parentId?: string | null } | null, original?: string | null) => {
     activeVersionRef.current = version?.id ?? null;
     setActiveVersionId(version?.id ?? null);
+    setActiveParentId(version?.parentId ?? null);
     setDatasetId(version?.datasetId ?? null);
     if (original !== undefined) {
       originalVersionRef.current = original;
@@ -285,8 +287,10 @@ export default function App() {
     persistVersion(dataset, 'Imported', true);
   };
 
-  const handleUpdateDataset = (updated: Dataset, operation?: AppliedOperation) => {
-    const label = describeChange(activeDatasetRef.current, updated);
+  const handleUpdateDataset = (updated: Dataset, operation?: AppliedOperation, summary?: string) => {
+    const changed = describeChange(activeDatasetRef.current, updated);
+    // The operation's own description is clearer than a diff when there is one.
+    const label = changed === 'No changes' ? changed : summary?.replace(/\.$/, '') || changed;
     activeDatasetRef.current = updated;
     setActiveDataset(updated);
     // Reset AI analysis since data changed
@@ -305,6 +309,7 @@ export default function App() {
       saveQueue.current = saveQueue.current.then(() => {
         activeVersionRef.current = originalVersionRef.current;
         setActiveVersionId(originalVersionRef.current);
+        setActiveParentId(null);
       });
     }
     return originalDataset;
@@ -317,6 +322,22 @@ export default function App() {
     setMlResult(null);
     applyVersionIds(version);
     setHistoryOpen(false);
+  };
+
+  // Undo = go back to the version this one was made from.
+  const handleUndo = async () => {
+    try {
+      await saveQueue.current;
+      const current = activeVersionRef.current ? await getVersion(activeVersionRef.current) : undefined;
+      const parent = current?.parentId ? await getVersion(current.parentId) : undefined;
+      if (!parent) {
+        setStorageError('The previous version is no longer saved, so this change can’t be undone.');
+        return;
+      }
+      handleUseVersion(parent);
+    } catch (err) {
+      storageFailed(err);
+    }
   };
 
   const handleClearSavedWork = async () => {
@@ -836,6 +857,9 @@ export default function App() {
                 dataset={activeDataset}
                 onUpdateDataset={handleUpdateDataset}
                 onResetOriginal={handleResetOriginal}
+                datasetId={datasetId}
+                onUndo={handleUndo}
+                canUndo={!!activeParentId}
               />
             )}
 

@@ -5,6 +5,7 @@
 
 import type { Dataset } from '../types';
 import type { AppliedOperation } from '../operations/registry';
+import type { QualityRule } from '../operations/qualityRules';
 
 // The studio's saved work, kept in this browser's IndexedDB. The servers are
 // stateless (free hosting loses its disk on restart), so the browser is where
@@ -12,7 +13,7 @@ import type { AppliedOperation } from '../operations/registry';
 // every analysis run is recorded against the version it ran on.
 
 const DB_NAME = 'askdeepak-studio';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 /** Versions kept per dataset; the oldest unpinned ones are pruned past this. */
 export const MAX_VERSIONS_PER_DATASET = 25;
 
@@ -93,6 +94,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('models')) {
         db.createObjectStore('models', { keyPath: 'modelId' });
+      }
+      if (!db.objectStoreNames.contains('rules')) {
+        db.createObjectStore('rules');
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -239,6 +243,20 @@ export async function getModelFile(modelId: string): Promise<SavedModelFile | un
   return promisify(db.transaction('models').objectStore('models').get(modelId));
 }
 
+// --- Quality rules (per dataset) ----------------------------------------------
+
+export async function saveRules(datasetId: string, rules: QualityRule[]): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('rules', 'readwrite');
+  tx.objectStore('rules').put(rules, datasetId);
+  await done(tx);
+}
+
+export async function loadRules(datasetId: string): Promise<QualityRule[]> {
+  const db = await openDb();
+  return ((await promisify(db.transaction('rules').objectStore('rules').get(datasetId))) as QualityRule[] | undefined) ?? [];
+}
+
 // --- Session ----------------------------------------------------------------
 
 export async function saveSession(session: Omit<WorkspaceSession, 'savedAt'>): Promise<void> {
@@ -256,8 +274,9 @@ export async function loadSession(): Promise<WorkspaceSession | undefined> {
 /** Deletes every saved version, run, model file and the session. */
 export async function clearWorkspace(): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'session', 'models'], 'readwrite');
+  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules'], 'readwrite');
   tx.objectStore('models').clear();
+  tx.objectStore('rules').clear();
   tx.objectStore('versions').clear();
   tx.objectStore('runs').clear();
   tx.objectStore('session').clear();
@@ -279,6 +298,7 @@ interface WorkspaceFile {
   versions: DatasetVersion[];
   runs: RunRecord[];
   models: (Omit<SavedModelFile, 'bytes'> & { bytesBase64: string })[];
+  rules?: Record<string, QualityRule[]>;
 }
 
 const toBase64 = (buf: ArrayBuffer) => {
@@ -296,12 +316,14 @@ const fromBase64 = (b64: string) => {
 
 export async function exportWorkspace(): Promise<string> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session']);
-  const [versions, runs, models, session] = await Promise.all([
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules']);
+  const [versions, runs, models, session, ruleKeys, ruleValues] = await Promise.all([
     promisify(tx.objectStore('versions').getAll()),
     promisify(tx.objectStore('runs').getAll()),
     promisify(tx.objectStore('models').getAll()),
     promisify(tx.objectStore('session').get('current')),
+    promisify(tx.objectStore('rules').getAllKeys()),
+    promisify(tx.objectStore('rules').getAll()),
   ]);
   const file: WorkspaceFile = {
     format: WORKSPACE_FORMAT,
@@ -311,6 +333,7 @@ export async function exportWorkspace(): Promise<string> {
     versions: versions as DatasetVersion[],
     runs: runs as RunRecord[],
     models: (models as SavedModelFile[]).map(({ bytes, ...m }) => ({ ...m, bytesBase64: toBase64(bytes) })),
+    rules: Object.fromEntries((ruleKeys as string[]).map((k, i) => [k, (ruleValues as QualityRule[][])[i]])),
   };
   return JSON.stringify(file);
 }
@@ -335,8 +358,9 @@ export async function importWorkspace(text: string): Promise<{ versions: number;
   if (!file.versions.every(validVersion)) throw new Error('The workspace file has a damaged dataset version.');
 
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session'], 'readwrite');
-  ['versions', 'runs', 'models', 'session'].forEach(n => tx.objectStore(n).clear());
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules'], 'readwrite');
+  ['versions', 'runs', 'models', 'session', 'rules'].forEach(n => tx.objectStore(n).clear());
+  Object.entries(file.rules ?? {}).forEach(([k, r]) => { if (Array.isArray(r)) tx.objectStore('rules').put(r, k); });
   file.versions.forEach(v => tx.objectStore('versions').put(v));
   file.runs.forEach(r => tx.objectStore('runs').put(r));
   file.models.forEach(({ bytesBase64, ...m }) => tx.objectStore('models').put({ ...m, bytes: fromBase64(bytesBase64) }));

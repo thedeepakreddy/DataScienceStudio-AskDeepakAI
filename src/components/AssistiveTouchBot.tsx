@@ -16,7 +16,7 @@ import type { PipelineStage } from '../contexts/PipelineContext';
 
 interface AssistiveTouchBotProps {
   activeDataset: Dataset | null;
-  onUpdateDataset: (updated: Dataset, operation?: AppliedOperation) => void;
+  onUpdateDataset: (updated: Dataset, operation?: AppliedOperation, summary?: string) => void;
   onResetOriginal: () => Dataset | null;
   activeTab: string;
   setActiveTab: (tab: any) => void;
@@ -264,7 +264,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
       try {
         const r = applyOperation(working, op, params);
         working = r.dataset;
-        onUpdateDataset(working, { op, params } as AppliedOperation);
+        onUpdateDataset(working, { op, params } as AppliedOperation, r.summary);
         executedLogs.push(r.summary);
       } catch (err) {
         if (!(err instanceof OperationError)) throw err;

@@ -29,6 +29,23 @@ export interface OperationParams {
   remove_duplicates: Record<string, never>;
   derive_column: { source: string; transform: DeriveTransform; other?: string; name?: string };
   one_hot_encode: { column: string; prefix?: string };
+  standardize_text: { column: string; trim?: boolean; collapseSpaces?: boolean; case?: 'none' | 'lower' | 'upper' | 'title' };
+  replace_values: { column: string; from: string; to: string; matchCase?: boolean };
+  convert_type: { column: string; to: ColumnType };
+  join: { right: TableInput; leftKey: string; rightKey: string; how: 'left' | 'inner' };
+  append_rows: { right: TableInput };
+  group_aggregate: { by: string[]; aggregations: { column: string; fn: AggregateFn }[] };
+  pivot: { index: string; columns: string; values: string; fn: AggregateFn };
+}
+
+export type AggregateFn = 'count' | 'count_distinct' | 'sum' | 'mean' | 'median' | 'min' | 'max';
+
+/** A second table for join/append. `versionId` is kept for provenance; rows may be dropped when recorded. */
+export interface TableInput {
+  name: string;
+  versionId?: string;
+  rows?: Record<string, any>[];
+  columns?: { name: string; type: ColumnType }[];
 }
 
 export type OperationId = keyof OperationParams;
@@ -98,7 +115,9 @@ function castValue(type: ColumnType, v: unknown): unknown {
 
 const round6 = (n: number) => parseFloat(n.toFixed(6));
 
-export const OPERATIONS: { [K in OperationId]: OperationDef<K> } = {
+type MoreId = 'standardize_text' | 'replace_values' | 'convert_type' | 'join' | 'append_rows' | 'group_aggregate' | 'pivot';
+
+const BASE_OPERATIONS: { [K in Exclude<OperationId, MoreId>]: OperationDef<K> } = {
   drop_columns: {
     label: 'Remove columns',
     runsIn: 'browser',
@@ -351,6 +370,310 @@ export const OPERATIONS: { [K in OperationId]: OperationDef<K> } = {
     },
   },
 };
+
+// --- Helpers for the reshaping operations ------------------------------------
+
+function parseNumberLoose(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (isEmpty(v) || typeof v === 'boolean') return null;
+  let str = String(v).trim();
+  const negative = /^\(.*\)$/.test(str); // accounting negatives: (1,200)
+  str = str.replace(/^\(|\)$/g, '').replace(/[\s$€£¥₹%]/g, '');
+  // "1.234,5" (European) vs "1,234.5". A lone comma followed by exactly three
+  // digits ("1,200") is a thousands separator; with one, two or four+ digits
+  // ("3,5", "0,25") it is a decimal comma.
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(str)) str = str.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d+,(\d{1,2}|\d{4,})$/.test(str)) str = str.replace(',', '.');
+  else str = str.replace(/,/g, '');
+  const n = Number(str);
+  return str !== '' && Number.isFinite(n) ? (negative ? -n : n) : null;
+}
+
+function aggregate(values: unknown[], fn: AggregateFn): number | null {
+  if (fn === 'count') return values.filter(v => !isEmpty(v)).length;
+  if (fn === 'count_distinct') return new Set(values.filter(v => !isEmpty(v)).map(String)).size;
+  const nums = values.map(toNumber).filter((n): n is number => n !== null);
+  if (nums.length === 0) return null;
+  switch (fn) {
+    case 'sum': return round6(nums.reduce((a, b) => a + b, 0));
+    case 'mean': return round6(nums.reduce((a, b) => a + b, 0) / nums.length);
+    case 'min': return Math.min(...nums);
+    case 'max': return Math.max(...nums);
+    case 'median': {
+      const s = [...nums].sort((a, b) => a - b);
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : round6((s[m - 1] + s[m]) / 2);
+    }
+  }
+}
+
+function requireTable(t: TableInput): { rows: Record<string, any>[]; columns: { name: string; type: ColumnType }[] } {
+  if (!t?.rows || !t.columns) throw new OperationError('The second table isn’t loaded. Choose its file again.');
+  return { rows: t.rows, columns: t.columns };
+}
+
+const keyOf = (v: unknown) => (isEmpty(v) ? null : String(v).trim().toLowerCase());
+
+const MORE_OPERATIONS: { [K in MoreId]: OperationDef<K> } = {
+  standardize_text: {
+    label: 'Tidy up text',
+    runsIn: 'browser',
+    run(ds, { column, trim = true, collapseSpaces = true, case: mode = 'none' }) {
+      const col = requireColumn(ds, column);
+      if (col.type === 'numeric' || col.type === 'boolean') throw new OperationError(`“${column}” isn’t a text column.`);
+      let changed = 0;
+      const rows = ds.rows.map(r => {
+        const v = r[column];
+        if (isEmpty(v)) return r;
+        let s2 = String(v);
+        if (trim) s2 = s2.trim();
+        if (collapseSpaces) s2 = s2.replace(/\s+/g, ' ');
+        if (mode === 'lower') s2 = s2.toLowerCase();
+        else if (mode === 'upper') s2 = s2.toUpperCase();
+        else if (mode === 'title') s2 = s2.toLowerCase().replace(/(^|[\s\-_/])(\p{L})/gu, (_, a, b) => a + b.toUpperCase());
+        const out = s2 === '' ? null : s2;
+        if (out === v) return r;
+        changed++;
+        return { ...r, [column]: out };
+      });
+      const before = col.distinctCount;
+      const dataset = rebuildDataset(ds, rows, colTypes(ds));
+      const after = dataset.columns.find(c => c.name === column)!.distinctCount;
+      return {
+        dataset,
+        summary: changed === 0
+          ? `“${column}” was already tidy.`
+          : `Tidied ${plural(changed, 'value')} in “${column}”` + (after < before ? `; ${before} different values became ${after}.` : '.'),
+      };
+    },
+  },
+
+  replace_values: {
+    label: 'Replace values',
+    runsIn: 'browser',
+    run(ds, { column, from, to, matchCase = false }) {
+      const col = requireColumn(ds, column);
+      const same = (v: unknown) => !isEmpty(v) && (matchCase ? String(v) === from : String(v).toLowerCase() === from.toLowerCase());
+      const replacement = to === '' ? null : castValue(col.type, to);
+      if (to !== '' && replacement === null) throw new OperationError(`“${to}” isn’t a valid ${col.type} value for “${column}”.`);
+      let changed = 0;
+      const rows = ds.rows.map(r => {
+        if (!same(r[column])) return r;
+        changed++;
+        return { ...r, [column]: replacement };
+      });
+      return {
+        dataset: rebuildDataset(ds, rows, colTypes(ds)),
+        summary: changed === 0
+          ? `No “${from}” values found in “${column}”.`
+          : `Replaced ${plural(changed, 'value')} “${from}” with ${to === '' ? 'empty' : `“${to}”`} in “${column}”.`,
+      };
+    },
+  },
+
+  convert_type: {
+    label: 'Change a column’s type',
+    runsIn: 'browser',
+    run(ds, { column, to }) {
+      const col = requireColumn(ds, column);
+      if (col.type === to) throw new OperationError(`“${column}” is already ${to}.`);
+      let failed = 0;
+      const rows = ds.rows.map(r => {
+        const v = r[column];
+        if (isEmpty(v)) return { ...r, [column]: null };
+        let out: unknown;
+        if (to === 'numeric') out = parseNumberLoose(v);
+        else if (to === 'boolean') out = castValue('boolean', v);
+        else if (to === 'datetime') {
+          const t = typeof v === 'number' ? NaN : Date.parse(String(v));
+          out = Number.isNaN(t) ? null : new Date(t).toISOString();
+        } else out = String(v);
+        if (out === null) failed++;
+        return { ...r, [column]: out };
+      });
+      return {
+        dataset: rebuildDataset(ds, rows, colTypes(ds).map(c => (c.name === column ? { ...c, type: to } : c))),
+        summary: `Changed “${column}” to ${to}.` + (failed ? ` ${plural(failed, 'value')} couldn’t be converted and ${failed === 1 ? 'is' : 'are'} now empty.` : ''),
+      };
+    },
+  },
+
+  join: {
+    label: 'Join another table',
+    runsIn: 'browser',
+    run(ds, { right, leftKey, rightKey, how }) {
+      requireColumn(ds, leftKey);
+      const r = requireTable(right);
+      if (!r.columns.some(c => c.name === rightKey)) throw new OperationError(`“${right.name}” has no column “${rightKey}”.`);
+      const index = new Map<string, Record<string, any>[]>();
+      r.rows.forEach(row => {
+        const k = keyOf(row[rightKey]);
+        if (k === null) return;
+        index.set(k, [...(index.get(k) ?? []), row]);
+      });
+      // Right-hand columns keep their names unless they clash with the left table.
+      const leftNames = new Set(ds.columns.map(c => c.name.toLowerCase()));
+      const rightCols = r.columns.filter(c => c.name !== rightKey).map(c => {
+        let name = c.name;
+        let i = 2;
+        if (leftNames.has(name.toLowerCase())) {
+          name = `${c.name}_${right.name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9]+/g, '_')}`;
+          while (leftNames.has(name.toLowerCase())) name = `${c.name}_${i++}`;
+        }
+        leftNames.add(name.toLowerCase());
+        return { from: c.name, name, type: c.type };
+      });
+      let matched = 0;
+      const rows: Record<string, any>[] = [];
+      ds.rows.forEach(left => {
+        const k = keyOf(left[leftKey]);
+        const hits = k === null ? undefined : index.get(k);
+        if (hits) {
+          matched++;
+          hits.forEach(h => {
+            const row = { ...left };
+            rightCols.forEach(c => { row[c.name] = h[c.from] ?? null; });
+            rows.push(row);
+          });
+        } else if (how === 'left') {
+          const row = { ...left };
+          rightCols.forEach(c => { row[c.name] = null; });
+          rows.push(row);
+        }
+      });
+      return {
+        dataset: rebuildDataset(ds, rows, [...colTypes(ds), ...rightCols.map(c => ({ name: c.name, type: c.type }))]),
+        summary: `Joined “${right.name}”: ${plural(matched, 'row')} of ${ds.rows.length.toLocaleString()} matched, giving ${plural(rows.length, 'row')} and ${plural(rightCols.length, 'new column')}.`,
+      };
+    },
+  },
+
+  append_rows: {
+    label: 'Add rows from another table',
+    runsIn: 'browser',
+    run(ds, { right }) {
+      const r = requireTable(right);
+      const leftNames = ds.columns.map(c => c.name);
+      const lower = new Map(leftNames.map(n => [n.toLowerCase(), n]));
+      const extra = r.columns.filter(c => !lower.has(c.name.toLowerCase()));
+      const missing = leftNames.filter(n => !r.columns.some(c => c.name.toLowerCase() === n.toLowerCase()));
+      const types = new Map(ds.columns.map(c => [c.name, c.type]));
+      const added = r.rows.map(row => {
+        const out: Record<string, any> = {};
+        leftNames.forEach(n => { out[n] = null; });
+        extra.forEach(c => { out[c.name] = null; });
+        for (const [k, v] of Object.entries(row)) {
+          const target = lower.get(k.toLowerCase()) ?? k;
+          out[target] = castValue(types.get(target) ?? r.columns.find(c => c.name === k)?.type ?? 'categorical', v);
+        }
+        return out;
+      });
+      const rows = [...ds.rows.map(row => {
+        if (extra.length === 0) return row;
+        const copy = { ...row };
+        extra.forEach(c => { copy[c.name] = null; });
+        return copy;
+      }), ...added];
+      const notes = [
+        extra.length ? `${plural(extra.length, 'new column')} added` : '',
+        missing.length ? `${plural(missing.length, 'column')} missing from “${right.name}” left empty for its rows` : '',
+      ].filter(Boolean).join('; ');
+      return {
+        dataset: rebuildDataset(ds, rows, [...colTypes(ds), ...extra.map(c => ({ name: c.name, type: c.type }))]),
+        summary: `Added ${plural(added.length, 'row')} from “${right.name}”.` + (notes ? ` ${notes}.` : ''),
+      };
+    },
+  },
+
+  group_aggregate: {
+    label: 'Summarise by group',
+    runsIn: 'browser',
+    run(ds, { by, aggregations }) {
+      if (by.length === 0) throw new OperationError('Choose at least one column to group by.');
+      if (aggregations.length === 0) throw new OperationError('Add at least one summary.');
+      by.forEach(b => requireColumn(ds, b));
+      aggregations.forEach(a => {
+        const col = requireColumn(ds, a.column);
+        if (!['count', 'count_distinct'].includes(a.fn) && col.type !== 'numeric') {
+          throw new OperationError(`A ${a.fn} needs a numeric column; “${a.column}” isn’t numeric.`);
+        }
+      });
+      const groups = new Map<string, { keys: unknown[]; rows: Record<string, any>[] }>();
+      ds.rows.forEach(r => {
+        const keys = by.map(b => (isEmpty(r[b]) ? null : r[b]));
+        const id = JSON.stringify(keys);
+        if (!groups.has(id)) groups.set(id, { keys, rows: [] });
+        groups.get(id)!.rows.push(r);
+      });
+      const outNames = aggregations.map(a => `${a.fn}_${a.column}`);
+      const rows = [...groups.values()].map(g => {
+        const row: Record<string, any> = {};
+        by.forEach((b, i) => { row[b] = g.keys[i]; });
+        aggregations.forEach((a, i) => { row[outNames[i]] = aggregate(g.rows.map(r => r[a.column]), a.fn); });
+        return row;
+      });
+      const byTypes = by.map(b => ({ name: b, type: ds.columns.find(c => c.name === b)!.type }));
+      return {
+        dataset: { ...rebuildDataset(ds, rows, [...byTypes, ...outNames.map(n => ({ name: n, type: 'numeric' as const }))]), filename: `${ds.filename} (summary)` },
+        summary: `Summarised ${plural(ds.rows.length, 'row')} into ${plural(rows.length, 'group')}.`,
+      };
+    },
+  },
+
+  pivot: {
+    label: 'Pivot',
+    runsIn: 'browser',
+    run(ds, { index, columns, values, fn }) {
+      requireColumn(ds, index);
+      requireColumn(ds, columns);
+      const valCol = requireColumn(ds, values);
+      if (!['count', 'count_distinct'].includes(fn) && valCol.type !== 'numeric') {
+        throw new OperationError(`A ${fn} needs a numeric column; “${values}” isn’t numeric.`);
+      }
+      const colValues = [...new Set(ds.rows.map(r => r[columns]).filter(v => !isEmpty(v)).map(String))].sort();
+      if (colValues.length === 0) throw new OperationError(`“${columns}” has no values to make columns from.`);
+      if (colValues.length > 100) throw new OperationError(`“${columns}” has ${colValues.length} different values; pivoting would create too many columns.`);
+      const names = uniqueNames([index, ...colValues]).slice(1);
+      const cells = new Map<string, Map<string, unknown[]>>();
+      const order: { key: string; value: unknown }[] = [];
+      ds.rows.forEach(r => {
+        const k = isEmpty(r[index]) ? null : r[index];
+        const id = JSON.stringify(k);
+        if (!cells.has(id)) { cells.set(id, new Map()); order.push({ key: id, value: k }); }
+        const c = r[columns];
+        if (isEmpty(c)) return;
+        const m = cells.get(id)!;
+        m.set(String(c), [...(m.get(String(c)) ?? []), r[values]]);
+      });
+      const rows = order.map(({ key, value }) => {
+        const row: Record<string, any> = { [index]: value };
+        colValues.forEach((cv, i) => {
+          const vs = cells.get(key)!.get(cv);
+          row[names[i]] = vs ? aggregate(vs, fn) : null;
+        });
+        return row;
+      });
+      const indexType = ds.columns.find(c => c.name === index)!.type;
+      return {
+        dataset: { ...rebuildDataset(ds, rows, [{ name: index, type: indexType }, ...names.map(n => ({ name: n, type: 'numeric' as const }))]), filename: `${ds.filename} (pivot)` },
+        summary: `Pivoted into ${plural(rows.length, 'row')} × ${plural(colValues.length, 'value column')} (${fn} of “${values}”).`,
+      };
+    },
+  },
+};
+
+function uniqueNames(names: string[]): string[] {
+  const used = new Set<string>();
+  return names.map(n => {
+    let name = n.trim() || 'column';
+    let i = 2;
+    while (used.has(name.toLowerCase())) name = `${n}_${i++}`;
+    used.add(name.toLowerCase());
+    return name;
+  });
+}
+
+export const OPERATIONS: { [K in OperationId]: OperationDef<K> } = { ...BASE_OPERATIONS, ...MORE_OPERATIONS };
 
 /** Runs one operation. Throws OperationError with a plain message if it can't. */
 export function applyOperation<K extends OperationId>(ds: Dataset, op: K, params: OperationParams[K]): OperationResult {
