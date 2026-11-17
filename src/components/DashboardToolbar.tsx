@@ -244,7 +244,7 @@ function KpiBuilder({ dataset, onAdd, onCancel }: { dataset: Dataset; onAdd: (k:
 
   return (
     <form
-      className="card p-5 space-y-4"
+      className="card p-4 space-y-4"
       onSubmit={e => {
         e.preventDefault();
         if (!name.trim() || !preview || 'error' in preview) return;

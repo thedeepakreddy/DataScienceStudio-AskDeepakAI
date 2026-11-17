@@ -187,7 +187,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
 
       {/* AI advisory — the one action this stage is built around. */}
       {!aiAnalysis && (
-        <section className="card p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-4" aria-label="AI advisory">
+        <section className="card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4" aria-label="AI advisory">
           <div className="w-12 h-12 rounded-xl bg-blue/12 text-blue flex items-center justify-center shrink-0">
             <Sparkles className="w-6 h-6" />
           </div>
@@ -212,7 +212,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
       )}
 
       {aiAnalysis && (
-        <section className="card p-5 sm:p-6 animate-fade-in" aria-label="AI advisory results">
+        <section className="card p-4 sm:p-5 animate-fade-in" aria-label="AI advisory results">
           <div className="flex items-center gap-2">
             <Sparkles className="w-[18px] h-[18px] text-blue" />
             <h2 className="card-title">{aiAnalysis.source === 'rules' ? 'Automatic summary' : 'AI insights'}</h2>

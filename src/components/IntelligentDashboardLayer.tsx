@@ -256,7 +256,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
       case 'KPI Cards': {
         const kpiCols = config?.topKPIs && config.topKPIs.length > 0 ? config.topKPIs : dataset.columns.filter((c:any)=>c.type==='numeric').map((c:any)=>c.name);
         return (
-          <div key={key} className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full mb-4">
+          <div key={key} className="grid grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-7 w-full mb-7">
             {kpiCols.slice(0, 4).map((col: string) => (
               // @ts-ignore
               <KPICard key={col} column={col} />
@@ -374,7 +374,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
       
       {/* Insight Banner */}
       {shownInsights && (
-        <div className="card p-5 sm:p-6 mb-6 relative group">
+        <div className="card p-4 sm:p-5 mb-6 relative group">
           <div className="absolute top-3 right-3 flex gap-1">
             <button onClick={getInsights} className="btn btn-icon w-8 h-8" title="Refresh insights" aria-label="Refresh insights">
               {loadingInsights ? <Orb state="composing" label="Writing insights" /> : <RefreshCw className="w-4 h-4" />}
@@ -407,7 +407,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
       )}
 
       {/* Main Layout Area */}
-      <div className="flex gap-4 items-start w-full transition-all">
+      <div className="flex gap-7 items-start w-full transition-all">
         {/* Dynamic Charts Area */}
         <div className={`flex-1 transition-all ${(expertMode && sidebarOpen) ? 'w-[70%]' : 'w-full'}`}>
           <div className="flex flex-col mb-4">
@@ -420,13 +420,13 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
             
             {/* Grid row: CHARTS via CSS Columns for Masonry layout */}
             {activeComponents.filter(c => !['KPI Cards', 'Data Table', 'Filters Panel', 'Slicers Panel', 'Heatmap Correlation Matrix'].includes(baseType(c))).length > 0 && (
-              <div className={`gap-4 w-full z-0 px-1 ${layout === '2-col' ? 'columns-1 lg:columns-2' : layout === '3-col' ? 'columns-1 lg:columns-3' : 'columns-1'}`}>
+              <div className={`gap-7 w-full z-0 px-1 ${layout === '2-col' ? 'columns-1 lg:columns-2' : layout === '3-col' ? 'columns-1 lg:columns-3' : 'columns-1'}`}>
                 {activeComponents
                   .filter(c => !['KPI Cards', 'Data Table', 'Filters Panel', 'Slicers Panel', 'Heatmap Correlation Matrix'].includes(baseType(c)))
                   .map((comp) => {
                     const rec = config?.designedBy === 'agents' ? config.recommendedComponents?.find((c: any) => c.id === comp) : null;
                     return (
-                      <div key={comp} className="block mb-4 break-inside-avoid w-full" data-agent={`dash-chart-${slug(comp)}`}>
+                      <div key={comp} className="block mb-7 break-inside-avoid w-full" data-agent={`dash-chart-${slug(comp)}`}>
                         {rec?.questionAnswered && <p className="text-xs text-label-2 mb-1.5 px-1">{rec.questionAnswered}</p>}
                         {renderComponentWrapper(comp, comp)}
                       </div>
@@ -437,7 +437,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
 
             {/* Heatmap Correlation Matrix */}
             {activeComponents.includes('Heatmap Correlation Matrix') && (
-              <div className="col-span-full w-full mb-4" data-agent="dash-chart-heatmap-correlation-matrix">
+              <div className="col-span-full w-full mb-7" data-agent="dash-chart-heatmap-correlation-matrix">
                  {renderComponentWrapper('Heatmap Correlation Matrix', 'heatmap')}
               </div>
             )}

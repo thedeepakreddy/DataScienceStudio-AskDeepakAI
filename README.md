@@ -92,7 +92,8 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
    - Fixes the Data Quality Agent finds while working are added as new tasks, and they wait for approval too.
 3. **Watch them work on your page.**
    - Each agent's cursor moves like a hand: curved paths, natural acceleration, a slight overshoot.
-   - Every agent works as a pair of cursors. Its partner drags a selection box open, corner to corner, round the area and round each control; then the worker moves into the open box and does the real click, choice or typing there, while the partner holds the box open until that work is finished.
+   - Every agent works as a pair of cursors. Its partner darts to the centre of the panel the agent needs, touches it and explodes into fine dust that becomes a soft moving glow around the panel; then the worker moves in and does the real clicks, choices and typing.
+   - A thin branch grows from the **Orchestrator** node in the step bar to every panel worked on, so a run reads like a tree. Finished panels keep a steady violet glow until you press **Clear** (in the chat or the Agents panel).
    - Only one agent holds the page at a time. A tap or key press of your own pauses the team ("Agents paused — you're in control"), and you can Resume or Stop.
 4. **Checked, not trusted.** Every task self-checks its own result (for example, no missing values left, or every kept row matches the filter). Risky results then get an **independent review** using a different method:
    - a permutation test for statistical tests,
@@ -122,11 +123,11 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
 
 The **SQL** and **Code** tabs in the chat run a read-only query (results shown as a table) or your own JavaScript transform in a sandbox (always with its own approval). The **Agents** panel in the toolbar shows the details: task map, each task's check, messages between agents, incidents, telemetry and recent runs.
 
-**Welcome.** Each time the studio opens, the team introduces itself in about fourteen seconds:
+**Welcome.** Each time the studio opens, the team introduces itself in about fifteen seconds:
 1. Cursors stream in from every edge.
-2. The Orchestrator types *Welcome to*, while three agents drag selection boxes that reveal **Data Science *Studio***.
-3. Nine agents each build a card for one thing the team can do.
-4. A line draws to the Ask AI button and the swarm flies into it.
+2. The Orchestrator types *Welcome to*, while three agents touch each word and it appears out of a burst of dust: **Data Science *Studio***.
+3. A tree grows from the Orchestrator to nine cards; each card forms out of a dust explosion with a soft glow, one thing the team can do.
+4. The tree fades, a line draws to the Ask AI button and the swarm flies into it.
 
 The × in the top-left (with a ring showing the time left), Esc or a tap skips it. It adapts to desktops, tablets and phones, and has a still version for reduced motion.
 

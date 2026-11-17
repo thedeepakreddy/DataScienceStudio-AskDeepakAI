@@ -8,22 +8,28 @@ import { BrainCircuit, FileText, LayoutDashboard, Lightbulb, Shapes, ShieldCheck
 import { AGENTS, AgentRole } from '../swarm/agents';
 import { HumanMover, Point } from '../swarm/humanMotion';
 import { CursorGlyph } from './AgentCursor';
+import { Dust, dustPalette } from './dust';
 import Orb from './Orb';
 import { Box, scatterCards, seeded } from './welcomeLayout';
 
-// The agent team's welcome, each time the studio opens (about fourteen seconds).
+// The agent team's welcome, each time the studio opens (about fifteen seconds).
 //
 // 1. The swarm streams in from every edge on curved, hand-like paths,
-//    leaving fading trails.
-// 2. The Orchestrator types "Welcome to"; three agents drag selection boxes
-//    over "Data", "Science" and "Studio", revealing each word.
-// 3. Nine agents each drag a box out; when they let go it lands as a card
-//    with one thing the team can do. On larger screens the cards are
-//    scattered (a fresh arrangement each time, never overlapping the title,
-//    the closing words, the Ask AI button or each other); on phones, or when a
-//    screen is too tight to scatter, they sit in a loosely tilted grid.
-// 4. A line draws from the closing words to the floating Ask AI button and
-//    the swarm flies into it: that's where you give them work.
+//    leaving fading trails. The cursors are the studio's: solid workers and
+//    two-tone partners, each with its agent's colour dot.
+// 2. The Orchestrator types "Welcome to"; three partners dart to "Data",
+//    "Science" and "Studio", touch each word and explode into fine dust,
+//    and each word appears out of it.
+// 3. The Orchestrator node appears under the title. For each of nine cards a
+//    thin branch grows from it, a partner darts along, touches the card's
+//    centre and explodes; the card forms out of the dust with the moving AI
+//    glow, which then settles to the finished violet, as panels do in the
+//    studio. On larger screens the cards are scattered (a fresh arrangement
+//    each time, never overlapping the title, the closing words, the Ask AI
+//    button or each other); on phones, or when a screen is too tight to
+//    scatter, they sit in a loosely tilted grid.
+// 4. The tree fades, a line draws from the closing words to the floating
+//    Ask AI button and the swarm flies into it: that's where you give them work.
 //
 // The × (with a ring showing time left), Esc or a tap anywhere skips it.
 // With reduced motion it is a still composition. Nothing on the page is
@@ -50,7 +56,7 @@ const ROLE_ORDER: AgentRole[] = [
   ...(Object.keys(AGENTS) as AgentRole[]).filter(r => r !== 'orchestrator' && !CARDS.some(c => c.role === r)),
 ];
 const TEAM_SIZE = Object.keys(AGENTS).length;
-const TOTAL_MS = 14500;
+const TOTAL_MS = 15000;
 
 type Size = 'desktop' | 'tablet' | 'phone';
 const sizeOf = (w: number): Size => (w >= 1024 ? 'desktop' : w >= 640 ? 'tablet' : 'phone');
@@ -103,9 +109,11 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const eyebrow = useRef<HTMLSpanElement | null>(null);
   const words = useRef<(HTMLSpanElement | null)[]>([]);
-  const wordBoxes = useRef<(HTMLDivElement | null)[]>([]);
   const cards = useRef<(HTMLDivElement | null)[]>([]);
-  const cardBoxes = useRef<(HTMLDivElement | null)[]>([]);
+  const cardGlows = useRef<(HTMLDivElement | null)[]>([]);
+  const dustCanvas = useRef<HTMLCanvasElement | null>(null);
+  const tree = useRef<SVGSVGElement | null>(null);
+  const rootChip = useRef<HTMLSpanElement | null>(null);
   const tip = useRef<HTMLDivElement | null>(null);
   const caret = useRef<HTMLSpanElement | null>(null);
   const grid = useRef<HTMLDivElement | null>(null);
@@ -215,9 +223,8 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
       const tag = tagEls.current[i];
       if (!tag) return;
       const flip = x > window.innerWidth - 190;
-      tag.style.left = flip ? '' : '12px';
-      tag.style.right = flip ? 'calc(100% - 6px)' : '';
-      tag.style.borderRadius = flip ? '10px 3px 10px 10px' : '3px 10px 10px 10px';
+      tag.style.left = flip ? '' : '14px';
+      tag.style.right = flip ? 'calc(100% - 4px)' : '';
     };
     const go = (i: number, to: Point, opts: Parameters<HumanMover['moveTo']>[1] = {}) => {
       if (!alive || !m[i]) return Promise.resolve();
@@ -225,26 +232,65 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
       return m[i].moveTo(to, opts);
     };
 
-    // A drag: from the top-left of `rect` to its bottom-right, the marquee following the hand.
-    const drag = async (i: number, rect: DOMRect, box: HTMLDivElement | null, onProgress?: (x: number) => void) => {
-      const pad = 6;
-      const sx = rect.left - pad, sy = rect.top - pad;
-      await go(i, { x: sx, y: sy }, { maxDuration: 720, arc: 0.22 });
-      if (!alive) return;
-      if (box) { box.style.display = 'block'; box.style.opacity = '1'; }
-      await go(i, { x: rect.right + pad, y: rect.bottom + pad }, {
-        duration: 680 + Math.min(320, rect.width * 0.45), arc: 0.05, overshoot: false,
-        onFrame: p => {
-          if (box) {
-            box.style.left = `${Math.min(sx, p.x)}px`;
-            box.style.top = `${Math.min(sy, p.y)}px`;
-            box.style.width = `${Math.abs(p.x - sx)}px`;
-            box.style.height = `${Math.abs(p.y - sy)}px`;
-          }
-          onProgress?.(p.x);
-        },
-      });
-      if (box) { box.style.opacity = '0'; setTimeout(() => { if (box) box.style.display = 'none'; }, 320); }
+    // Fine dust, drawn above the cards.
+    const dcv = dustCanvas.current;
+    // Fewer specks on small screens (several cards burst at once).
+    const phoneScale = sizeOf(w) === 'phone' ? 0.45 : sizeOf(w) === 'tablet' ? 0.6 : 0.75;
+    const dust = dcv ? new Dust(dcv) : null;
+    dust?.resize(w, h);
+
+    // A partner darts to the centre of `rect`, touches it (rings) and explodes
+    // into dust across it; `onLit` follows the dust reaching the edges. It
+    // re-forms from the dust just beside the rect.
+    const touch = async (i: number, rect: DOMRect, onLit: (share: number) => void) => {
+      const el = cursorEls.current[i];
+      const pick = dustPalette(AGENTS[roleOf(i)].color);
+      const c = { x: rect.left + rect.width / 2 - 3, y: rect.top + rect.height / 2 - 3 };
+      await go(i, c, { maxDuration: 420, arc: 0.2 });
+      if (!alive || !el) return;
+      el.classList.add('is-touching', 'is-pressing');
+      await wait(150);
+      el.classList.remove('is-pressing');
+      await wait(110);
+      el.style.transition = 'opacity 160ms ease';
+      el.style.opacity = '0';
+      const lit = dust ? dust.burst(rect, c.x + 2, c.y + 2, pick, onLit, phoneScale) : Promise.resolve(onLit(1));
+      await wait(520);
+      el.classList.remove('is-touching');
+      const spot = { x: Math.min(w - 30, rect.right + 6), y: Math.min(h - 30, rect.bottom + 4) };
+      m[i]?.jump(spot);
+      dust?.gather(spot, pick, 160);
+      setTimeout(() => { if (el) el.style.opacity = '1'; }, 280);
+      await lit;
+    };
+
+    // The tree: a branch from the Orchestrator node to each card.
+    const NS = 'http://www.w3.org/2000/svg';
+    const branches: { g: SVGGElement; core: SVGPathElement; glow: SVGPathElement; stops: SVGStopElement[] }[] = [];
+    const growBranch = (k: number, card: DOMRect) => {
+      const svg = tree.current, chip = rootChip.current?.getBoundingClientRect();
+      if (!svg || !chip) return;
+      const x0 = chip.left + chip.width / 2, below = card.top + card.height / 2 > chip.top + chip.height / 2;
+      const y0 = below ? chip.bottom : chip.top;
+      const x1 = card.left + card.width / 2, y1 = below ? card.top : card.bottom, dy = y1 - y0;
+      const d = `M${x0},${y0} C${x0},${y0 + dy * 0.6} ${x1},${y1 - dy * 0.6} ${x1},${y1}`;
+      const id = `wb-${k}`;
+      const g = document.createElementNS(NS, 'g');
+      g.innerHTML = `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}"><stop offset="0" style="stop-color:var(--ag-g1)"/><stop offset="0.5" style="stop-color:var(--ag-g2)"/><stop offset="1" style="stop-color:var(--ag-g3)"/></linearGradient></defs>`
+        + `<path class="b-glow" stroke="url(#${id})" d="${d}"/><path class="b-core" stroke="url(#${id})" d="${d}"/>`;
+      svg.appendChild(g);
+      const core = g.querySelector<SVGPathElement>('.b-core')!, glow = g.querySelector<SVGPathElement>('.b-glow')!;
+      const len = core.getTotalLength();
+      [core, glow].forEach(el => { el.style.strokeDasharray = `${len}`; el.style.strokeDashoffset = `${len}`; });
+      void core.getBoundingClientRect();
+      [core, glow].forEach(el => { el.style.transition = 'stroke-dashoffset 480ms cubic-bezier(.22,.61,.36,1)'; el.style.strokeDashoffset = '0'; });
+      branches[k] = { g, core, glow, stops: [...g.querySelectorAll('stop')] };
+    };
+    // A finished card: its glow and branch settle to the steady violet.
+    const settle = (k: number) => {
+      const glow = cardGlows.current[k];
+      if (glow) glow.dataset.state = 'done';
+      branches[k]?.stops.forEach(st => { st.style.stopColor = 'var(--ag-done)'; });
     };
 
     // Short comet trails behind every cursor, redrawn from the last ~0.35s each frame.
@@ -256,6 +302,7 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
     const trails: { x: number; y: number; t: number }[][] = m.map(() => []);
     const LIFE = 360;
     let raf = 0;
+    let lastFrame = 0;
     const paint = (now: number) => {
       if (ctx) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -264,6 +311,8 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
         m.forEach((mv, i) => {
           const tr = trails[i];
           const last = tr[tr.length - 1];
+          // A cursor re-forming somewhere else starts a fresh trail.
+          if (last && Math.hypot(mv.x - last.x, mv.y - last.y) > 140) tr.length = 0;
           if (!last || Math.hypot(mv.x - last.x, mv.y - last.y) > 0.6) tr.push({ x: mv.x, y: mv.y, t: now });
           while (tr.length && now - tr[0].t > LIFE) tr.shift();
           ctx.strokeStyle = colors[i];
@@ -279,6 +328,8 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
         });
         ctx.globalAlpha = 1;
       }
+      dust?.draw(Math.min(48, now - (lastFrame || now)));
+      lastFrame = now;
       raf = requestAnimationFrame(paint);
     };
     raf = requestAnimationFrame(paint);
@@ -333,12 +384,11 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
         if (!el || !r) return;
         setTimeout(() => {
           if (!alive) return;
-          el.style.opacity = '1';
-          el.style.clipPath = 'inset(-20% 100% -20% 0)';
-          drag(WORD_AGENTS[k], r, wordBoxes.current[k], x => {
-            const right = Math.max(0, Math.min(100, ((r.right - x) / r.width) * 100));
-            el.style.clipPath = `inset(-20% ${right}% -20% 0)`;
-          }).then(() => { el.style.clipPath = 'none'; });
+          // The word appears out of the dust as it spreads.
+          touch(WORD_AGENTS[k], r, share => {
+            el.style.opacity = `${share}`;
+            el.style.filter = share < 1 ? `blur(${((1 - share) * 6).toFixed(1)}px)` : '';
+          });
         }, 200 + k * 560);
       });
       await wait(3000);
@@ -346,24 +396,35 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
       setPhase('sub');
       for (let i = TYPIST + 1; i < n; i++) roam(i);
 
-      // 3. Nine agents drag out the cards.
+      // 3. The tree: for each card a branch grows from the Orchestrator, a partner
+      //    darts along it, touches the card and explodes; the card forms out of the dust.
       const builds = CARDS.map((_, k) => wait(k * 300).then(async () => {
         const el = cards.current[k];
         const r = el?.getBoundingClientRect();
         if (!el || !r || !alive) return;
-        await drag(k, r, cardBoxes.current[k]);
+        growBranch(k, r);
+        const glow = cardGlows.current[k];
+        await touch(k, r, share => {
+          if (share > 0.1) el.dataset.landed = '1';
+          if (glow) glow.style.opacity = `${share}`;
+        });
         el.dataset.landed = '1';
-        // Step back a little from the finished card.
-        go(k, { x: r.right + 10 + Math.random() * 14, y: r.bottom + 6 + Math.random() * 12 }, { maxDuration: 600, overshoot: false });
+        setTimeout(() => settle(k), 1100);
+        // The partner drifts off into the open space, clear of the cards.
+        await wait(300);
+        roam(k);
       }));
       await Promise.all(builds);
       // Let the finished set be seen before moving on.
       await wait(2100);
       if (!alive) return;
 
-      // 4. Point to Ask AI, then fly into it. If the closing words would sit
-      // under the button (short screens), the composition slides up first.
+      // 4. The tree fades; point to Ask AI, then fly into it. If the closing words
+      // would sit under the button (short screens), the composition slides up first.
       phaseRef.current = 'ask';
+      if (tree.current) { tree.current.style.transition = 'opacity 600ms ease'; tree.current.style.opacity = '0'; }
+      cardGlows.current.forEach(g => { if (g) { g.style.transition = 'opacity 600ms ease'; g.style.opacity = '0'; } });
+      if (rootChip.current) rootChip.current.style.opacity = '0';
       const btn = askButton()?.getBoundingClientRect();
       const t = tip.current?.getBoundingClientRect();
       const col = column.current;
@@ -415,7 +476,7 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
     };
     run();
 
-    return () => { alive = false; cancelAnimationFrame(raf); m.forEach(mv => mv.stop()); };
+    return () => { alive = false; cancelAnimationFrame(raf); m.forEach(mv => mv.stop()); dust?.clear(); };
     // The choreography runs once per opening.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -465,6 +526,8 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
         }}
       />
       <canvas ref={canvas} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />
+      {/* The tree from the Orchestrator to the cards, under the cards. */}
+      <svg ref={tree} aria-hidden="true" className="agent-tree" />
 
       {/* Skip: small and dim, top-left, clear of the notch; the ring shows the time left. */}
       <button
@@ -505,6 +568,11 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
             <p className="welcome-reveal font-editorial italic text-label-2 mt-4" data-on={phase !== 'intro' ? '1' : '0'} style={{ fontSize: phone ? 17 : 'clamp(18px, 1.9vw, 23px)' }}>
               Your team of {TEAM_SIZE} AI agents
             </p>
+            {!still && (
+              <span className="welcome-reveal mt-3" data-on={phase !== 'intro' ? '1' : '0'}>
+                <span ref={rootChip} className="agent-root" style={{ position: 'relative', opacity: 1, transition: 'opacity 500ms ease' }}><i />Orchestrator</span>
+              </span>
+            )}
           </>
         );
         const tipEl = (
@@ -520,10 +588,23 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
         const card = (c: typeof CARDS[number], k: number) => {
           const color = AGENTS[c.role].color;
           return (
+            <>
+            {/* The card's glow, behind it: moving while it forms, then the finished violet. */}
+            {!still && (
+              <div
+                ref={el => { cardGlows.current[k] = el; }}
+                className="agent-glow"
+                data-state="live"
+                aria-hidden="true"
+                style={{ '--p': '44px', '--r': '16px', left: -44, top: -44, width: 'calc(100% + 88px)', height: 'calc(100% + 88px)', transition: 'opacity 200ms linear' } as React.CSSProperties}
+              >
+                <span className="bloom" /><span className="halo" /><span className="ring" />
+              </div>
+            )}
             <div
               ref={el => { cards.current[k] = el; }}
-              className={`welcome-card rounded-2xl border border-separator text-left ${phone ? 'flex flex-col items-center gap-1.5 px-1.5 py-3' : 'flex items-center gap-3 px-4 py-3.5'}`}
-              style={{ background: 'color-mix(in srgb, var(--raised) 82%, transparent)', boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 10px 30px -12px rgba(0,0,0,0.18)' }}
+              className={`welcome-card relative rounded-2xl border border-separator text-left ${phone ? 'flex flex-col items-center gap-1.5 px-1.5 py-3' : 'flex items-center gap-3 px-4 py-3.5'}`}
+              style={{ background: 'color-mix(in srgb, var(--raised) 94%, transparent)', boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 10px 30px -12px rgba(0,0,0,0.18)' }}
             >
               <span className={`welcome-icon shrink-0 rounded-xl flex items-center justify-center ${phone ? 'w-8 h-8' : 'w-10 h-10'}`} style={{ background: `color-mix(in srgb, ${color} 13%, transparent)`, color }}>
                 <c.Icon className={phone ? 'w-4 h-4' : 'w-[19px] h-[19px]'} strokeWidth={1.9} />
@@ -537,6 +618,7 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
                 </span>
               )}
             </div>
+            </>
           );
         };
 
@@ -570,9 +652,9 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
             <div ref={column} className="flex flex-col items-center text-center" style={{ transform: scale < 1 && mode === 'grid' ? `scale(${scale})` : undefined }}>
               {head}
               {/* A loosely tilted grid: phones, and screens too tight to scatter on. */}
-              <div ref={grid} className="grid mt-7 sm:mt-10" style={{ width: gridWidth, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: phone ? 10 : 14 }}>
+              <div ref={grid} className="grid mt-7 sm:mt-10" style={{ width: gridWidth, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: phone ? 13 : 18 }}>
                 {CARDS.map((c, k) => (
-                  <div key={c.text} style={{ transform: `rotate(${tilts[k].rot}deg) translateY(${tilts[k].dy}px)` }}>{card(c, k)}</div>
+                  <div key={c.text} className="relative" style={{ transform: `rotate(${tilts[k].rot}deg) translateY(${tilts[k].dy}px)` }}>{card(c, k)}</div>
                 ))}
               </div>
               <div className="mt-8 sm:mt-10">{tipEl}</div>
@@ -619,15 +701,8 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* Live selection boxes, drawn by the cursors as they drag. */}
-      {WORDS.map((wd, k) => {
-        const color = AGENTS[roleOf(WORD_AGENTS[k])].color;
-        return <div key={wd} ref={el => { wordBoxes.current[k] = el; }} className="welcome-marquee" style={{ borderColor: color, background: `color-mix(in srgb, ${color} 9%, transparent)` }} />;
-      })}
-      {CARDS.map((c, k) => {
-        const color = AGENTS[c.role].color;
-        return <div key={c.text} ref={el => { cardBoxes.current[k] = el; }} className="welcome-marquee" style={{ borderColor: color, background: `color-mix(in srgb, ${color} 7%, transparent)`, borderRadius: 16 }} />;
-      })}
+      {/* Fine dust, above the cards. */}
+      <canvas ref={dustCanvas} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none z-20" />
 
       {/* The swarm. */}
       {!still && Array.from({ length: count }, (_, i) => {
@@ -635,13 +710,10 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
         const color = AGENTS[role].color;
         return (
           <div key={i} ref={el => { cursorEls.current[i] = el; }} className="absolute left-0 top-0 z-30 pointer-events-none will-change-transform" aria-hidden="true" style={{ transform: 'translate3d(-100px,-100px,0)' }}>
-            <div className="-ml-[2.5px] -mt-[2.5px]"><CursorGlyph color={color} size={phone ? 19 : 22} /></div>
-            <span
-              ref={el => { tagEls.current[i] = el; }}
-              className={`absolute whitespace-nowrap font-medium text-white ${phone ? 'top-[15px] text-[9.5px] px-1.5 py-[2px]' : 'top-[17px] text-[11px] px-2 py-[3px]'}`}
-              style={{ left: 12, background: color, borderRadius: '3px 10px 10px 10px', boxShadow: '0 0 0 1px rgba(255,255,255,0.18) inset, 0 2px 6px rgba(0,0,0,0.18)' }}
-            >
-              {AGENTS[role].name}
+            {/* Partners (two-tone) touch and explode; workers (solid) type and roam. */}
+            <CursorGlyph color={color} variant={i < CARDS.length || (i > TYPIST && i % 2 === 0) ? 'soft' : 'solid'} size={phone ? 19 : 22} />
+            <span ref={el => { tagEls.current[i] = el; }} className={`agent-tag${phone ? ' small' : ''}`} style={{ left: 14, top: phone ? 15 : 17 }}>
+              <span className="font-semibold">{AGENTS[role].name}</span>
             </span>
           </div>
         );

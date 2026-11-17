@@ -57,7 +57,7 @@ export default function CorrelationHeatmap({ columns }: CorrelationHeatmapProps)
 
   if (matrix.length === 0) {
     return (
-      <div className="card p-4 sm:p-5 min-h-[300px] flex flex-col items-center justify-center">
+      <div className="card p-4 sm:p-4 min-h-[300px] flex flex-col items-center justify-center">
         <h3 className="text-sm font-semibold tracking-tight text-label mb-4">Correlation</h3>
         <p className="text-label-3 text-xs text-center">Not enough numeric data to show correlations.</p>
       </div>
@@ -72,7 +72,7 @@ export default function CorrelationHeatmap({ columns }: CorrelationHeatmapProps)
   };
 
   return (
-    <div className="card p-4 sm:p-5 flex flex-col relative overflow-hidden min-h-[300px]">
+    <div className="card p-4 sm:p-4 flex flex-col relative overflow-hidden min-h-[300px]">
        <h3 className="text-sm font-semibold tracking-tight text-label mb-4">Correlation</h3>
        
        <div className="flex-1 overflow-auto custom-scrollbar relative">

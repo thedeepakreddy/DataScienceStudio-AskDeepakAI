@@ -1002,7 +1002,7 @@ export default function App() {
             )}
 
             {activeTab === 'dashboard' && activeDataset && loadingML && (
-              <div role="status" className="card mb-6 p-4 sm:p-5 flex items-center gap-4 animate-fade-in">
+              <div role="status" className="card mb-6 p-4 sm:p-4 flex items-center gap-4 animate-fade-in">
                 <Orb state="solving" size={64} label="Training a model" />
                 <div className="min-w-0">
                   <p className="card-title">Training a model…</p>

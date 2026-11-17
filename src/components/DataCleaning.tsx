@@ -313,7 +313,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
 
         <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Fill missing values */}
-          <div className="card p-5 sm:p-6 flex flex-col">
+          <div className="card p-4 sm:p-5 flex flex-col">
             <h3 className="card-title" data-agent="area-fill">Fill missing values</h3>
             <p className="mt-1 text-sm text-label-2">Replace empty cells in a column with a sensible value.</p>
 
@@ -366,7 +366,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
           </div>
 
           {/* Remove columns */}
-          <div className="card p-5 sm:p-6 flex flex-col">
+          <div className="card p-4 sm:p-5 flex flex-col">
             <h3 className="card-title" data-agent="area-remove-columns">Remove columns</h3>
             <p className="mt-1 text-sm text-label-2">
               Drop IDs and anything that won’t help the analysis. IDs can mislead a model.
@@ -398,7 +398,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
           </div>
 
           {/* Add a column */}
-          <div className="card p-5 sm:p-6 flex flex-col">
+          <div className="card p-4 sm:p-5 flex flex-col">
             <h3 className="card-title">Add a column</h3>
             <p className="mt-1 text-sm text-label-2">Create a new column with the same starting value in every row.</p>
 
@@ -444,7 +444,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
           </div>
 
           {/* Rows */}
-          <div className="card p-5 sm:p-6 flex flex-col">
+          <div className="card p-4 sm:p-5 flex flex-col">
             <h3 className="card-title">Add or remove rows</h3>
             <p className="mt-1 text-sm text-label-2">
               Append an empty row, or delete one by its number in the preview.
@@ -491,7 +491,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
 
           {/* Group and summarize (Expert) */}
           {expertMode && (
-            <div className="card p-5 sm:p-6 flex flex-col">
+            <div className="card p-4 sm:p-5 flex flex-col">
               <h3 className="card-title">Group and summarize</h3>
               <p className="mt-1 text-sm text-label-2">
                 Group rows by one column and calculate a count, total or average of another.
@@ -560,7 +560,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
 
           {/* Feature engineering (Expert) */}
           {expertMode && (
-            <div className="card p-5 sm:p-6 flex flex-col">
+            <div className="card p-4 sm:p-5 flex flex-col">
               <h3 className="card-title">Engineer a feature</h3>
               <p className="mt-1 text-sm text-label-2">
                 Scale, transform or combine columns to give a model stronger signals.

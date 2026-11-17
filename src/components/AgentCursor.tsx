@@ -3,56 +3,60 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useId, useLayoutEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { HumanMover, Point } from '../swarm/humanMotion';
 
-// The agents' cursor: a soft rounded arrow with a gentle sheen, a white
-// rim and a shadow, and a name tag tucked under its tail. Used on the page
-// (AgentCursorLayer) and in the welcome.
+// The agents' cursors, in the style of modern click cursors: a rounded
+// arrowhead with a contrasting rim (dark on light pages, light on dark),
+// the agent's colour as a small dot, and a slim name tag.
+// - "solid" is the worker, which clicks and types; three short rays flash at
+//   its tip on each click.
+// - "soft" (two-tone) is its partner, which touches panels; two rings ripple
+//   from its tip when it does.
+// Used on the page (AgentCursorLayer, agentStage) and in the welcome.
 
-/** The arrow. Its tip is at (2.5, 2.5) of a 22×22 box. */
-export function CursorGlyph({ color, size = 22 }: { color: string; size?: number }) {
-  const id = useId().replace(/:/g, '');
+/** The arrowhead. Its tip is at (3, 3) of the drawing. */
+export const CURSOR_ARROW = 'M3.6 2.4 L18.9 8.7 C20 9.15 19.9 10.3 18.8 10.6 L12.4 12.3 C12 12.4 11.75 12.65 11.65 13.05 L9.95 19.4 C9.65 20.5 8.4 20.6 8.05 19.55 L2.4 3.6 C2.05 2.6 2.75 2.05 3.6 2.4 Z';
+const RAYS = '<g class="rays"><path d="M3 -1.2 L3 -4.6"/><path d="M0.1 0.1 L-2.3 -2.3"/><path d="M-1.2 3 L-4.6 3"/></g>';
+const RINGS = '<g class="rings"><path d="M-1.4 6.2 A5 5 0 1 1 6.2 -1.4"/><path d="M-4.6 8.2 A8.6 8.6 0 1 1 8.2 -4.6"/></g>';
+
+export type CursorVariant = 'solid' | 'soft';
+
+/** The cursor's markup, for code that builds cursors without React (the stage, the welcome). */
+export function cursorHtml(color: string, variant: CursorVariant = 'solid', size = 22) {
+  return `<span class="agent-cursor" data-variant="${variant}" style="--cur-size:${size}px">`
+    + `<svg width="${size}" height="${size}" viewBox="-3 -3 25 25" aria-hidden="true">${variant === 'soft' ? RINGS : RAYS}<path class="arrow" d="${CURSOR_ARROW}"/></svg>`
+    + `<span class="cursor-dot" style="background:${color};box-shadow:0 0 0 1.5px #fff,0 0 8px ${color}"></span></span>`;
+}
+
+/** The cursor, in React. Its tip sits at the element's origin. */
+export function CursorGlyph({ color, variant = 'solid', size = 22 }: { color: string; variant?: CursorVariant; size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 22 22" aria-hidden="true" style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.28))', overflow: 'visible' }}>
-      <defs>
-        <linearGradient id={`g${id}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor={`color-mix(in srgb, ${color} 72%, white)`} />
-          <stop offset="55%" stopColor={color} />
-          <stop offset="100%" stopColor={`color-mix(in srgb, ${color} 82%, black)`} />
-        </linearGradient>
-      </defs>
-      <path
-        d="M3.6 2.2 L19.2 8.6 C20.3 9.05 20.2 10.6 19.05 10.9 L12.9 12.5 C12.55 12.6 12.3 12.85 12.2 13.2 L10.6 19.3 C10.3 20.45 8.75 20.55 8.3 19.45 L2.2 3.6 C1.8 2.6 2.6 1.8 3.6 2.2 Z"
-        fill={`url(#g${id})`}
-        stroke="white"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <span className="agent-cursor" data-variant={variant} aria-hidden="true" style={{ '--cur-size': `${size}px` } as React.CSSProperties}>
+      <svg width={size} height={size} viewBox="-3 -3 25 25">
+        {variant === 'soft' ? (
+          <g className="rings"><path d="M-1.4 6.2 A5 5 0 1 1 6.2 -1.4" /><path d="M-4.6 8.2 A8.6 8.6 0 1 1 8.2 -4.6" /></g>
+        ) : (
+          <g className="rays"><path d="M3 -1.2 L3 -4.6" /><path d="M0.1 0.1 L-2.3 -2.3" /><path d="M-1.2 3 L-4.6 3" /></g>
+        )}
+        <path className="arrow" d={CURSOR_ARROW} />
+      </svg>
+      <span className="cursor-dot" style={{ background: color, boxShadow: `0 0 0 1.5px #fff, 0 0 8px ${color}` }} />
+    </span>
   );
 }
 
-/** The name tag: rounded, with a tight corner pointing back at the arrow. */
-export function NameTag({ color, name, detail, flip = false, small = false, dim = false, maxWidth = 280 }: {
-  color: string; name: string; detail?: string; flip?: boolean; small?: boolean; dim?: boolean; maxWidth?: number;
+/** The slim name tag beside a cursor. */
+export function NameTag({ name, detail, flip = false, small = false, dim = false, maxWidth = 280 }: {
+  name: string; detail?: string; flip?: boolean; small?: boolean; dim?: boolean; maxWidth?: number;
 }) {
   return (
     <span
-      className={`absolute top-[17px] whitespace-nowrap font-medium text-white shadow-[0_2px_6px_rgba(0,0,0,0.18)] ${small ? 'text-[9.5px] px-1.5 py-[2px]' : 'text-[11px] px-2 py-[3px]'}`}
-      style={{
-        background: color,
-        borderRadius: flip ? '10px 3px 10px 10px' : '3px 10px 10px 10px',
-        ...(flip ? { right: 'calc(100% - 6px)' } : { left: 12 }),
-        opacity: dim ? 0.78 : 1,
-        maxWidth,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        boxShadow: '0 0 0 1px rgba(255,255,255,0.18) inset, 0 2px 6px rgba(0,0,0,0.18)',
-      }}
+      className={`agent-tag${small ? ' small' : ''}`}
+      style={{ ...(flip ? { right: 'calc(100% - 4px)' } : { left: 14 }), opacity: dim ? 0.8 : 1, maxWidth }}
     >
       <span className="font-semibold">{name}</span>
-      {detail && <span className="opacity-90"> · {detail}</span>}
+      {detail && <span className="detail"> · {detail}</span>}
     </span>
   );
 }
@@ -67,10 +71,11 @@ export function tagPlacement(x: number) {
 
 /**
  * A cursor that travels to (x, y) along a human-looking curve. `snap` moves
- * it at once (used to follow the page when it scrolls).
+ * it at once (used to follow the page when it scrolls); a new `clickKey`
+ * flashes the click rays.
  */
-export function HumanPointer({ x, y, snap, color, name, detail, waiting, maxDuration = 600, className = '', style }: {
-  x: number; y: number; snap?: number; color: string; name: string; detail?: string; waiting?: boolean;
+export function HumanPointer({ x, y, snap, color, name, detail, waiting, clickKey, maxDuration = 600, className = '', style }: {
+  x: number; y: number; snap?: number; color: string; name: string; detail?: string; waiting?: boolean; clickKey?: number;
   maxDuration?: number; className?: string; style?: React.CSSProperties;
 }) {
   const el = useRef<HTMLDivElement | null>(null);
@@ -85,12 +90,22 @@ export function HumanPointer({ x, y, snap, color, name, detail, waiting, maxDura
 
   useEffect(() => { mover.current?.moveTo({ x, y } as Point, { maxDuration }); }, [x, y, maxDuration]);
   useEffect(() => { if (snap) mover.current?.jump({ x, y }); }, [snap]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const node = el.current;
+    if (!clickKey || !node) return;
+    node.classList.remove('is-clicking', 'is-pressing');
+    void node.offsetWidth;
+    node.classList.add('is-clicking', 'is-pressing');
+    const a = setTimeout(() => node.classList.remove('is-pressing'), 140);
+    const b = setTimeout(() => node.classList.remove('is-clicking'), 440);
+    return () => { clearTimeout(a); clearTimeout(b); };
+  }, [clickKey]);
 
   const { flip, maxWidth: tagWidth } = tagPlacement(x);
   return (
     <div ref={el} className={`absolute left-0 top-0 will-change-transform ${className}`} style={style}>
-      <div className="-ml-[2.5px] -mt-[2.5px]"><CursorGlyph color={color} /></div>
-      <NameTag color={color} name={name} detail={waiting ? `waiting: ${detail ?? ''}` : detail} flip={flip} dim={waiting} maxWidth={tagWidth} />
+      <CursorGlyph color={color} variant="solid" />
+      <NameTag name={name} detail={waiting ? `waiting: ${detail ?? ''}` : detail} flip={flip} dim={waiting} maxWidth={tagWidth} />
     </div>
   );
 }

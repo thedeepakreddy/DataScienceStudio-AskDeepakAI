@@ -318,7 +318,7 @@ ${activeModel ? '- `model_card.md`: the active registered model’s card.\n' : '
       </div>
 
       {/* The report document */}
-      <div className="card p-6 sm:p-10 print:shadow-none print:p-0" id="live_strategic_report_page">
+      <div className="card p-5 sm:p-10 print:shadow-none print:p-0" id="live_strategic_report_page">
 
         {/* Document header */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 mb-8 border-b border-separator">
@@ -525,7 +525,7 @@ ${activeModel ? '- `model_card.md`: the active registered model’s card.\n' : '
       </div>
 
       {(chain.length > 0 || savedRuns.length > 0) && (
-        <div className="card p-5 sm:p-6 space-y-6 print:hidden" aria-labelledby="provenance-heading">
+        <div className="card p-4 sm:p-5 space-y-6 print:hidden" aria-labelledby="provenance-heading">
           <div>
             <h2 id="provenance-heading" className="card-title">Provenance and saved analyses</h2>
             <p className="mt-1 text-sm text-label-2">Where the numbers come from. Ticked analyses are added to the PDF and the package.</p>
@@ -578,7 +578,7 @@ ${activeModel ? '- `model_card.md`: the active registered model’s card.\n' : '
 
       {/* OPERATIONAL LOGS / TERMINAL */}
       {expertMode && (
-      <div className="card p-5 sm:p-6" id="reports_hub_terminal">
+      <div className="card p-4 sm:p-5" id="reports_hub_terminal">
         <h3 className="card-title mb-3">Export log</h3>
         <div className="bg-well p-4 h-[120px] rounded-xl font-code text-xs text-label-2 space-y-1.5 overflow-y-auto">
           {logs.map((log, i) => (

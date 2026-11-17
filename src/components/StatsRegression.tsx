@@ -70,7 +70,7 @@ export default function StatsRegression({ dataset }: { dataset: Dataset }) {
 
   return (
     <div className="space-y-6">
-      <div className="card p-5 sm:p-6 space-y-4">
+      <div className="card p-4 sm:p-5 space-y-4">
         <div>
           <h3 className="card-title" data-agent="area-regression">Regression</h3>
           <p className="mt-1 text-sm text-label-2">
@@ -121,7 +121,7 @@ export default function StatsRegression({ dataset }: { dataset: Dataset }) {
       </div>
 
       {result && (
-        <div className="card p-5 sm:p-6 space-y-5 animate-fade-in" role="region" aria-label="Regression result">
+        <div className="card p-4 sm:p-5 space-y-5 animate-fade-in" role="region" aria-label="Regression result">
           <dl className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-separator rounded-xl overflow-hidden">
             {(result.kind === 'linear'
               ? [['R²', fmt(result.fit.rSquared as number)], ['Adjusted R²', fmt(result.fit.adjRSquared as number)], ['Model p-value (F test)', formatP(result.fit.fPValue as number)], ['Rows', result.n.toLocaleString()]]

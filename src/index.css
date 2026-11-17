@@ -133,6 +133,21 @@
 /* Agent colours: rich, slightly muted tones (ink, copper, garnet…), so
    cursors read clearly without shouting over the studio. */
 :root {
+  /* Agent cursors and panel glow, light mode: dark arrows, deeper glow colours that read on white. */
+  --cur-fill: #15171c;
+  --cur-rim: #ffffff;
+  --cur-soft: #d9dce4;
+  --ag-g1: #2f5bff;
+  --ag-g2: #7a3cf0;
+  --ag-g3: #e0287a;
+  --ag-done: #6d3ce8;
+  --ag-ring-o: 0.5;
+  --ag-halo-o: 0.55;
+  --ag-bloom-o: 0.3;
+  --ag-done-bloom-o: 0.22;
+  --ag-halo-blur: 10px;
+  --ag-bloom-blur: 24px;
+
   --agent-orchestrator: #34518a;
   --agent-data-engineer: #a85d36;
   --agent-data-scientist: #6a568f;
@@ -181,6 +196,21 @@
   --agent-publishing: #9a6e5c;
   --agent-automation: #5fa3ab;
   --agent-code: #b5604c;
+
+  /* Agent cursors and panel glow, dark mode: light arrows, softer Gemini-style glow. */
+  --cur-fill: #f3f4f7;
+  --cur-rim: #15171c;
+  --cur-soft: #555a67;
+  --ag-g1: #5e8fe6;
+  --ag-g2: #8e78c9;
+  --ag-g3: #c9707f;
+  --ag-done: #8c7bd6;
+  --ag-ring-o: 0.45;
+  --ag-halo-o: 0.45;
+  --ag-bloom-o: 0.3;
+  --ag-done-bloom-o: 0.18;
+  --ag-halo-blur: 12px;
+  --ag-bloom-blur: 28px;
 }
 
 :root[data-theme="dark"] {
@@ -363,9 +393,11 @@
 
   .card {
     background-color: var(--surface);
-    border-radius: var(--radius-2xl);
+    /* Softly curved panels. */
+    border-radius: var(--radius-3xl);
     box-shadow: var(--elevation-1);
   }
+
 
   /* Buttons */
   .btn {
@@ -731,19 +763,9 @@
 }
 
 /* Agent swarm: selection box and click feedback drawn by AgentCursorLayer. */
-@keyframes agent-claim {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
-}
 @keyframes agent-ripple {
   from { opacity: 0.9; transform: scale(0.4); }
   to { opacity: 0; transform: scale(1.8); }
-}
-/* A selection box being dragged open from its top-left corner. */
-@keyframes agent-drag {
-  from { clip-path: inset(0 100% 100% 0 round 14px); }
-  /* Ends past the edges so name badges sitting on the border aren't cut off. */
-  to { clip-path: inset(-30px -30px -30px -30px round 14px); }
 }
 @keyframes agent-target {
   from { opacity: 0; transform: scale(1.12); }
@@ -772,7 +794,6 @@
 .welcome-card[data-landed="1"] .welcome-icon { transform: none; }
 .welcome-reveal { opacity: 0; transform: translateY(10px); filter: blur(4px); transition: opacity 600ms ease, transform 700ms cubic-bezier(0.22, 0.61, 0.36, 1), filter 600ms ease; }
 .welcome-reveal[data-on="1"] { opacity: 1; transform: none; filter: none; }
-.welcome-marquee { position: absolute; display: none; border: 1.5px dashed; border-radius: 10px; pointer-events: none; transition: opacity 300ms ease; }
 /* Editorial type for the welcome, in the style of Medium. */
 .font-editorial {
   font-family: "Source Serif 4", "Source Serif Pro", Charter, "Iowan Old Style", Georgia, serif;
@@ -780,4 +801,61 @@
 }
 @media (prefers-reduced-motion: reduce) {
   [data-swarm-ui] * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+}
+
+/* Room between panels, so the agents' glow round one never runs into the next.
+   Outside any layer, so it widens the spacing utilities on panel grids and stacks. */
+.grid:has(> .card) { gap: 1.5rem; }
+[class*="space-y-"] > .card:not(:last-child) { margin-block-end: 1.75rem; }
+
+/* ---- Agent cursors (AgentCursor.tsx) ---- */
+.agent-cursor { position: relative; display: block; width: var(--cur-size, 22px); height: var(--cur-size, 22px); margin: calc(var(--cur-size, 22px) * -0.24) 0 0 calc(var(--cur-size, 22px) * -0.24); }
+.agent-cursor svg { display: block; overflow: visible; }
+.agent-cursor .arrow { filter: drop-shadow(0 1.5px 2px rgba(0,0,0,0.28)) drop-shadow(0 5px 8px rgba(0,0,0,0.12)); transform-origin: 3px 3px; transition: transform 120ms ease; stroke-width: 1.5; stroke-linejoin: round; }
+.agent-cursor[data-variant="solid"] .arrow { fill: var(--cur-fill); stroke: var(--cur-rim); }
+.agent-cursor[data-variant="soft"] .arrow { fill: var(--cur-soft); stroke: var(--cur-fill); }
+.agent-cursor .rays, .agent-cursor .rings { fill: none; stroke: var(--cur-fill); stroke-width: 1.6; stroke-linecap: round; opacity: 0; transform-origin: 3px 3px; }
+.agent-cursor .cursor-dot { position: absolute; left: 50%; top: 62%; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff; }
+.is-pressing .agent-cursor .arrow { transform: scale(0.82); }
+.is-clicking .agent-cursor .rays { animation: cursor-rays 420ms ease-out; }
+.is-touching .agent-cursor .rings { animation: cursor-rings 520ms ease-out; }
+@keyframes cursor-rays { 0% { opacity: 0; transform: scale(0.6); } 30% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.25); } }
+@keyframes cursor-rings { 0% { opacity: 0; transform: scale(0.5); } 35% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.5); } }
+.agent-tag {
+  position: absolute; top: 17px; white-space: nowrap; font-weight: 500; font-size: 11px; line-height: 1.35;
+  padding: 3px 8px; border-radius: 7px; color: #f4f5f8; background: rgba(18, 20, 26, 0.86);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.22), inset 0 0 0 1px rgba(255,255,255,0.08);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.agent-tag.small { font-size: 9.5px; padding: 2px 7px; }
+.agent-tag .detail { color: #a9aebc; }
+
+/* ---- Panel glow and the tree (agentStage.ts) ---- */
+@property --ag-spin { syntax: "<angle>"; inherits: true; initial-value: 0deg; }
+.agent-glow { position: absolute; left: 0; top: 0; pointer-events: none; opacity: 0; transition: opacity 700ms ease; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+.agent-glow > span { position: absolute; }
+.agent-glow .ring { inset: calc(var(--p) - 1px); border-radius: calc(var(--r) + 1px); filter: blur(2.6px); opacity: var(--ag-ring-o); }
+.agent-glow .halo { inset: calc(var(--p) - 2px); border-radius: calc(var(--r) + 2px); filter: blur(var(--ag-halo-blur)); opacity: var(--ag-halo-o); }
+.agent-glow .bloom { inset: calc(var(--p) - 9px); border-radius: calc(var(--r) + 9px); filter: blur(var(--ag-bloom-blur)); opacity: var(--ag-bloom-o);
+  -webkit-mask-image: radial-gradient(closest-side, #000 72%, transparent 100%); mask-image: radial-gradient(closest-side, #000 72%, transparent 100%); }
+.agent-glow[data-state="live"] { animation: ag-spin 3.6s linear infinite; }
+.agent-glow[data-state="live"] > span { background: conic-gradient(in oklab from var(--ag-spin), var(--ag-g1), var(--ag-g2) 30%, var(--ag-g3) 50%, var(--ag-g2) 70%, var(--ag-g1)); }
+.agent-glow[data-state="live"] .bloom { background: conic-gradient(in oklab from calc(var(--ag-spin) * -1 + 120deg), var(--ag-g1), var(--ag-g2) 30%, var(--ag-g3) 50%, var(--ag-g2) 70%, var(--ag-g1)); }
+.agent-glow[data-state="done"] > span { background: var(--ag-done); }
+.agent-glow[data-state="done"] .bloom { opacity: var(--ag-done-bloom-o); }
+.agent-glow[data-state="done"] .halo { opacity: calc(var(--ag-halo-o) * 0.7); }
+@keyframes ag-spin { to { --ag-spin: 360deg; } }
+.agent-tree { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.agent-tree .b-glow { fill: none; stroke-width: 3.5; opacity: 0.22; filter: blur(2.5px); }
+.agent-tree .b-core { fill: none; stroke-width: 0.9; stroke-linecap: round; }
+.agent-tree g { transition: opacity 600ms ease; }
+.agent-root {
+  position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-size: 10.5px; font-weight: 600; padding: 4px 10px 4px 8px; border-radius: 999px;
+  background: var(--raised); border: 1px solid var(--separator); color: var(--label);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08); opacity: 0; transition: opacity 400ms ease;
+}
+.agent-root i { width: 7px; height: 7px; border-radius: 50%; background: conic-gradient(var(--ag-g1), var(--ag-g2), var(--ag-g3), var(--ag-g1)); box-shadow: 0 0 8px var(--ag-g2); }
+@media (prefers-reduced-motion: reduce) {
+  .agent-glow[data-state="live"] { animation: none; }
 }

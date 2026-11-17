@@ -69,7 +69,7 @@ export default function SmartDataTable({ columns }: SmartDataTableProps) {
   };
 
   return (
-    <div className="card p-4 sm:p-5 flex flex-col min-h-[300px]">
+    <div className="card p-4 sm:p-4 flex flex-col min-h-[300px]">
       <div className="flex justify-between items-center gap-3 mb-4">
         <h3 className="text-sm font-semibold tracking-tight text-label shrink-0">Data</h3>
         <div className="flex items-center gap-2 min-w-0">

@@ -131,7 +131,7 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
         )}
       </div>
 
-      <div className="card mt-5 p-5 sm:p-6">
+      <div className="card mt-5 p-4 sm:p-5">
         {!issues && !loading && !error && (
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-blue/12 text-blue flex items-center justify-center shrink-0">

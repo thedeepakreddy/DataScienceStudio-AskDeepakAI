@@ -98,7 +98,7 @@ export interface DriverContext {
   pace?: number;
   /** Holds the agent while the run is paused (for example when the user takes over). */
   waitIfPaused?: () => Promise<void>;
-  /** Longest the page may hold an agent while it draws (default 2 s). */
+  /** Longest the page may hold an agent while it draws (default 3.2 s: a panel lighting up and the worker moving in). */
   visualCap?: number;
 }
 
@@ -112,11 +112,11 @@ export class Driver {
 
   // Long enough for the pointer to finish its curved, human-paced move, and
   // unhurried enough for a person to follow each step.
-  private get pace() { return this.ctx.pace ?? 900; }
+  private get pace() { return this.ctx.pace ?? 760; }
 
   /** Waits for the pointer's travel and for the page to finish drawing the step. */
   private async hold(ev: InteractionEvent) {
-    await Promise.all([sleep(this.pace, this.ctx.signal), interactions.ready(ev, this.ctx.visualCap ?? 2000)]);
+    await Promise.all([sleep(this.pace, this.ctx.signal), interactions.ready(ev, this.ctx.visualCap ?? 3200)]);
   }
 
   /** Waits for a control to appear (after a step change), up to `timeout`. */
@@ -226,3 +226,6 @@ export function waitForLoggedRun<T = any>(kind: string, signal: AbortSignal, tim
 }
 
 export const RUN_LOGGED_EVENT = 'studio:run-logged';
+
+/** Sent when the current run is cleared (Clear in the chat or the Agents panel): the panel glows go out. */
+export const SWARM_CLEARED_EVENT = 'studio:swarm-cleared';

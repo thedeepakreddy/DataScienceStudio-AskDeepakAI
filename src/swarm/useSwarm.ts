@@ -10,6 +10,7 @@ import { apiFetch } from '../utils/api';
 import { ChatTurn, aiReviewRun, planRequest, PlanOutcome } from './gateway';
 import { TaskSpec, validatePlan } from './plan';
 import { RuntimeOptions, RuntimePort, SwarmRun, SwarmRuntime, newRun } from './runtime';
+import { SWARM_CLEARED_EVENT } from './interaction';
 
 const ACTIVE: SwarmRun['status'][] = ['running', 'paused', 'cancelling', 'awaiting_approval'];
 
@@ -134,6 +135,7 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
     discard: () => {
       if (runtime.current && runtime.current.run.status === 'awaiting_approval') runtime.current.cancel();
       runtime.current = null; setRun(null); setLastPlan(null);
+      window.dispatchEvent(new Event(SWARM_CLEARED_EVENT));
     },
     refreshHistory: () => listSwarmRuns(20).then(setHistory).catch(() => {}),
   };

@@ -198,7 +198,7 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
         </div>
       </div>
 
-      <div className="card p-5 sm:p-6">
+      <div className="card p-4 sm:p-5">
         {tab === 'standardise' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

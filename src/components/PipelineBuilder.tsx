@@ -57,7 +57,7 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
   };
 
   return (
-    <div className="card p-5 sm:p-6 w-full h-full flex flex-col">
+    <div className="card p-4 sm:p-5 w-full h-full flex flex-col">
       <div className="mb-5">
         <h3 className="card-title">Connect a PostgreSQL database</h3>
         <p className="mt-1 text-sm text-label-2">Load up to 2,000 rows from the first table in a PostgreSQL database’s public schema. This is a one-time copy.</p>
