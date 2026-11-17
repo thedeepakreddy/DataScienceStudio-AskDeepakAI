@@ -399,7 +399,7 @@ export default function MLPipeline({
             <div>
               <label className="field-label" htmlFor="ml-target">Predict</label>
               <select
-                id="ml-target"
+                id="ml-target" data-agent="ml-target"
                 value={target}
                 onChange={(e) => handleTargetChange(e.target.value)}
                 className="input"
@@ -499,7 +499,7 @@ export default function MLPipeline({
               <div>
                 <label className="field-label" htmlFor="ml-algorithm">Algorithm</label>
                 <select
-                  id="ml-algorithm"
+                  id="ml-algorithm" data-agent="ml-algorithm"
                   value={selectedAlgorithmId}
                   onChange={(e) => setSelectedAlgorithmId(e.target.value)}
                   className="input"
@@ -660,6 +660,7 @@ export default function MLPipeline({
 
             <button
               type="button"
+              data-agent="ml-train"
               onClick={handleLaunchPipeline}
               disabled={loadingML || selectedFeatures.length === 0}
               aria-busy={loadingML}

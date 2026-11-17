@@ -314,7 +314,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
         <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Fill missing values */}
           <div className="card p-5 sm:p-6 flex flex-col">
-            <h3 className="card-title">Fill missing values</h3>
+            <h3 className="card-title" data-agent="area-fill">Fill missing values</h3>
             <p className="mt-1 text-sm text-label-2">Replace empty cells in a column with a sensible value.</p>
 
             <div className="mt-5 space-y-4 flex-1">
@@ -322,6 +322,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
                 <label className="field-label" htmlFor="impute-col">Column</label>
                 <select
                   id="impute-col"
+                  data-agent="fill-column"
                   value={selectedCol}
                   onChange={(e) => setSelectedCol(e.target.value)}
                   className="input"
@@ -346,6 +347,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
                     <button
                       key={strategy.key}
                       type="button"
+                      data-agent={`fill-strategy-${strategy.key}`}
                       aria-pressed={imputeStrategy === strategy.key}
                       onClick={() => setImputeStrategy(strategy.key as any)}
                       className="option"
@@ -358,14 +360,14 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
               </div>
             </div>
 
-            <button type="button" onClick={handleImputation} className="btn btn-primary w-full mt-5">
+            <button type="button" data-agent="fill-apply" onClick={handleImputation} className="btn btn-primary w-full mt-5">
               Fill Missing Values
             </button>
           </div>
 
           {/* Remove columns */}
           <div className="card p-5 sm:p-6 flex flex-col">
-            <h3 className="card-title">Remove columns</h3>
+            <h3 className="card-title" data-agent="area-remove-columns">Remove columns</h3>
             <p className="mt-1 text-sm text-label-2">
               Drop IDs and anything that won’t help the analysis. IDs can mislead a model.
             </p>
@@ -381,6 +383,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
                     </span>
                     <button
                       type="button"
+                      data-agent={`remove-column-${col.name}`}
                       onClick={() => handleDropColumn(col.name)}
                       className="btn btn-icon w-8 h-8 text-red hover:text-red hover:bg-red/10 shrink-0"
                       title={`Remove ${col.name}`}

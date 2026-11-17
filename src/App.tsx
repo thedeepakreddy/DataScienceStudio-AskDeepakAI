@@ -50,7 +50,12 @@ import ExperimentsPanel from './components/ExperimentsPanel';
 import ForecastPanel from './components/ForecastPanel';
 import DeployPanel from './components/DeployPanel';
 import SwarmPanel from './components/SwarmPanel';
+import AgentCursorLayer from './components/AgentCursorLayer';
+import SwarmTakeover from './components/SwarmTakeover';
 import { useSwarm } from './swarm/useSwarm';
+import { RUN_LOGGED_EVENT } from './swarm/interaction';
+import { runSandboxedDatasetJs } from './utils/sandbox';
+import { datasetFromRecords } from './utils/csvParser';
 import type { RuntimePort } from './swarm/runtime';
 import { WorkspaceContext, RunInput } from './contexts/WorkspaceContext';
 import { describeChange } from './utils/describeChange';
@@ -281,6 +286,8 @@ export default function App() {
   const logRun = useCallback((run: RunInput) => {
     if (run.kind === 'hypothesis-test' || run.kind === 'ab-test') setStatsRunCount(n => n + 1);
     recordRun({ ...run, versionId: activeVersionRef.current }).catch(storageFailed);
+    // Agents operating the page read the results of the buttons they press here.
+    window.dispatchEvent(new CustomEvent(RUN_LOGGED_EVENT, { detail: { ...run, versionId: activeVersionRef.current } }));
   }, []);
 
   const handleDatasetLoaded = (dataset: Dataset) => {
@@ -538,6 +545,7 @@ export default function App() {
       }
 
       setMlResult(parsed);
+      mlResultRef.current = parsed; // agents read it straight after the run is logged
       if (parsed.modelId) keepModelFile(parsed, targetCol);
       const m = parsed.metrics || {};
       const isClf = parsed.modelType === 'classification';
@@ -581,6 +589,8 @@ export default function App() {
   const [swarmOpen, setSwarmOpen] = useState(false);
   const mlResultRef = useRef<MLResult | null>(null);
   useEffect(() => { mlResultRef.current = mlResult; }, [mlResult]);
+  const aiAnalysisRef = useRef<any>(null);
+  useEffect(() => { aiAnalysisRef.current = aiAnalysis; }, [aiAnalysis]);
   const swarmPort: RuntimePort = {
     getDataset: () => activeDatasetRef.current,
     commitDataset: (ds, op, summary) => handleUpdateDataset(ds, op, summary),
@@ -593,6 +603,14 @@ export default function App() {
       if (!res.ok || !json) throw new Error(`${json?.error || 'Request failed'}${res.status >= 500 ? ` (HTTP ${res.status})` : ''}`);
       return json;
     },
+    resetOriginal: () => handleResetOriginal(),
+    runCode: async (code, ds) => {
+      const out = await runSandboxedDatasetJs(code, ds);
+      if (!out || !Array.isArray(out.rows)) throw new Error('The code didn’t return data with rows.');
+      const cols = Object.keys(out.rows[0] ?? {});
+      return datasetFromRecords(cols, out.rows.map((r: Record<string, unknown>) => ({ ...r })), ds.filename);
+    },
+    runAdvisory: async () => { await triggerAIScan(); return aiAnalysisRef.current; },
     settle: async () => { await saveQueue.current; return activeVersionRef.current; },
     findAppliedVersion: async (parentId, capability, params) => {
       if (!capability.startsWith('data.') || !datasetId) return null;
@@ -602,6 +620,11 @@ export default function App() {
     },
   };
   const swarm = useSwarm(swarmPort, { datasetId, activeVersionId }, activeDataset);
+  const undoSwarmRun = async (versionId: string) => {
+    await saveQueue.current;
+    const v = await getVersion(versionId);
+    if (v) handleUseVersion(v);
+  };
 
   // A stage counts as complete once its key action has been done. Completion
   // drives the checkmarks and the emphasis of "Continue" — it never locks a step.
@@ -672,6 +695,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setSwarmOpen(true)}
+              data-swarm-ui
               className="btn btn-icon relative"
               aria-label="Agents"
               title="Agents"
@@ -740,6 +764,7 @@ export default function App() {
                 <button
                   key={id}
                   type="button"
+                  data-agent={`nav-${id}`}
                   onClick={() => setActiveTab(id)}
                   disabled={isLocked}
                   aria-current={isSelected ? 'step' : undefined}
@@ -1014,31 +1039,22 @@ export default function App() {
       </footer>
 
       {/* Assistive Touch Dynamic Gemini Co-pilot (Drag and move anywhere, controls all pipeline stages & data) */}
+      {/* The agents at work on this page, and the user's way to take over. */}
+      <AgentCursorLayer />
+      <SwarmTakeover status={swarm.run?.status ?? null} onPause={swarm.pause} onResume={swarm.resume} onCancel={swarm.cancel} />
+
       <AssistiveTouchBot
-        activeDataset={activeDataset}
-        onUpdateDataset={handleUpdateDataset}
-        onResetOriginal={handleResetOriginal}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        triggerAIScan={triggerAIScan}
-        triggerPrediction={triggerPrediction}
-        activeVersionId={activeVersionId}
-        onRestoreVersion={async id => {
-          await saveQueue.current;
-          const v = await getVersion(id);
-          if (v) handleUseVersion(v);
-        }}
+        swarm={swarm}
+        onUndoAll={undoSwarmRun}
+        onOpenDetails={() => setSwarmOpen(true)}
       />
 
       <AnimatePresence>
         {swarmOpen && (
           <SwarmPanel
             onClose={() => setSwarmOpen(false)}
-            hasDataset={!!activeDataset}
             run={swarm.run}
-            planning={swarm.planning}
-            lastPlan={swarm.lastPlan}
-            onPlan={swarm.plan}
+            history={swarm.history}
             onApproveAndRun={swarm.approveAndRun}
             onApproveTask={swarm.approveTask}
             onPause={swarm.pause}
@@ -1046,7 +1062,7 @@ export default function App() {
             onCancel={swarm.cancel}
             onCancelTask={swarm.cancelTask}
             onDiscard={swarm.discard}
-            onUndoAll={async id => { await saveQueue.current; const v = await getVersion(id); if (v) handleUseVersion(v); }}
+            onUndoAll={undoSwarmRun}
           />
         )}
       </AnimatePresence>

@@ -72,7 +72,7 @@ export default function StatsRegression({ dataset }: { dataset: Dataset }) {
     <div className="space-y-6">
       <div className="card p-5 sm:p-6 space-y-4">
         <div>
-          <h3 className="card-title">Regression</h3>
+          <h3 className="card-title" data-agent="area-regression">Regression</h3>
           <p className="mt-1 text-sm text-label-2">
             See how each column relates to an outcome while the others are held fixed. A number outcome uses linear regression;
             a yes/no outcome uses logistic regression. Text columns are compared against their first category.
@@ -81,13 +81,13 @@ export default function StatsRegression({ dataset }: { dataset: Dataset }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="field-label" htmlFor="reg-outcome">Outcome</label>
-            <select id="reg-outcome" className="input" value={outcome} onChange={e => setOutcome(e.target.value)}>
+            <select id="reg-outcome" data-agent="reg-outcome" className="input" value={outcome} onChange={e => setOutcome(e.target.value)}>
               {names.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
           <div>
             <label className="field-label" htmlFor="reg-kind">Model</label>
-            <select id="reg-kind" className="input" value={kind} onChange={e => setKind(e.target.value as typeof kind)}>
+            <select id="reg-kind" data-agent="reg-kind" className="input" value={kind} onChange={e => setKind(e.target.value as typeof kind)}>
               <option value="auto">Automatic ({resolvedKind})</option>
               <option value="linear">Linear (number outcome)</option>
               <option value="logistic">Logistic (yes/no outcome)</option>
@@ -101,6 +101,7 @@ export default function StatsRegression({ dataset }: { dataset: Dataset }) {
               <label key={c.name} className="flex items-center gap-2 text-sm text-label">
                 <input
                   type="checkbox"
+                  data-agent={`reg-pred-${c.name}`}
                   checked={predictors.includes(c.name)}
                   onChange={e => setPredictors(e.target.checked ? [...predictors, c.name] : predictors.filter(p => p !== c.name))}
                 />
@@ -109,7 +110,7 @@ export default function StatsRegression({ dataset }: { dataset: Dataset }) {
             ))}
           </div>
         </fieldset>
-        <button type="button" onClick={run} disabled={loading || chosen.length === 0} aria-busy={loading} className="btn btn-primary">
+        <button type="button" data-agent="reg-run" onClick={run} disabled={loading || chosen.length === 0} aria-busy={loading} className="btn btn-primary">
           {loading ? <><Orb state="solving" onAccent label="Fitting the model" /> Fitting…</> : 'Run Regression'}
         </button>
         {error && (

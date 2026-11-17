@@ -89,7 +89,7 @@ export default function ForecastPanel({ dataset }: { dataset: Dataset }) {
   return (
     <section className="card p-5 sm:p-6 space-y-5" aria-labelledby="forecast-heading">
       <div>
-        <h2 id="forecast-heading" className="card-title">Forecast</h2>
+        <h2 id="forecast-heading" data-agent="area-forecast" className="card-title">Forecast</h2>
         <p className="mt-1 text-sm text-label-2">
           Simple, proven forecasting methods are each tested on your past data (backtesting); the most accurate one makes the forecast,
           and the shaded range comes from its real past errors.
@@ -98,26 +98,26 @@ export default function ForecastPanel({ dataset }: { dataset: Dataset }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div>
           <label className="field-label" htmlFor="fc-date">Date column</label>
-          <select id="fc-date" className="input" value={dateCol} onChange={e => setDateCol(e.target.value)}>
+          <select id="fc-date" data-agent="fc-date" className="input" value={dateCol} onChange={e => setDateCol(e.target.value)}>
             {dateCols.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div>
           <label className="field-label" htmlFor="fc-value">Value to forecast</label>
-          <select id="fc-value" className="input" value={valueCol} onChange={e => setValueCol(e.target.value)}>
+          <select id="fc-value" data-agent="fc-value" className="input" value={valueCol} onChange={e => setValueCol(e.target.value)}>
             {numCols.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div>
           <label className="field-label" htmlFor="fc-agg">Combine rows in a period by</label>
-          <select id="fc-agg" className="input" value={agg} onChange={e => setAgg(e.target.value as 'sum' | 'mean')}>
+          <select id="fc-agg" data-agent="fc-agg" className="input" value={agg} onChange={e => setAgg(e.target.value as 'sum' | 'mean')}>
             <option value="sum">Total</option>
             <option value="mean">Average</option>
           </select>
         </div>
         <div>
           <label className="field-label" htmlFor="fc-freq">Period</label>
-          <select id="fc-freq" className="input" value={freq} onChange={e => setFreq(e.target.value)}>
+          <select id="fc-freq" data-agent="fc-freq" className="input" value={freq} onChange={e => setFreq(e.target.value)}>
             <option value="auto">Automatic</option>
             <option value="D">Day</option>
             <option value="W">Week</option>
@@ -128,10 +128,10 @@ export default function ForecastPanel({ dataset }: { dataset: Dataset }) {
         </div>
         <div>
           <label className="field-label" htmlFor="fc-h">Periods ahead</label>
-          <input id="fc-h" type="number" min={1} max={365} className="input" value={horizon} onChange={e => setHorizon(Math.max(1, Math.min(365, Number(e.target.value) || 1)))} />
+          <input id="fc-h" data-agent="fc-h" type="number" min={1} max={365} className="input" value={horizon} onChange={e => setHorizon(Math.max(1, Math.min(365, Number(e.target.value) || 1)))} />
         </div>
       </div>
-      <button type="button" onClick={run} disabled={loading || !valueCol} aria-busy={loading} className="btn btn-primary">
+      <button type="button" data-agent="fc-run" onClick={run} disabled={loading || !valueCol} aria-busy={loading} className="btn btn-primary">
         {loading ? <><Orb state="solving" onAccent label="Backtesting forecasts" /> Backtesting…</> : 'Forecast'}
       </button>
       {error && (

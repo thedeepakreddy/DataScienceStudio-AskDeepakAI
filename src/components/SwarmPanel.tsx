@@ -5,20 +5,17 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertTriangle, CheckCircle2, CircleSlash, Pause, Play, Square, Users, X, XCircle } from 'lucide-react';
-import Orb from './Orb';
+import { Pause, Play, Square, Users, X } from 'lucide-react';
 import { AGENTS } from '../swarm/agents';
 import { CAPABILITIES } from '../swarm/catalog';
-import type { PlanOutcome } from '../swarm/gateway';
 import type { SwarmRun, TaskState } from '../swarm/runtime';
+import { STATUS_TEXT, TaskIcon, canUndo, plannedByText, taskLabel } from './swarmBits';
 
 interface SwarmPanelProps {
   onClose: () => void;
-  hasDataset: boolean;
   run: SwarmRun | null;
-  planning: boolean;
-  lastPlan: PlanOutcome | null;
-  onPlan: (request: string) => Promise<PlanOutcome>;
+  /** Recent runs, newest first. */
+  history: SwarmRun[];
   onApproveAndRun: () => void;
   onApproveTask: (id: string) => void;
   onPause: () => void;
@@ -29,26 +26,29 @@ interface SwarmPanelProps {
   onUndoAll: (versionId: string) => void;
 }
 
-const EXAMPLES = ['Clean the data and train a model', 'Do a full analysis and write a report', 'Test which columns relate to the outcome'];
-
-const STATUS_TEXT: Record<string, string> = {
-  awaiting_approval: 'Waiting for your approval', running: 'Working', paused: 'Paused', cancelling: 'Cancelling…',
-  completed: 'Completed', partial: 'Partly completed', failed: 'Failed', cancelled: 'Cancelled',
-};
-
-function TaskIcon({ t }: { t: TaskState }) {
-  if (t.status === 'running' || t.status === 'verifying') return <Orb state={t.status === 'verifying' ? 'searching' : 'working'} label={t.status} />;
-  if (t.status === 'completed') return <CheckCircle2 className="w-4 h-4 text-green" aria-label="Completed" />;
-  if (t.status === 'failed') return <XCircle className="w-4 h-4 text-red" aria-label="Failed" />;
-  if (t.status === 'blocked' || t.status === 'awaiting_approval') return <AlertTriangle className="w-4 h-4 text-orange" aria-label={t.status} />;
-  if (t.status === 'cancelled') return <CircleSlash className="w-4 h-4 text-label-3" aria-label="Cancelled" />;
-  return <span className="w-2 h-2 rounded-full bg-fill-strong" aria-label="Waiting" />;
+/** Groups tasks into levels: a task sits one level after the last task it waits for. */
+export function taskLevels(tasks: TaskState[]): TaskState[][] {
+  const level = new Map<string, number>();
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  const of = (t: TaskState, seen = new Set<string>()): number => {
+    if (level.has(t.id)) return level.get(t.id)!;
+    if (seen.has(t.id)) return 0;
+    seen.add(t.id);
+    const deps = t.dependsOn.map(d => byId.get(d)).filter(Boolean) as TaskState[];
+    const l = deps.length ? Math.max(...deps.map(d => of(d, seen))) + 1 : 0;
+    level.set(t.id, l);
+    return l;
+  };
+  const out: TaskState[][] = [];
+  for (const t of tasks) (out[of(t)] ??= []).push(t);
+  return out.filter(Boolean);
 }
 
-/** Ask the agent team for something, review its plan, and follow the work. */
+const INCIDENT_TEXT = { detected: 'Detected', diagnosing: 'Diagnosing', repairing: 'Repairing', validating: 'Checking the repair', closed: 'Fixed', escalated: 'Needs you' } as const;
+
+/** The team's work in detail: task map, steps, reviews, incidents and messages. Requests are made in the Ask AI chat. */
 export default function SwarmPanel(props: SwarmPanelProps) {
-  const { run, planning, lastPlan } = props;
-  const [request, setRequest] = useState('');
+  const { run } = props;
   const [showMessages, setShowMessages] = useState(false);
 
   useEffect(() => {
@@ -57,16 +57,11 @@ export default function SwarmPanel(props: SwarmPanelProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [props]);
 
-  const submit = async (text: string) => {
-    if (!text.trim() || planning) return;
-    await props.onPlan(text.trim());
-  };
-
   const active = run && !['completed', 'partial', 'failed', 'cancelled'].includes(run.status);
   const t = run?.telemetry;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-50 flex justify-end" data-swarm-ui>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={props.onClose} className="absolute inset-0 bg-[var(--scrim)]" />
       <motion.aside
         role="dialog"
@@ -90,33 +85,23 @@ export default function SwarmPanel(props: SwarmPanelProps) {
         </div>
 
         {!run && (
-          <form onSubmit={e => { e.preventDefault(); submit(request); }} className="space-y-3">
-            <label htmlFor="swarm-request" className="field-label">What do you need?</label>
-            <textarea
-              id="swarm-request"
-              rows={3}
-              className="w-full bg-well border border-separator rounded-xl p-3 text-sm text-label focus:outline-none focus:border-blue/50 resize-none"
-              placeholder="e.g. Clean the data, test what relates to churn, train a model and write a report"
-              value={request}
-              onChange={e => setRequest(e.target.value)}
-              disabled={!props.hasDataset}
-            />
-            <div className="flex flex-wrap gap-2">
-              {EXAMPLES.map(x => (
-                <button key={x} type="button" className="tag hover:bg-fill-strong" disabled={!props.hasDataset} onClick={() => { setRequest(x); submit(x); }}>{x}</button>
-              ))}
-            </div>
-            <button type="submit" className="btn btn-primary" disabled={!request.trim() || planning || !props.hasDataset} aria-busy={planning}>
-              {planning ? <><Orb state="weaving" onAccent label="Planning" /> Planning…</> : 'Plan'}
-            </button>
-            {!props.hasDataset && <p className="text-sm text-label-2">Import a dataset first.</p>}
-            {lastPlan && lastPlan.problems.length > 0 && (
-              <div role="alert" className="rounded-xl bg-orange/10 px-3 py-2.5 text-sm text-label space-y-1">
-                <p className="font-medium">{lastPlan.reply || 'The plan couldn’t be used.'}</p>
-                {lastPlan.problems.map((p, i) => <p key={i} className="text-xs text-label-2">{p.taskId ? `${p.taskId}: ` : ''}{p.message}</p>)}
-              </div>
+          <div className="space-y-4">
+            <p className="text-sm text-label-2">Ask the team in the <span className="text-label font-medium">Ask AI</span> chat — for example “Clean the data and train a model”. You’ll see each agent working on this page, and the details appear here.</p>
+            {props.history.length > 0 && (
+              <section aria-labelledby="recent-runs" className="space-y-2">
+                <h3 id="recent-runs" className="section-title">Recent runs</h3>
+                <ul className="space-y-1.5">
+                  {props.history.slice(0, 8).map(h => (
+                    <li key={h.id} className="rounded-xl bg-well px-3 py-2 text-sm">
+                      <p className="text-label truncate">“{h.request}”</p>
+                      <p className="text-xs text-label-2">{STATUS_TEXT[h.status]} · {h.tasks.length} tasks · {new Date(h.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                      {h.report && <p className="text-xs text-label-3">{h.report.headline}</p>}
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
-          </form>
+          </div>
         )}
 
         {run && (
@@ -125,7 +110,7 @@ export default function SwarmPanel(props: SwarmPanelProps) {
               <p className="text-sm text-label-2">“{run.request}”</p>
               {run.reply && <p className="text-sm text-label">{run.reply}</p>}
               <p className="text-xs text-label-3">
-                Planned by {run.plannedBy === 'rules' ? 'built-in rules (no AI call)' : run.plannedBy === 'cache' ? 'a saved plan (no AI call)' : 'AI (1 call)'} · {STATUS_TEXT[run.status]}
+                Planned by {plannedByText(run)} · {STATUS_TEXT[run.status]}
               </p>
             </div>
 
@@ -139,11 +124,28 @@ export default function SwarmPanel(props: SwarmPanelProps) {
               {run.status === 'running' && <button type="button" className="btn btn-secondary" onClick={props.onPause}><Pause className="w-4 h-4" /> Pause</button>}
               {run.status === 'paused' && <button type="button" className="btn btn-secondary" onClick={props.onResume}><Play className="w-4 h-4" /> Resume</button>}
               {active && <button type="button" className="btn btn-secondary" onClick={props.onCancel}><Square className="w-4 h-4" /> Cancel All</button>}
-              {!active && <button type="button" className="btn btn-secondary" onClick={props.onDiscard}>New Request</button>}
+              {!active && <button type="button" className="btn btn-secondary" onClick={props.onDiscard}>Clear</button>}
               {run.status === 'awaiting_approval' && run.tasks.every(x => x.status === 'pending' || x.status === 'awaiting_approval') && (
                 <button type="button" className="btn btn-plain" onClick={props.onDiscard}>Discard Plan</button>
               )}
             </div>
+
+            <section aria-labelledby="task-map" className="space-y-2">
+              <h3 id="task-map" className="section-title">Task map</h3>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {taskLevels(run.tasks).map((lvl, i) => (
+                  <div key={i} className="flex flex-col gap-1.5 min-w-[150px]">
+                    <span className="text-[11px] text-label-3">{i === 0 ? 'First' : `Then (${i + 1})`}</span>
+                    {lvl.map(t => (
+                      <div key={t.id} className="rounded-xl border px-2 py-1.5 text-xs flex items-start gap-1.5" style={{ borderColor: AGENTS[t.role].color }}>
+                        <span className="w-4 h-4 flex items-center justify-center shrink-0"><TaskIcon t={t} /></span>
+                        <span className="text-label leading-snug">{taskLabel(t)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </section>
 
             <ol className="space-y-2">
               {run.tasks.map(task => {
@@ -154,7 +156,7 @@ export default function SwarmPanel(props: SwarmPanelProps) {
                     <div className="flex items-start gap-3">
                       <span className="w-5 h-5 flex items-center justify-center shrink-0 mt-0.5"><TaskIcon t={task} /></span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm text-label">{cap?.label(task.params) ?? task.capability}</p>
+                        <p className="text-sm text-label">{taskLabel(task)}</p>
                         <p className="text-xs text-label-2">
                           <span className="font-medium" style={{ color: agent.color }}>{agent.name}</span>
                           {task.dynamic && ' · added while running'}
@@ -163,7 +165,8 @@ export default function SwarmPanel(props: SwarmPanelProps) {
                         </p>
                         {task.why && task.status === 'pending' && <p className="mt-1 text-xs text-label-3">{task.why}</p>}
                         {task.result?.summary && <p className="mt-1 text-xs text-label">{task.result.summary}</p>}
-                        {task.check && <p className={`mt-0.5 text-xs ${task.check.ok ? 'text-label-2' : 'text-red'}`}>Self-check: {task.check.detail}</p>}
+                        {task.check && <p className={`mt-0.5 text-xs ${task.check.ok ? 'text-label-2' : 'text-red'}`}>{task.check.kind === 'independent' ? 'Independent review' : 'Self-check'}: {task.check.detail}</p>}
+                        {task.usedPage && <p className="mt-0.5 text-xs text-label-3">Done through the controls on the page.</p>}
                         {(task.error || task.note) && task.status !== 'completed' && <p className="mt-0.5 text-xs text-orange">{task.error ?? task.note}</p>}
                       </div>
                       <div className="flex flex-col gap-1 shrink-0">
@@ -190,10 +193,28 @@ export default function SwarmPanel(props: SwarmPanelProps) {
                 {run.report.problems.length > 0 && (
                   <ul className="text-sm text-orange list-disc pl-5 space-y-0.5">{run.report.problems.map(p => <li key={p.label}>{p.label} — {p.status}: {p.reason}</li>)}</ul>
                 )}
+                {run.report.reviews.length > 0 && (
+                  <ul className="text-sm list-disc pl-5 space-y-0.5">{run.report.reviews.map(r => <li key={r.label} className={r.agrees ? 'text-label-2' : 'text-orange'}>{r.agrees ? 'Review agrees' : 'Contradiction'} — {r.label}: {r.detail}</li>)}</ul>
+                )}
                 {run.report.limitations.map(l => <p key={l} className="text-xs text-label-2">{l}</p>)}
-                {run.startVersionId && run.report.data.endVersionId !== run.startVersionId && (
+                {canUndo(run) && (
                   <button type="button" className="btn btn-sm btn-secondary" onClick={() => props.onUndoAll(run.startVersionId!)}>Undo All Data Changes</button>
                 )}
+              </section>
+            )}
+
+            {(run.incidents?.length ?? 0) > 0 && (
+              <section aria-labelledby="incidents" className="space-y-2">
+                <h3 id="incidents" className="section-title">Incidents</h3>
+                <ul className="space-y-1.5">
+                  {run.incidents!.map(i => (
+                    <li key={i.id} className="rounded-xl bg-well px-3 py-2 text-xs space-y-0.5">
+                      <p className={i.state === 'escalated' ? 'text-orange font-medium' : 'text-label font-medium'}>{INCIDENT_TEXT[i.state]}: {i.diagnosis}</p>
+                      {i.repairLabel && <p className="text-label-2">Repair: {i.repairLabel}</p>}
+                      {i.log.map((l, k) => <p key={k} className="text-label-3">{l}</p>)}
+                    </li>
+                  ))}
+                </ul>
               </section>
             )}
 

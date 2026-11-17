@@ -118,6 +118,14 @@ export function rulePlan(request: string, ds: Dataset | null): RulePlan {
     tasks.push({ id, capability, params, role: CAPABILITIES[capability].defaultRole, dependsOn, why });
     return id;
   };
+  // Direct commands ("drop the X column", "fill missing values with mean",
+  // "open the dashboard") are planned exactly, before the broader keywords.
+  const direct = commandPlan(request, text, ds, cols);
+  if (direct.length) {
+    direct.forEach((d, i) => add(d.capability, d.params, d.why, i > 0 && CAPABILITIES[d.capability].sideEffect === 'new-version' ? [`t${i}`] : []));
+    return { tasks, reply: tasks.length === 1 ? `I’ll ${tasks[0].why.charAt(0).toLowerCase()}${tasks[0].why.slice(1)}` : `I’ve planned ${tasks.length} tasks.` };
+  }
+
   const everything = has(text, 'everything', 'full analysis', 'end to end', 'end-to-end', 'complete analysis', 'whole pipeline', 'analy[sz]e (this|the|my) data');
 
   const wantsClean = everything || has(text, 'clean', 'prepare', 'tidy', 'fix (the )?data', 'quality');
@@ -174,6 +182,45 @@ export function rulePlan(request: string, ds: Dataset | null): RulePlan {
   if (tasks.length === 0) return { tasks, reply: '' };
   const roles = [...new Set(tasks.map(t => t.role))].length;
   return { tasks, reply: `I’ve planned ${tasks.length} task${tasks.length === 1 ? '' : 's'} for ${roles} specialist${roles === 1 ? '' : 's'}.` };
+}
+
+const STEP_WORDS: [RegExp, string][] = [
+  [/\b(import|upload)\b/, 'ingest'], [/\bclean(ing)?\b/, 'clean'], [/\b(explore|eda)\b/, 'eda'],
+  [/\bstat(istic)?s?\b/, 'stats'], [/\b(model|ml|training)\b/, 'ml'], [/\bdashboard\b/, 'dashboard'], [/\breports?\b/, 'reports'],
+];
+
+type Direct = { capability: string; params: Record<string, unknown>; why: string };
+
+/** Exact single commands. Returns nothing when the request isn't one. */
+function commandPlan(request: string, text: string, ds: Dataset, cols: string[]): Direct[] {
+  const out: Direct[] = [];
+  if (/^\s*(select|with)\b/i.test(request)) return [{ capability: 'sql.query', params: { sql: request.trim() }, why: 'Run your SQL query on the data.' }];
+  if (has(text, 'reset', 'restore (the )?(original|data)', 'undo everything')) return [{ capability: 'data.reset', params: {}, why: 'Restore the data as it was imported.' }];
+
+  if (cols.length && /\b(drop|remove|delete)\b/.test(text) && /\bcolumns?\b/.test(text)) {
+    return [{ capability: 'data.drop_columns', params: { columns: cols }, why: `Remove ${cols.map(c => `“${c}”`).join(', ')}.` }];
+  }
+  if (/\b(remove|drop|delete|dedupe|de-duplicate)\b.*\bduplicat/.test(text) || /^\s*dedupe/.test(text)) {
+    return [{ capability: 'data.remove_duplicates', params: {}, why: 'Remove duplicate rows.' }];
+  }
+  if (/\b(fill|impute)\b/.test(text) && /\b(missing|empty|blank|null|nan|gaps?)\b/.test(text)) {
+    const strategy = /\bmedian\b/.test(text) ? 'median' : /\b(mode|most common|most frequent)\b/.test(text) ? 'mode' : /\b(zero|0)\b/.test(text) ? 'zero' : 'mean';
+    const targets = (cols.length ? cols : ds.columns.filter(c => c.missingCount > 0).map(c => c.name));
+    for (const c of targets) {
+      const column = ds.columns.find(x => x.name === c)!;
+      if (!column.missingCount) continue;
+      // Averages only make sense for numbers; text columns get the most common value.
+      const s = column.type !== 'numeric' && (strategy === 'mean' || strategy === 'median') ? 'mode' : strategy;
+      out.push({ capability: 'data.fill_missing', params: { column: c, strategy: s }, why: `Fill the missing values in “${c}” with the ${s === 'zero' ? 'value 0' : s}.` });
+    }
+    return out.slice(0, 12);
+  }
+  if (/\b(open|go to|show|take me to|switch to|navigate to)\b/.test(text)) {
+    const step = STEP_WORDS.find(([re]) => re.test(text))?.[1];
+    if (step && !/\b(train|test|forecast|build|run)\b/.test(text)) return [{ capability: 'nav.open_step', params: { step }, why: `Open the ${step} step.` }];
+  }
+  if (has(text, 'ai scan', 'advisory', 'ai insight', 'ai analysis')) return [{ capability: 'explore.ai_advisory', params: {}, why: 'Run the AI advisory on the dataset.' }];
+  return out;
 }
 
 /** Normalises a plan from the AI planner into task specs (ids, defaults). */

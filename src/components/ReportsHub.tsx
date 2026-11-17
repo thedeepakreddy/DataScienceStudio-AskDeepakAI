@@ -308,10 +308,10 @@ ${activeModel ? '- `model_card.md`: the active registered model’s card.\n' : '
           <button type="button" onClick={() => window.print()} className="btn btn-secondary">
             <Printer className="w-4 h-4" /> Print
           </button>
-          <button type="button" onClick={handleDownloadPackage} disabled={packaging} className="btn btn-secondary" title="Data, lineage, analyses, notebook and report in one ZIP">
+          <button type="button" data-agent="report-package" onClick={handleDownloadPackage} disabled={packaging} className="btn btn-secondary" title="Data, lineage, analyses, notebook and report in one ZIP">
             <Package className="w-4 h-4" /> Reproducibility Package
           </button>
-          <button type="button" onClick={handleDownloadPDF} className="btn btn-primary" title="Download an A4 PDF">
+          <button type="button" data-agent="report-pdf" onClick={handleDownloadPDF} className="btn btn-primary" title="Download an A4 PDF">
             <Download className="w-4 h-4" /> Download PDF
           </button>
         </div>

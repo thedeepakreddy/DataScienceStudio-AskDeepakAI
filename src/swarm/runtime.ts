@@ -7,6 +7,9 @@ import type { Dataset } from '../types';
 import { AGENTS, AgentRole } from './agents';
 import { CAPABILITIES, Capability, CapabilityResult, StudioPort } from './catalog';
 import { LIMITS, TaskSpec, TaskStatus } from './plan';
+import { Driver } from './interaction';
+import { needsReview } from './review';
+import { Incident, IncidentState, RECOVERY_LIMITS, diagnose, fingerprint } from './recovery';
 
 // The swarm's durable runtime (blueprint 7). Every state change is saved, so
 // a run survives a page reload; tasks start only when their dependencies are
@@ -22,7 +25,7 @@ export interface TaskState extends TaskSpec {
   endedAt?: number;
   result?: { summary: string; data?: unknown };
   /** The producing agent's own check (never shown as independent verification). */
-  check?: { ok: boolean; detail: string; kind: 'self-check' };
+  check?: { ok: boolean; detail: string; kind: 'self-check' | 'independent' };
   error?: string;
   /** Why it is blocked or waiting. */
   note?: string;
@@ -30,6 +33,11 @@ export interface TaskState extends TaskSpec {
   inputVersionId?: string | null;
   outputVersionId?: string | null;
   cancelRequested?: boolean;
+  /** Recovery: run the operation directly instead of through the page, or with more time. */
+  forceDirect?: boolean;
+  timeBoost?: number;
+  /** Whether it was carried out through the controls on the page. */
+  usedPage?: boolean;
 }
 
 export type BusMessageType = 'assignment' | 'status' | 'finding' | 'handoff' | 'approval_request' | 'failure' | 'recovery' | 'challenge';
@@ -62,6 +70,9 @@ export interface CompletionReport {
   headline: string;
   done: { label: string; role: AgentRole; summary: string; check?: string }[];
   problems: { label: string; role: AgentRole; status: TaskStatus; reason: string }[];
+  /** Independent reviews and any contradictions they found. */
+  reviews: { label: string; agrees: boolean; detail: string }[];
+  incidents: { diagnosis: string; state: IncidentState; repair?: string }[];
   data: { startVersionId: string | null; endVersionId: string | null; rows?: number; columns?: number };
   limitations: string[];
   telemetry: Telemetry;
@@ -82,6 +93,9 @@ export interface SwarmRun {
   messages: BusMessage[];
   telemetry: Telemetry;
   dynamicAdded: number;
+  /** Self-healing incidents opened during the run. */
+  incidents?: Incident[];
+  reviews?: number;
   report?: CompletionReport;
 }
 
@@ -107,7 +121,18 @@ export function newRun(opts: { request: string; reply: string; plannedBy: SwarmR
     messages: [],
     telemetry: { aiCalls: opts.aiCalls ?? 0, inputTokens: opts.inputTokens ?? 0, outputTokens: opts.outputTokens ?? 0, cacheHits: opts.cacheHit ? 1 : 0, deterministicOps: 0, retries: 0, failures: 0 },
     dynamicAdded: 0,
+    incidents: [],
+    reviews: 0,
   };
+}
+
+export interface RuntimeOptions {
+  /** True when agents should work through the controls on the user's page. */
+  onPage?: () => boolean;
+  /** Pointer travel time in ms (0 in tests). */
+  pace?: number;
+  /** Wakes the ML service (a recovery repair). */
+  wakeMl?: () => Promise<boolean>;
 }
 
 export class SwarmRuntime {
@@ -118,9 +143,13 @@ export class SwarmRuntime {
   private controllers = new Map<string, AbortController>();
   private dataLock = false;
   private ticking = false;
+  /** The task currently operating the user's page (one at a time). */
+  private pageOwner: string | null = null;
+  private opts: RuntimeOptions;
 
-  constructor(run: SwarmRun, port: RuntimePort, persist: (run: SwarmRun) => Promise<void>, onChange: (run: SwarmRun) => void) {
-    this.run = run;
+  constructor(run: SwarmRun, port: RuntimePort, persist: (run: SwarmRun) => Promise<void>, onChange: (run: SwarmRun) => void, opts: RuntimeOptions = {}) {
+    this.opts = opts;
+    this.run = { incidents: [], reviews: 0, ...run };
     this.port = port;
     this.persist = persist;
     this.onChange = onChange;
@@ -320,9 +349,10 @@ export class SwarmRuntime {
       // Inputs are checked again against the data as it is now (5.3).
       const invalid = cap.validate(t.params, before);
       if (invalid) throw Object.assign(new Error(invalid), { permanent: true });
+      const limit = cap.timeoutMs * (this.task(id).timeBoost ?? 1);
       const result: CapabilityResult = await Promise.race([
-        cap.run(t.params, this.port, controller.signal),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Timed out after ${Math.round(cap.timeoutMs / 1000)}s.`)), cap.timeoutMs)),
+        this.perform(this.task(id), cap, controller.signal),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Timed out after ${Math.round(limit / 1000)}s.`)), limit)),
       ]);
       if (this.task(id).cancelRequested) throw Object.assign(new Error('Cancelled.'), { cancelled: true });
       this.patch(id, { status: 'verifying' });
@@ -332,12 +362,14 @@ export class SwarmRuntime {
       this.run.telemetry = { ...this.run.telemetry, deterministicOps: this.run.telemetry.deterministicOps + 1 };
       this.patch(id, {
         status: check.ok ? 'completed' : 'failed', endedAt: Date.now(), result: { summary: result.summary, data: result.data },
-        check: { ...check, kind: 'self-check' }, outputVersionId, error: check.ok ? undefined : check.detail,
+        check: { ...check, kind: cap.id === 'verify.review' ? 'independent' : 'self-check' }, outputVersionId, error: check.ok ? undefined : check.detail,
       });
       this.say(t.role, 'orchestrator', check.ok ? 'finding' : 'failure', `${result.summary}${check.ok ? '' : ` Check failed: ${check.detail}`}`, id);
       if (check.ok) {
         this.handOff(t);
         this.addFollowUps(t, result);
+        this.addReview(this.task(id), before, after);
+        this.closeIncidents(id);
       } else {
         this.run.telemetry = { ...this.run.telemetry, failures: this.run.telemetry.failures + 1 };
       }
@@ -359,6 +391,8 @@ export class SwarmRuntime {
         await sleep(wait);
         void this.tick();
         return;
+      } else if (await this.selfHeal(id, cap, message, holdsLock)) {
+        return;
       } else {
         this.run.telemetry = { ...this.run.telemetry, failures: this.run.telemetry.failures + 1 };
         this.patch(id, { status: 'failed', endedAt: Date.now(), error: message });
@@ -374,6 +408,113 @@ export class SwarmRuntime {
     }
     this.save();
     void this.tick();
+  }
+
+  // --- Working on the user's page -------------------------------------------------
+
+  private async perform(t: TaskState, cap: Capability, signal: AbortSignal): Promise<CapabilityResult> {
+    const onPage = !!cap.ui && !t.forceDirect && (this.opts.onPage?.() ?? false);
+    if (!onPage) {
+      if (cap.uiOnly) throw Object.assign(new Error('This is done on the studio page, which isn’t available.'), { permanent: true });
+      return cap.run(t.params, this.port, signal);
+    }
+    await this.acquirePage(t.id, signal);
+    this.patch(t.id, { usedPage: true });
+    const driver = new Driver({
+      runId: this.run.id, taskId: t.id, agent: t.role, signal, pace: this.opts.pace,
+      releasePage: () => this.releasePage(t.id),
+      waitIfPaused: async () => { while (this.run.status === 'paused') await sleep(150); },
+    });
+    try {
+      return await cap.ui!(t.params, driver, this.port, signal);
+    } finally {
+      this.releasePage(t.id);
+    }
+  }
+
+  private async acquirePage(id: string, signal: AbortSignal) {
+    while (this.pageOwner && this.pageOwner !== id) {
+      if (signal.aborted) throw Object.assign(new Error('Cancelled.'), { cancelled: true });
+      this.patch(id, { note: 'Waiting for the page (another agent is using it).' });
+      await sleep(120);
+    }
+    this.pageOwner = id;
+    this.patch(id, { note: undefined });
+  }
+
+  private releasePage(id: string) {
+    if (this.pageOwner === id) this.pageOwner = null;
+  }
+
+  // --- Independent review (9.3) -------------------------------------------------
+
+  private addReview(t: TaskState, before: Dataset | null, after: Dataset | null) {
+    if (t.capability === 'verify.review' || (this.run.reviews ?? 0) >= 6 || !needsReview(t.capability, before, after)) return;
+    const id = `${t.id}.review`;
+    if (this.run.tasks.some(x => x.id === id)) return;
+    const review: TaskState = {
+      id, capability: 'verify.review', role: 'verifier', dependsOn: [t.id], why: 'Risk-based independent review.',
+      params: { target: { capability: t.capability, params: t.params, result: t.result?.data, label: this.cap(t).label(t.params) } },
+      dynamic: true, status: 'pending', attempts: 0, approved: true,
+    };
+    const at = this.run.tasks.findIndex(x => x.id === t.id) + 1;
+    this.run.tasks = [...this.run.tasks.slice(0, at), review, ...this.run.tasks.slice(at)];
+    this.run.reviews = (this.run.reviews ?? 0) + 1;
+  }
+
+  // --- Self-healing recovery (addendum 18) --------------------------------------------
+
+  /** Opens an incident and tries one safe repair. Returns true when the task was re-queued. */
+  private async selfHeal(id: string, cap: Capability, message: string, holdsLock: boolean): Promise<boolean> {
+    const t = this.task(id);
+    const fp = fingerprint(t.capability, message);
+    const incidents = this.run.incidents ?? [];
+    const existing = incidents.find(i => i.fingerprint === fp && i.taskId === id);
+    const { diagnosis, repair, label } = diagnose(message, { usedPage: !!t.usedPage, uiOnly: !!cap.uiOnly });
+    const repairsSoFar = incidents.filter(i => i.repair).length;
+    const canRepair = !!repair && !existing && repairsSoFar < RECOVERY_LIMITS.repairsPerRun;
+    const incident: Incident = existing ?? {
+      id: `inc-${incidents.length + 1}`, taskId: id, fingerprint: fp, state: 'detected', diagnosis, detectedAt: Date.now(),
+      log: [`Detected: ${message}`, `Diagnosis: ${diagnosis}`],
+    };
+    if (!canRepair) {
+      incident.state = 'escalated';
+      incident.log = [...incident.log, existing ? 'The repair didn’t fix it; escalated to you.' : 'No safe automatic repair; escalated to you.'];
+      this.run.incidents = existing ? incidents.map(i => (i.id === incident.id ? incident : i)) : [...incidents, incident];
+      this.say('orchestrator', 'user', 'failure', `Needs you: ${cap.label(t.params)} — ${diagnosis}`, id);
+      return false;
+    }
+    incident.state = 'repairing';
+    incident.repair = repair!;
+    incident.repairLabel = label;
+    incident.log = [...incident.log, `Repair: ${label}.`];
+    this.run.incidents = [...incidents, incident];
+    this.say('orchestrator', t.role, 'recovery', `Self-healing: ${diagnosis} ${label}.`, id);
+    if (repair === 'wake_ml') {
+      const ok = await (this.opts.wakeMl?.() ?? Promise.resolve(false)).catch(() => false);
+      incident.log = [...incident.log, ok ? 'The ML service answered.' : 'The ML service didn’t confirm it is awake; trying anyway.'];
+    }
+    incident.state = 'validating';
+    this.patch(id, {
+      status: 'pending', note: `Recovering: ${label}.`,
+      ...(repair === 'direct' ? { forceDirect: true } : {}),
+      ...(repair === 'more_time' ? { timeBoost: 2 } : {}),
+    });
+    this.run.telemetry = { ...this.run.telemetry, retries: this.run.telemetry.retries + 1 };
+    if (holdsLock) this.dataLock = false;
+    this.controllers.delete(id);
+    this.save();
+    void this.tick();
+    return true;
+  }
+
+  private closeIncidents(taskId: string) {
+    const incidents = this.run.incidents ?? [];
+    if (!incidents.some(i => i.taskId === taskId && i.state === 'validating')) return;
+    this.run.incidents = incidents.map(i => (i.taskId === taskId && i.state === 'validating'
+      ? { ...i, state: 'closed' as const, closedAt: Date.now(), log: [...i.log, 'Validated: the task completed and passed its check.'] }
+      : i));
+    this.say('orchestrator', 'user', 'recovery', 'Self-healing worked: the task completed after the repair.', taskId);
   }
 
   /** Tells the agents waiting on this task that its output is ready. */
@@ -437,22 +578,30 @@ export class SwarmRuntime {
 /** The completion report, built only from task results and checks (9.5, A25). */
 export function buildReport(run: SwarmRun, ds: Dataset | null): CompletionReport {
   const label = (t: TaskState) => CAPABILITIES[t.capability]?.label(t.params) ?? t.capability;
-  const done = run.tasks.filter(t => t.status === 'completed').map(t => ({ label: label(t), role: t.role, summary: t.result?.summary ?? '', check: t.check?.detail }));
+  const isReview = (t: TaskState) => t.capability === 'verify.review';
+  const done = run.tasks.filter(t => t.status === 'completed' && !isReview(t)).map(t => ({ label: label(t), role: t.role, summary: t.result?.summary ?? '', check: t.check?.detail }));
+  const reviews = run.tasks.filter(t => isReview(t) && t.status === 'completed').map(t => ({
+    label: String((t.params as any)?.target?.label ?? ''), agrees: !!(t.result?.data as any)?.agrees, detail: t.result?.summary ?? '',
+  }));
   const problems = run.tasks.filter(t => t.status !== 'completed').map(t => ({ label: label(t), role: t.role, status: t.status, reason: t.error ?? t.note ?? t.status }));
   const versions = run.tasks.map(t => t.outputVersionId).filter(Boolean) as string[];
   const status = run.status;
+  const contradictions = reviews.filter(r => !r.agrees).length;
   const headline = status === 'completed'
-    ? `Done: all ${done.length} task${done.length === 1 ? '' : 's'} completed and self-checked.`
+    ? `Done: all ${done.length} task${done.length === 1 ? '' : 's'} completed and self-checked${reviews.length ? `; ${reviews.length} independently reviewed${contradictions ? `, ${contradictions} with a contradiction` : ''}` : ''}.`
     : status === 'cancelled'
     ? `Cancelled after ${done.length} of ${run.tasks.length} tasks.`
     : `${done.length} of ${run.tasks.length} tasks completed; ${problems.length} did not.`;
+  const unreviewed = done.length - reviews.length;
   const limitations = [
-    'Checks are self-checks by the agent that did the work; no independent review has run.',
+    ...(unreviewed > 0 ? [`${unreviewed} result${unreviewed === 1 ? ' was' : 's were'} checked only by the agent that produced ${unreviewed === 1 ? 'it' : 'them'} (self-check); independent review runs for risky results.`] : []),
+    ...(contradictions ? [`The independent review disagreed with ${contradictions} result${contradictions === 1 ? '' : 's'}; treat ${contradictions === 1 ? 'it' : 'them'} with caution.`] : []),
     ...(problems.length ? [`Not delivered: ${problems.map(p => p.label).join('; ')}.`] : []),
   ];
   const times = run.tasks.map(t => t.endedAt ?? 0).filter(Boolean);
   return {
-    status, headline, done, problems,
+    status, headline, done, problems, reviews,
+    incidents: (run.incidents ?? []).map(i => ({ diagnosis: i.diagnosis, state: i.state, repair: i.repairLabel })),
     data: { startVersionId: run.startVersionId, endVersionId: versions[versions.length - 1] ?? run.startVersionId, rows: ds?.rows.length, columns: ds?.columns.length },
     limitations, telemetry: run.telemetry,
     durationMs: (times.length ? Math.max(...times) : Date.now()) - run.createdAt,
