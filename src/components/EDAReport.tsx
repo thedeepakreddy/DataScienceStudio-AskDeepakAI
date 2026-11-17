@@ -187,7 +187,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
               the data.
             </p>
           </div>
-          <button type="button" onClick={onTriggerAI} disabled={loadingAI} aria-busy={loadingAI} className="btn btn-primary btn-lg shrink-0">
+          <button type="button" data-agent="eda-run-ai" onClick={onTriggerAI} disabled={loadingAI} aria-busy={loadingAI} className="btn btn-primary btn-lg shrink-0">
             {loadingAI ? (
               <>
                 <Orb state="breathing" onAccent label="AI is thinking about your data" />

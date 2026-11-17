@@ -5,32 +5,23 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, animate } from 'motion/react';
-import { Send, X, Check, Code, AlertTriangle } from 'lucide-react';
+import { Send, X } from 'lucide-react';
 import type { OrbState } from 'thinking-orbs';
-import { Dataset } from '../types';
-import { apiFetch } from '../utils/api';
 import Orb from './Orb';
-import { STAGES } from '../stages';
-import { PlanStep, StepOutcome, buildPlan, planNeedsConfirm, verifyStep } from '../agent/tools';
-import { AppliedOperation, OperationError, OperationId, OperationParams, applyOperation } from '../operations/registry';
-import type { PipelineStage } from '../contexts/PipelineContext';
+import ChatRunCard from './ChatRunCard';
+import type { useSwarm } from '../swarm/useSwarm';
+import type { SwarmRun } from '../swarm/runtime';
+import { CAPABILITIES } from '../swarm/catalog';
+
+type Swarm = ReturnType<typeof useSwarm>;
 
 interface AssistiveTouchBotProps {
-  activeDataset: Dataset | null;
-  onUpdateDataset: (updated: Dataset, operation?: AppliedOperation, summary?: string) => void;
-  onResetOriginal: () => Dataset | null;
-  activeTab: string;
-  setActiveTab: (tab: any) => void;
-  triggerAIScan: () => Promise<void>;
-  triggerPrediction: (
-    targetCol: string,
-    features: string[],
-    modelClass: 'classification' | 'regression' | 'timeseries',
-    hyperparameters: Record<string, any>
-  ) => Promise<any>;
-  /** The saved version before a plan ran, so "Undo All" can return to it. */
-  activeVersionId?: string | null;
-  onRestoreVersion?: (versionId: string) => Promise<void>;
+  /** The agent team. Every request in the chat goes to its orchestrator. */
+  swarm: Swarm;
+  /** Returns the data to the version a run started from. */
+  onUndoAll: (versionId: string) => void;
+  /** Opens the Agents panel with the task map, messages and incidents. */
+  onOpenDetails: () => void;
 }
 
 interface ChatMessage {
@@ -38,38 +29,25 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
-  executedCommands?: string[];
-  /** A proposed set of actions, run only after the user confirms. */
-  plan?: PlanStep[];
-  planState?: 'proposed' | 'running' | 'done' | 'cancelled';
-  outcomes?: StepOutcome[];
-  undoVersionId?: string | null;
+  /** The agent run started for this request, kept up to date while it works. */
+  runId?: string;
+  run?: SwarmRun;
+  /** Why a plan couldn't be used. */
+  problems?: string[];
 }
 
-// What the assistant is doing right now, shown live in the chat so the user can
-// follow along: thinking (waiting for the AI to decide), acting (carrying out each
-// action it chose, one line per action) and writing (the reply appearing).
-type ActivityStep = { label: string; orb: OrbState; status: 'running' | 'done' | 'failed' };
-type Activity = { phase: 'thinking' | 'acting' | 'writing'; steps: ActivityStep[] };
+// What the assistant is doing right now, shown live in the chat: thinking
+// (the orchestrator is planning), acting (agents are working) and writing
+// (the reply appearing).
+type Activity = { phase: 'thinking' | 'acting' | 'writing' };
 
-const FAILED_ACTION = /not found|couldn’t|could not|error|invalid|already exists|incomplete|failed/i;
+const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-/** A present-tense label and matching orb for an action the assistant is about to run. */
-function describeAction(cmd: any): { label: string; orb: OrbState } {
-  switch (cmd?.type) {
-    case 'SELECT_TAB': return { label: `Opening the ${STAGES[cmd.tab as PipelineStage]?.label ?? cmd.tab ?? 'requested'} step`, orb: 'connecting' };
-    case 'RESET_DATASET': return { label: 'Restoring the original dataset', orb: 'working' };
-    case 'DROP_COLUMN': return { label: `Removing column “${cmd.column}”`, orb: 'working' };
-    case 'FILL_MISSING': return { label: `Filling missing values in “${cmd.column}”`, orb: 'weaving' };
-    case 'RUN_EDA_SCAN': return { label: 'Analyzing the dataset', orb: 'searching' };
-    case 'RUN_ML': return { label: `Training a model to predict “${cmd.targetColumn}”`, orb: 'solving' };
-    case 'FILTER_ROWS': return { label: `Filtering rows by “${cmd.column}”`, orb: 'searching' };
-    case 'ADD_COLUMN': return { label: `Adding column “${cmd.columnName || cmd.column || 'new'}”`, orb: 'shaping' };
-    case 'ADD_ROW': return { label: 'Adding a row', orb: 'shaping' };
-    case 'DELETE_ROW': return { label: `Deleting row ${cmd.rowIndex ?? cmd.index ?? ''}`.trim(), orb: 'working' };
-    case 'EXECUTE_DATASET_JS': return { label: 'Running your query on the data', orb: 'solving' };
-    default: return { label: 'Working on your request', orb: 'working' };
-  }
+/** Code mode: a function of the dataset, or statements that change `rows`. */
+export function wrapUserCode(code: string) {
+  const c = code.trim();
+  if (/^(\(?\s*\w*\s*\)?\s*=>|function\b|async\b)/.test(c)) return c;
+  return `(dataset) => { let rows = dataset.rows.map(r => ({ ...r })); ${c}\n; return { ...dataset, rows }; }`;
 }
 
 /** Width of the visible page, excluding a vertical scrollbar. */
@@ -79,18 +57,7 @@ const viewportWidth = () =>
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-export default function AssistiveTouchBot({
-  activeDataset,
-  onUpdateDataset,
-  onResetOriginal,
-  activeTab,
-  setActiveTab,
-  triggerAIScan,
-  triggerPrediction,
-  activeVersionId = null,
-  onRestoreVersion,
-}: AssistiveTouchBotProps) {
-  const stopPlanRef = useRef(false);
+export default function AssistiveTouchBot({ swarm, onUndoAll, onOpenDetails }: AssistiveTouchBotProps) {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const isChatOpenRef = useRef(false);
   useEffect(() => { isChatOpenRef.current = isChatOpen; }, [isChatOpen]);
@@ -98,12 +65,12 @@ export default function AssistiveTouchBot({
     {
       id: 'welcome-msg',
       role: 'assistant',
-      content: `Hi, I'm your data assistant. I can read your dataset, make changes to it, and move between steps for you.
+      content: `Hi, I lead a team of specialist agents. Tell me what you need and they'll do it on this page, step by step, so you can watch.
 
 Ask in plain English, or switch to **SQL** or **Code** below. For example:
-- Analyze this dataset
+- Clean the data and train a model
 - Drop the PaymentMethod column
-- SELECT * FROM dataset WHERE Age > 30`,
+- Which columns have missing values?`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -111,9 +78,10 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
   const [inputMode, setInputMode] = useState<'english' | 'sql' | 'python'>('english');
   const [isGenerating, setIsGenerating] = useState(false);
   const [activity, setActivity] = useState<Activity | null>(null);
+  const run = swarm.run;
+  const working = !!run && ['running', 'paused', 'cancelling'].includes(run.status);
   // The reply currently being written out on screen, and how much of it shows.
   const [reveal, setReveal] = useState<{ id: string; shown: number } | null>(null);
-  const [lastExecutedTaskMsg, setLastExecutedTaskMsg] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const dragContainerRef = useRef<HTMLDivElement | null>(null);
@@ -262,315 +230,65 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     // Also follow the live status as it changes, so the current step stays in view.
   }, [messages, isChatOpen, activity, reveal?.shown]);
 
-  // Execute API commands returned from Gemini in real-time
-  const executeCommandsList = async (commands: any[], start: Dataset | null = activeDataset): Promise<{ logs: string[]; working: Dataset | null }> => {
-    const executedLogs: string[] = [];
-    if (!commands || commands.length === 0) return { logs: executedLogs, working: start };
+  // Keep each request's run card up to date with the agents' progress
+  // (adjusting state while rendering, as React recommends, not in an effect).
+  const [seenRun, setSeenRun] = useState(run);
+  if (seenRun !== run) {
+    setSeenRun(run);
+    if (run && messages.some(m => m.runId === run.id)) setMessages(prev => prev.map(m => (m.runId === run.id ? { ...m, run } : m)));
+  }
+  // While agents work, the header shows what they are doing.
+  const shownActivity: Activity | null = activity ?? (run && ['running', 'cancelling'].includes(run.status) ? { phase: 'acting' } : null);
 
-    // Each step builds on the one before (e.g. "drop A, then fill B").
-    let working: Dataset | null = start;
-    const findCol = (name: unknown) =>
-      typeof name === 'string' ? working?.columns.find(c => c.name.toLowerCase() === name.toLowerCase())?.name : undefined;
-    const runOp = <K extends OperationId>(op: K, params: OperationParams[K]) => {
-      if (!working) return;
-      try {
-        const r = applyOperation(working, op, params);
-        working = r.dataset;
-        onUpdateDataset(working, { op, params } as AppliedOperation, r.summary);
-        executedLogs.push(r.summary);
-      } catch (err) {
-        if (!(err instanceof OperationError)) throw err;
-        executedLogs.push(`Couldn’t do that: ${err.message}`);
-      }
-    };
-
-    for (const cmd of commands) {
-      const { label, orb } = describeAction(cmd);
-      setActivity(prev => ({
-        phase: 'acting',
-        steps: [...(prev?.steps ?? []), { label, orb, status: 'running' }],
-      }));
-      const logsBefore = executedLogs.length;
-      try {
-        switch (cmd.type) {
-          case 'SELECT_TAB':
-            if (cmd.tab) {
-              setActiveTab(cmd.tab);
-              executedLogs.push(`Opened the ${STAGES[cmd.tab as PipelineStage]?.label ?? cmd.tab} step`);
-            }
-            break;
-
-          case 'RESET_DATASET':
-            working = onResetOriginal() ?? working;
-            executedLogs.push('Restored the original dataset');
-            break;
-
-          case 'DROP_COLUMN': {
-            const col = findCol(cmd.column);
-            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found`); break; }
-            runOp('drop_columns', { columns: [col] });
-            break;
-          }
-
-          case 'FILL_MISSING': {
-            const col = findCol(cmd.column);
-            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found to fill`); break; }
-            const isNumeric = working.columns.find(c => c.name === col)?.type === 'numeric';
-            const requested = ['mean', 'median', 'mode', 'zero'].includes(cmd.strategy) ? cmd.strategy : 'mean';
-            runOp('fill_missing', { column: col, strategy: isNumeric ? requested : 'mode' });
-            break;
-          }
-
-          case 'RUN_EDA_SCAN':
-            // Wait for the analysis, so the chat shows it running until it is done.
-            await triggerAIScan();
-            executedLogs.push('Analyzed the dataset');
-            break;
-
-          case 'RUN_ML':
-            if (activeDataset && cmd.targetColumn) {
-              const foundTarget = activeDataset.columns.find(
-                c => c.name.toLowerCase() === cmd.targetColumn.toLowerCase()
-              )?.name || activeDataset.columns[activeDataset.columns.length - 1]?.name;
-
-              const featCols = Array.isArray(cmd.featureColumns) 
-                ? cmd.featureColumns.map(fc => activeDataset.columns.find(c => c.name.toLowerCase() === fc.toLowerCase())?.name).filter(Boolean) as string[]
-                : activeDataset.columns.filter(c => c.name !== foundTarget).map(c => c.name).slice(0, 4);
-
-              const modelType = cmd.modelType || (foundTarget.toLowerCase().includes('churn') ? 'classification' : 'regression');
-              const hParams = cmd.hyperparameters || { n_estimators: 100, max_depth: 8 };
-
-              // Wait for the real training run; report it only once it has finished.
-              await triggerPrediction(foundTarget, featCols, modelType, hParams);
-              executedLogs.push(`Trained a model to predict "${foundTarget}" using ${featCols.join(', ')}`);
-            }
-            break;
-
-          case 'FILTER_ROWS': {
-            const col = findCol(cmd.column);
-            const operator = ({ '==': 'equals', '!=': 'not_equals', '>': 'greater_than', '<': 'less_than' } as const)[cmd.operator as '==' | '!=' | '>' | '<'];
-            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found to filter`); break; }
-            if (!operator) { executedLogs.push(`Invalid filter "${cmd.operator}"`); break; }
-            runOp('filter_rows', { column: col, operator, value: cmd.value });
-            break;
-          }
-
-          case 'ADD_COLUMN':
-            if (!working || !cmd.column) break;
-            runOp('add_column', {
-              name: cmd.column,
-              type: ['numeric', 'boolean', 'categorical'].includes(cmd.columnType) ? cmd.columnType : 'categorical',
-              value: cmd.value ?? null,
-            });
-            break;
-
-          case 'ADD_ROW':
-            if (!working) break;
-            runOp('add_row', { values: cmd.values && typeof cmd.values === 'object' ? cmd.values : undefined });
-            break;
-
-          case 'DELETE_ROW':
-            if (!working || cmd.index === undefined) break;
-            runOp('delete_rows', { indices: [Number(cmd.index)] });
-            break;
-
-          case 'EXECUTE_DATASET_JS':
-            if (working && cmd.jsCode) {
-              try {
-                // Run this LLM/user-generated code inside an isolated,
-                // opaque-origin sandboxed iframe rather than this page's own
-                // privileged context. A dataset cell can carry a prompt-
-                // injection payload that tricks the chat model into emitting
-                // jsCode here, so it must never get direct access to this
-                // page's cookies, localStorage, or DOM.
-                const updated = await runSandboxedDatasetJs(cmd.jsCode, working);
-                if (updated && Array.isArray(updated.rows)) {
-                  working = { ...working, ...updated, rowCount: updated.rows.length };
-                  onUpdateDataset(working);
-                  let logMsg = `SQL Action Applied`;
-                  if (cmd.sqlQuery) logMsg += ` [Query: "${cmd.sqlQuery}"]`;
-                  if (cmd.explanation) logMsg += `: ${cmd.explanation}`;
-                  executedLogs.push(logMsg);
-                } else {
-                  executedLogs.push(`The action ran but returned incomplete data`);
-                }
-              } catch (evalErr: any) {
-                console.error("Evaluation error:", evalErr);
-                executedLogs.push(`Couldn’t run that: ${evalErr.message || String(evalErr)}`);
-              }
-            }
-            break;
-
-          default:
-            break;
-        }
-      } catch (err: any) {
-        executedLogs.push(`Error executing command [${cmd.type}]: ${err.message || String(err)}`);
-      }
-      const newLogs = executedLogs.slice(logsBefore);
-      const failed = newLogs.some(l => FAILED_ACTION.test(l));
-      setActivity(prev => prev && ({
-        ...prev,
-        steps: prev.steps.map((st, i) => i === prev.steps.length - 1 ? { ...st, status: failed ? 'failed' : 'done' } : st),
-      }));
+  const say = (content: string, extra: Partial<ChatMessage> = {}) => {
+    const msg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', content, timestamp: now(), ...extra };
+    if (!prefersReducedMotion()) {
+      setActivity({ phase: 'writing' });
+      setReveal({ id: msg.id, shown: 0 });
     }
-
-    return { logs: executedLogs, working };
-  };
-
-  const updateMessage = (id: string, patch: Partial<ChatMessage>) =>
-    setMessages(prev => prev.map(m => (m.id === id ? { ...m, ...patch } : m)));
-
-  // Runs a confirmed plan one step at a time, checking each step's effect on
-  // the data, and finishes with a report of what really happened.
-  const runPlan = async (msg: ChatMessage) => {
-    if (!msg.plan || isGenerating) return;
-    stopPlanRef.current = false;
-    setIsGenerating(true);
-    updateMessage(msg.id, { planState: 'running', outcomes: [], undoVersionId: activeVersionId });
-    setActivity({ phase: 'acting', steps: [] });
-    let working: Dataset | null = activeDataset;
-    const outcomes: StepOutcome[] = [];
-    for (const step of msg.plan) {
-      if (stopPlanRef.current) {
-        outcomes.push({ stepId: step.id, label: step.label, status: 'skipped', detail: 'Stopped before this step.' });
-      } else if (step.problem) {
-        outcomes.push({ stepId: step.id, label: step.label, status: 'skipped', detail: step.problem });
-      } else {
-        const before = working;
-        const { logs, working: after } = await executeCommandsList([step.command], working);
-        working = step.command.type === 'RESET_DATASET' ? after : after ?? working;
-        const failed = logs.some(l => FAILED_ACTION.test(l));
-        const check = verifyStep(step, before, after, { tab: failed ? undefined : step.command.tab, mlOk: !failed });
-        outcomes.push({
-          stepId: step.id, label: step.label,
-          status: failed || !check.ok ? 'failed' : 'done',
-          detail: failed ? logs.join(' ') : check.detail,
-        });
-      }
-      updateMessage(msg.id, { outcomes: [...outcomes] });
-    }
-    updateMessage(msg.id, { planState: 'done', outcomes });
-    setActivity(null);
-    setIsGenerating(false);
+    setMessages(prev => [...prev, msg]);
   };
 
   const handleSendMessage = async (customText?: string) => {
-    const textToSendRaw = customText ? customText.trim() : inputText.trim();
-    if (!textToSendRaw || isGenerating) return;
+    const raw = (customText ?? inputText).trim();
+    if (!raw || isGenerating) return;
+    if (!customText) setInputText('');
+    const mode = customText ? 'english' : inputMode;
 
-    if (!customText) {
-      setInputText('');
+    setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'user', content: mode === 'english' ? raw : `[${mode === 'sql' ? 'SQL' : 'Code'}]\n${raw}`, timestamp: now() }]);
+
+    if (working) {
+      say('The team is still working on your last request. Pause or stop it first, or wait for it to finish.');
+      return;
     }
 
-    let textToSend = textToSendRaw;
-    if (!customText) {
-      if (inputMode === 'sql') {
-         textToSend = `[SQL COMMAND]\n${textToSendRaw}`;
-      } else if (inputMode === 'python') {
-         textToSend = `[PYTHON/JS SCRIPT]\n${textToSendRaw}`;
-      }
-    }
-
-    const newMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: textToSend,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    setMessages(prev => [...prev, newMsg]);
     setIsGenerating(true);
-    setActivity({ phase: 'thinking', steps: [] });
-
+    setActivity({ phase: 'thinking' });
     try {
-      // Build dataset context schema to share with the Gemini Bot
-      const datasetContext = activeDataset ? {
-        filename: activeDataset.filename,
-        rowCount: activeDataset.rowCount,
-        columns: activeDataset.columns.map(c => ({
-          name: c.name,
-          type: c.type,
-          missingCount: c.missingCount,
-          distinctCount: c.distinctCount,
-          statistics: {
-            mean: c.statistics.mean,
-            median: c.statistics.median,
-            mostCommon: c.statistics.mostCommon?.slice(0, 3)
-          }
-        })),
-        sampleRows: activeDataset.rows.slice(0, 3)
-      } : null;
+      const history = messages.filter(m => m.id !== 'welcome-msg').slice(-8).map(m => ({ role: m.role, content: m.content }));
+      const outcome = mode === 'sql'
+        ? await swarm.planFromTasks(raw, [{ id: 't1', capability: 'sql.query', params: { sql: raw }, role: 'data_scientist', dependsOn: [], why: 'Run your SQL query.' }], 'I’ll run your query (read-only).')
+        : mode === 'python'
+          ? await swarm.planFromTasks(raw, [{ id: 't1', capability: 'data.custom_code', params: { code: wrapUserCode(raw), explanation: 'your code' }, role: 'data_engineer', dependsOn: [], why: 'Run your code in a sandbox.' }], 'I’ll run your code in a sandbox. Custom code needs your approval.')
+          : await swarm.plan(raw, history);
 
-      // Extract brief history of latest 8 messages to keep token counts tight
-      const messageHistory = messages.slice(-8).map(m => ({
-        role: m.role,
-        content: m.content
-      }));
-
-      let data;
-      try {
-        const res = await apiFetch('/api/chat-bot', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: textToSend,
-            history: messageHistory,
-            datasetContext,
-            activeTab
-          })
-        });
-
-        const resText = await res.text();
-        if (resText.trim().startsWith('<!doctype html') || resText.trim().startsWith('<html') || !res.ok) {
-          throw new Error('Fallback to local analyzer');
-        }
-        data = JSON.parse(resText);
-      } catch (e) {
-        console.warn('Backend server returned invalid or HTML response. running local copilot fallback...', e);
-        data = getClientSideChatFallback(textToSend, activeDataset, activeTab);
+      if (outcome.tasks.length && !outcome.problems.length) {
+        // The plan is attached to the reply; approve it there.
+        const r = swarm.latestRun();
+        const autoRun = r && r.tasks.every(t => t.approved);
+        say(outcome.reply || 'Here’s the plan.', { runId: r?.id, run: r ?? undefined });
+        // Plans that change nothing without your say-so start at once.
+        if (autoRun) swarm.approveAndRun();
+      } else if (outcome.tasks.length) {
+        say(outcome.reply ? `${outcome.reply} But the plan can’t run:` : 'I couldn’t make a plan that would work:', { problems: outcome.problems.map(p => p.message) });
+      } else {
+        say(outcome.reply || 'I’m not sure what to do with that. Try describing the result you want.');
       }
-      
-      // Actions that change data (or train) become a plan the user confirms;
-      // moving between steps happens straight away.
-      const plan = buildPlan(data.commands || [], activeDataset);
-      const needsConfirm = planNeedsConfirm(plan);
-      const executedLogs = needsConfirm ? [] : (await executeCommandsList(plan.map(p => p.command))).logs;
-
-      const botMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: data.message || `Processed your instruction successfully.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        executedCommands: executedLogs,
-        ...(needsConfirm ? { plan, planState: 'proposed' as const } : {}),
-      };
-
-      // Write the reply out on screen (skipped for reduced motion).
-      if (!prefersReducedMotion()) {
-        setActivity(prev => ({ phase: 'writing', steps: prev?.steps ?? [] }));
-        setReveal({ id: botMsg.id, shown: 0 });
-      }
-      setMessages(prev => [...prev, botMsg]);
-
-      // Trigger temporary glowing system overlay notification on screen
-      if (executedLogs.length > 0) {
-        setLastExecutedTaskMsg(executedLogs.join(' | '));
-        setTimeout(() => setLastExecutedTaskMsg(null), 5000);
-      }
-
     } catch (err: any) {
-      console.error(err);
-      const errorMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: `That didn’t work: ${err.message || 'connection timed out'}. Check that the server is running and try again.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => [...prev, errorMsg]);
+      say(`That didn’t work: ${err?.message || 'the connection failed'}. Check that the server is running and try again.`);
     } finally {
       setIsGenerating(false);
-      setActivity(prev => (prev?.phase === 'writing' ? prev : null));
+      setActivity(prev => (prev?.phase === 'thinking' ? null : prev));
     }
   };
 
@@ -593,15 +311,16 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
     return () => clearTimeout(timer);
   }, [reveal, messages]);
 
-  const currentStep = activity?.steps.find(st => st.status === 'running');
+  const runningTask = run?.tasks.find(t => t.status === 'running' || t.status === 'verifying');
   const activityOrb: OrbState =
-    activity?.phase === 'thinking' ? 'breathing'
-    : activity?.phase === 'writing' ? 'composing'
-    : currentStep?.orb ?? 'working';
+    shownActivity?.phase === 'thinking' ? 'breathing'
+    : shownActivity?.phase === 'writing' ? 'composing'
+    : 'working';
   const activityLabel =
-    activity?.phase === 'thinking' ? 'Thinking…'
-    : activity?.phase === 'writing' ? 'Writing…'
-    : currentStep ? `${currentStep.label}…` : 'Working…';
+    shownActivity?.phase === 'thinking' ? 'Planning…'
+    : shownActivity?.phase === 'writing' ? 'Writing…'
+    : run?.status === 'paused' ? 'Paused'
+    : runningTask ? `${CAPABILITIES[runningTask.capability]?.label(runningTask.params) ?? 'Working'}…` : 'Working…';
 
   const handleSuggestedPromptClick = (promptStr: string) => {
     handleSendMessage(promptStr);
@@ -614,26 +333,12 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
 
   return (
     <>
-      {/* Dynamic Screen Overlay for Executed Tasks */}
-      <AnimatePresence>
-        {lastExecutedTaskMsg && (
-          <motion.div
-            initial={{ opacity: 0, y: -25, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -25, scale: 0.95 }}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green/15 backdrop-blur-md border border-green/30 text-green tabular-nums text-xs px-5 py-3 rounded-full flex items-center gap-2 shadow-xl tracking-tight leading-relaxed font-semibold select-none max-w-lg text-center"
-          >
-            <div className="w-2 h-2 rounded-full bg-green animate-ping" />
-            <span>{lastExecutedTaskMsg}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* AssistiveTouch Floating Base Area */}
       <div 
         ref={dragContainerRef}
         className="fixed inset-0 pointer-events-none z-[9999] select-none overflow-hidden" 
         id="assistive_draggable_universe"
+        data-swarm-ui
       >
         <AnimatePresence mode="wait">
           {!isChatOpen ? (
@@ -719,12 +424,12 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                 <div className="flex items-center gap-2.5">
                   <span className="w-8 h-8 rounded-full bg-fill flex items-center justify-center shrink-0">
                     {/* Breathes while idle; otherwise shows what it is doing right now. */}
-                    <Orb state={activity ? activityOrb : 'breathing'} label={activity ? activityLabel : 'AI assistant'} />
+                    <Orb state={shownActivity ? activityOrb : 'breathing'} label={shownActivity ? activityLabel : 'AI assistant'} />
                   </span>
                   <div>
                     <h4 className="text-sm font-semibold text-label leading-tight">Ask AI</h4>
                     <p className="text-xs text-label-2 leading-tight truncate max-w-[220px]" aria-live="polite">
-                      {activity ? activityLabel : 'Works on your data and every step'}
+                      {shownActivity ? activityLabel : 'Your agent team for every step'}
                     </p>
                   </div>
                 </div>
@@ -815,31 +520,24 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                             })}
                           </div>
 
-                          {m.executedCommands && m.executedCommands.length > 0 && (
-                            <div className="mt-1.5 pt-1.5 border-t border-separator text-[11px] space-y-0.5">
-                              <span className="block font-medium text-label-2">Actions applied</span>
-                              {m.executedCommands.map((log, lIdx) => (
-                                <div key={lIdx} className="flex items-start gap-1 text-label">
-                                  {FAILED_ACTION.test(log)
-                                    ? <AlertTriangle className="w-3 h-3 text-orange shrink-0 mt-0.5" />
-                                    : <Check className="w-3 h-3 text-green shrink-0 mt-0.5" />}
-                                  <span>{log}</span>
-                                </div>
-                              ))}
-                            </div>
+                          {m.problems && (
+                            <ul className="mt-1 text-[11px] text-orange list-disc ml-3.5 space-y-0.5">
+                              {m.problems.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
                           )}
 
-                          {m.plan && (
-                            <PlanCard
-                              message={m}
-                              busy={isGenerating}
-                              onRun={() => runPlan(m)}
-                              onCancel={() => updateMessage(m.id, { planState: 'cancelled' })}
-                              onStop={() => { stopPlanRef.current = true; }}
-                              onUndo={onRestoreVersion && m.undoVersionId ? async () => {
-                                await onRestoreVersion(m.undoVersionId!);
-                                updateMessage(m.id, { undoVersionId: null });
-                              } : undefined}
+                          {m.run && (
+                            <ChatRunCard
+                              run={m.run}
+                              live={run?.id === m.run.id}
+                              onRun={swarm.approveAndRun}
+                              onApproveTask={swarm.approveTask}
+                              onPause={swarm.pause}
+                              onResume={swarm.resume}
+                              onCancel={swarm.cancel}
+                              onDiscard={swarm.discard}
+                              onUndo={onUndoAll}
+                              onDetails={onOpenDetails}
                             />
                           )}
                         </div>
@@ -851,32 +549,11 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                   );
                 })}
 
-                {activity && activity.phase !== 'writing' && (
+                {activity?.phase === 'thinking' && (
                   <div className="flex justify-start" aria-live="polite">
-                    <div className="bg-fill rounded-2xl rounded-bl-md px-3 py-2 text-xs text-label-2 space-y-1.5 max-w-[85%]">
-                      {activity.phase === 'thinking' ? (
-                        <div className="flex items-center gap-2">
-                          <Orb state="breathing" label="Thinking" />
-                          Thinking…
-                        </div>
-                      ) : (
-                        activity.steps.map((st, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            {st.status === 'running' ? (
-                              <Orb state={st.orb} label={st.label} />
-                            ) : (
-                              <span className="w-5 h-5 flex items-center justify-center shrink-0">
-                                {st.status === 'done'
-                                  ? <Check className="w-3.5 h-3.5 text-green" />
-                                  : <AlertTriangle className="w-3.5 h-3.5 text-orange" />}
-                              </span>
-                            )}
-                            <span className={st.status === 'running' ? 'text-label' : ''}>
-                              {st.label}{st.status === 'running' ? '…' : ''}
-                            </span>
-                          </div>
-                        ))
-                      )}
+                    <div className="bg-fill rounded-2xl rounded-bl-md px-3 py-2 text-xs text-label-2 max-w-[85%] flex items-center gap-2">
+                      <Orb state="breathing" label="Planning" />
+                      Planning…
                     </div>
                   </div>
                 )}
@@ -892,11 +569,12 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
               {/* Suggested prompts */}
               <div className="px-3 py-2 flex gap-1.5 overflow-x-auto scrollbar-none shrink-0 select-none" id="chat_suggestions">
                 {[
-                  { label: 'Analyze dataset', prompt: 'Analyze this dataset with an EDA scan' },
-                  { label: 'Fill missing values', prompt: 'Fill missing values with mean' },
-                  { label: 'Open dashboard', prompt: 'Show the stakeholder dashboard' },
-                  { label: 'Run SQL', prompt: 'SELECT * FROM dataset WHERE tenure > 35' },
-                  { label: 'Reset data', prompt: 'Reset dataset' }
+                  { label: 'Full analysis', prompt: 'Do a full analysis and write a report' },
+                  { label: 'Clean data', prompt: 'Clean the data' },
+                  { label: 'Fill missing values', prompt: 'Fill missing values with median' },
+                  { label: 'Train a model', prompt: 'Train a model' },
+                  { label: 'Run SQL', prompt: 'SELECT * FROM dataset LIMIT 10' },
+                  { label: 'Reset data', prompt: 'Reset the data' },
                 ].map((s, idx) => (
                   <button
                     key={idx}
@@ -930,7 +608,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                     type="text"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder={inputMode === 'english' ? 'Ask anything about your data' : inputMode === 'sql' ? 'SELECT … FROM dataset' : 'Write a transform in Python or JS'}
+                    placeholder={inputMode === 'english' ? 'Ask or tell the team what to do' : inputMode === 'sql' ? 'SELECT … FROM dataset' : 'JS, e.g. rows = rows.filter(r => r.Age > 30)'}
                     aria-label="Message"
                     disabled={isGenerating}
                     className={`input flex-1 rounded-full px-3.5 ${inputMode === 'english' ? '' : 'font-code text-xs'}`}
@@ -950,416 +628,5 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
         </AnimatePresence>
       </div>
     </>
-  );
-}
-
-// Executes an LLM/user-generated dataset-transform function inside a fresh,
-// sandboxed iframe (allow-scripts only, no allow-same-origin) instead of this
-// page's own realm. Because the iframe gets an opaque origin, code running
-// inside it cannot reach this page's document, cookies, or localStorage, and
-// cannot navigate or deface the real page - it can only see the exact
-// `dataset` value it is handed and return a replacement. This does not stop
-// that code from exfiltrating the dataset slice it was given (it must see
-// that data to transform it), but it removes the far larger blast radius of
-// running attacker-influenced code with full access to the live session.
-function runSandboxedDatasetJs(jsCode: string, dataset: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const sandboxHtml = [
-      '<!DOCTYPE html><html><body><script>',
-      'window.addEventListener("message", function(event) {',
-      '  try {',
-      '    var fn = new Function("dataset", "return (" + event.data.jsCode + ")(dataset);");',
-      '    var result = fn(event.data.dataset);',
-      '    parent.postMessage({ __sandboxResult: true, ok: true, result: result }, "*");',
-      '  } catch (e) {',
-      '    parent.postMessage({ __sandboxResult: true, ok: false, error: (e && e.message) ? e.message : String(e) }, "*");',
-      '  }',
-      '});',
-      '</' + 'script></body></html>'
-    ].join('\n');
-
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('sandbox', 'allow-scripts');
-    iframe.style.display = 'none';
-    iframe.srcdoc = sandboxHtml;
-
-    let settled = false;
-    const cleanup = () => {
-      window.removeEventListener('message', onMessage);
-      clearTimeout(timer);
-      iframe.parentNode?.removeChild(iframe);
-    };
-
-    const onMessage = (event: MessageEvent) => {
-      if (event.source !== iframe.contentWindow || !event.data || !event.data.__sandboxResult) return;
-      if (settled) return;
-      settled = true;
-      cleanup();
-      if (event.data.ok) resolve(event.data.result);
-      else reject(new Error(event.data.error || 'Sandboxed execution failed'));
-    };
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error('Sandboxed script execution timed out after 5s'));
-    }, 5000);
-
-    window.addEventListener('message', onMessage);
-
-    iframe.onload = () => {
-      iframe.contentWindow?.postMessage({ jsCode, dataset }, '*');
-    };
-
-    document.body.appendChild(iframe);
-  });
-}
-
-function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) {
-  const msgLower = userMsg.toLowerCase();
-  let reply = "";
-  const commands: any[] = [];
-
-  const colNames = ds && Array.isArray(ds.columns) ? ds.columns.map((c: any) => c.name) : [];
-  const colNamesList = colNames.join(', ');
-  const rowCount = ds ? ds.rowCount : 0;
-
-  // Prioritized SQL Command parser fallback
-  if (msgLower.includes('select') || msgLower.includes('update') || msgLower.includes('delete') || msgLower.includes('insert') || msgLower.includes('alter') || msgLower.includes('multiply') || msgLower.includes('double') || msgLower.includes('calculate')) {
-    let isQueryProcessed = false;
-    let jsCode = "";
-    const sqlQuery = userMsg;
-    let explanation = "";
-
-    // 1. SELECT query parsing (e.g., SELECT * FROM dataset WHERE Age > 30)
-    if (msgLower.includes('select') && msgLower.includes('where')) {
-      const match = msgLower.match(/where\s+(\w+)\s*(=|>|<|!=)\s*(['"]?[\w\s.-]+['"]?)/i);
-      if (match) {
-        const col = colNames.find((c: string) => c.toLowerCase() === match[1].toLowerCase()) || match[1];
-        const op = match[2] === '=' ? '===' : match[2];
-        const val = match[3].replace(/['"]/g, '').trim();
-        const isNum = !isNaN(Number(val));
-        const compareVal = isNum ? Number(val) : `'${val}'`;
-
-        jsCode = `(dataset) => {
-          const filteredRows = dataset.rows.filter(row => {
-            const rowVal = row['${col}'];
-            if (rowVal === undefined || rowVal === null) return false;
-            return ${isNum ? 'Number(rowVal)' : 'String(rowVal).toLowerCase()'} ${op} ${isNum ? compareVal : `'${val.toLowerCase()}'`};
-          });
-          return {
-            ...dataset,
-            rows: filteredRows,
-            rowCount: filteredRows.length
-          };
-        }`;
-        explanation = `Filtered rows where "${col}" ${match[2]} "${val}"`;
-        isQueryProcessed = true;
-      }
-    }
-
-    // 2. UPDATE query parsing (e.g., UPDATE dataset SET churn = 1 WHERE tenure < 5)
-    if (msgLower.includes('update') && msgLower.includes('set')) {
-      const matchSet = msgLower.match(/set\s+(\w+)\s*=\s*([^where]+)/i);
-      if (matchSet) {
-        const colToUpdate = colNames.find((c: string) => c.toLowerCase() === matchSet[1].toLowerCase()) || matchSet[1];
-        const expr = matchSet[2].trim();
-        
-        let whereCol: string | null = null;
-        let whereOp = "===";
-        let whereVal = "";
-        let whereIsNum = false;
-
-        const whereIndex = msgLower.indexOf('where');
-        if (whereIndex !== -1) {
-          const wherePart = userMsg.slice(whereIndex + 5).trim();
-          const whereMatch = wherePart.match(/(\w+)\s*(=|>|<|!=)\s*(['"]?[\w\s.-]+['"]?)/i);
-          if (whereMatch) {
-            whereCol = colNames.find((c: string) => c.toLowerCase() === whereMatch[1].toLowerCase()) || whereMatch[1];
-            whereOp = whereMatch[2] === '=' ? '===' : whereMatch[2];
-            whereVal = whereMatch[3].replace(/['"]/g, '').trim();
-            whereIsNum = !isNaN(Number(whereVal));
-          }
-        }
-
-        jsCode = `(dataset) => {
-          const updatedRows = dataset.rows.map(row => {
-            const copy = { ...row };
-            let shouldUpdate = true;
-            if ('${whereCol || ''}') {
-              const rowWhereVal = row['${whereCol || ''}'];
-              if (rowWhereVal === undefined || rowWhereVal === null) {
-                shouldUpdate = false;
-              } else {
-                const compVal = ${whereIsNum ? 'Number' : 'String'}(rowWhereVal);
-                const targetComp = ${whereIsNum ? whereVal : `'${whereVal}'.toLowerCase()`};
-                shouldUpdate = ${whereIsNum ? 'compVal' : 'compVal.toLowerCase()'} ${whereOp} targetComp;
-              }
-            }
-
-            if (shouldUpdate) {
-              let newVal = copy['${colToUpdate}'];
-              const rawExpr = '${expr}';
-              if (rawExpr.includes('+')) {
-                const parts = rawExpr.split('+');
-                const addVal = Number(parts[1].trim());
-                newVal = isNaN(addVal) ? rawExpr.replace(/['"]/g, '') : Number(copy['${colToUpdate}']) + addVal;
-              } else if (rawExpr.includes('-')) {
-                const parts = rawExpr.split('-');
-                const subVal = Number(parts[1].trim());
-                newVal = isNaN(subVal) ? rawExpr.replace(/['"]/g, '') : Number(copy['${colToUpdate}']) - subVal;
-              } else if (rawExpr.includes('*')) {
-                const parts = rawExpr.split('*');
-                const multVal = Number(parts[1].trim());
-                newVal = isNaN(multVal) ? copy['${colToUpdate}'] : Number(copy['${colToUpdate}']) * multVal;
-              } else if (!isNaN(Number(rawExpr))) {
-                newVal = Number(rawExpr);
-              } else {
-                newVal = rawExpr.replace(/['"]/g, '');
-              }
-              copy['${colToUpdate}'] = newVal;
-            }
-            return copy;
-          });
-
-          return {
-            ...dataset,
-            rows: updatedRows
-          };
-        }`;
-        explanation = `Updated values of "${colToUpdate}" matching query criteria`;
-        isQueryProcessed = true;
-      }
-    }
-
-    // 3. DELETE query parsing (e.g., DELETE FROM dataset WHERE age < 18)
-    if (msgLower.includes('delete') && msgLower.includes('where')) {
-      const match = msgLower.match(/where\s+(\w+)\s*(=|>|<|!=)\s*(['"]?[\w\s.-]+['"]?)/i);
-      if (match) {
-        const col = colNames.find((c: string) => c.toLowerCase() === match[1].toLowerCase()) || match[1];
-        const op = match[2] === '=' ? '===' : match[2];
-        const val = match[3].replace(/['"]/g, '').trim();
-        const isNum = !isNaN(Number(val));
-        const compareVal = isNum ? Number(val) : `'${val}'`;
-
-        jsCode = `(dataset) => {
-          const filteredRows = dataset.rows.filter(row => {
-            const rowVal = row['${col}'];
-            if (rowVal === undefined || rowVal === null) return true;
-            const matchesCondition = ${isNum ? 'Number(rowVal)' : 'String(rowVal).toLowerCase()'} ${op} ${isNum ? compareVal : `'${val.toLowerCase()}'`};
-            return !matchesCondition;
-          });
-          return {
-            ...dataset,
-            rows: filteredRows,
-            rowCount: filteredRows.length
-          };
-        }`;
-        explanation = `Deleted rows where "${col}" ${match[2]} "${val}"`;
-        isQueryProcessed = true;
-      }
-    }
-
-    if (!isQueryProcessed) {
-      // Fallback custom mutator for general commands e.g. "double MonthlyCharges" or "multiply tenure by 10"
-      const foundCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase()));
-      if (foundCol) {
-        let scale = 1;
-        if (msgLower.includes('double')) scale = 2;
-        else if (msgLower.includes('triple')) scale = 3;
-        else {
-          const numMatch = msgLower.match(/\d+/);
-          if (numMatch) scale = Number(numMatch[0]);
-        }
-
-        jsCode = `(dataset) => {
-          const updatedRows = dataset.rows.map(row => {
-            const copy = { ...row };
-            if (copy['${foundCol}'] !== undefined) {
-              copy['${foundCol}'] = Number(copy['${foundCol}']) * ${scale};
-            }
-            return copy;
-          });
-          return {
-            ...dataset,
-            rows: updatedRows
-          };
-        }`;
-        explanation = `Scaled column "${foundCol}" by factor ${scale}`;
-        isQueryProcessed = true;
-      }
-    }
-
-    if (isQueryProcessed) {
-      reply = `Here’s the plan for your query (\`${sqlQuery}\`). Check it below and press **Run Plan** to apply it.`;
-      commands.push({
-        type: 'EXECUTE_DATASET_JS',
-        jsCode,
-        sqlQuery,
-        explanation
-      });
-      commands.push({ type: 'SELECT_TAB', tab: 'clean' });
-      return { message: reply, commands };
-    }
-  }
-
-  if (msgLower.includes('drop') || msgLower.includes('remove column')) {
-    // Find which column to drop
-    const foundCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase()));
-    if (foundCol) {
-      reply = `I’ll remove the column **"${foundCol}"**. Press **Run Plan** to do it.`;
-      commands.push({ type: 'DROP_COLUMN', column: foundCol });
-      commands.push({ type: 'SELECT_TAB', tab: 'clean' });
-    } else {
-      reply = `I can drop columns for you, but I couldn't identify which column you wanted to drop. Available columns: ${colNamesList || 'No dataset loaded'}.`;
-    }
-  } else if (msgLower.includes('fill') || msgLower.includes('impute') || msgLower.includes('missing')) {
-    const foundCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase())) || colNames[0];
-    let strategy = 'mean';
-    if (msgLower.includes('median')) strategy = 'median';
-    else if (msgLower.includes('zero') || msgLower.includes('0')) strategy = 'zero';
-    else if (msgLower.includes('mode') || msgLower.includes('common')) strategy = 'mode';
-
-    if (foundCol) {
-      reply = `I’ll fill the missing values in **"${foundCol}"** using the **${strategy}**. Press **Run Plan** to do it.`;
-      commands.push({ type: 'FILL_MISSING', column: foundCol, strategy });
-      commands.push({ type: 'SELECT_TAB', tab: 'clean' });
-    } else {
-      reply = `Imputation can only be executed when a column is specified. Available columns: ${colNamesList || 'N/A'}`;
-    }
-  } else if (/hypothes|a\/b|\bab test|significan|t-test|chi-square|anova/.test(msgLower)) {
-    reply = "Opening the **Statistics** step, where you can test a hypothesis on your data or check an A/B test result.";
-    commands.push({ type: 'SELECT_TAB', tab: 'stats' });
-  } else if (msgLower.includes('eda') || msgLower.includes('scan') || msgLower.includes('analyze') || msgLower.includes('exploratory')) {
-    reply = "I’ll open **Explore** and analyze the dataset. Press **Run Plan** to start.";
-    commands.push({ type: 'SELECT_TAB', tab: 'eda' });
-    commands.push({ type: 'RUN_EDA_SCAN' });
-  } else if (msgLower.includes('model') || msgLower.includes('predict') || msgLower.includes('ml') || msgLower.includes('train')) {
-    // Intelligently infer target and features
-    const targetCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase()) && (c.toLowerCase().includes('target') || c.toLowerCase().includes('churn') || c.toLowerCase().includes('probability'))) || colNames[colNames.length - 1] || 'target';
-    const features = colNames.filter((c: string) => c !== targetCol).slice(0, 4);
-    const mType = msgLower.includes('class') || targetCol.toLowerCase().includes('churn') ? 'classification' : 'regression';
-    
-    reply = `Here’s a training plan:\n- **Predict**: \`${targetCol}\`\n- **Using**: ${features.join(', ')}\n- **Type**: ${mType}\n\nPress **Run Plan** to train it.`;
-    commands.push({ type: 'SELECT_TAB', tab: 'ml' });
-    commands.push({ type: 'RUN_ML', targetColumn: targetCol, featureColumns: features, modelType: mType });
-  } else if (msgLower.includes('dashboard') || msgLower.includes('chart') || msgLower.includes('metric') || msgLower.includes('slicer')) {
-    reply = "Opening the **Dashboard** step.";
-    commands.push({ type: 'SELECT_TAB', tab: 'dashboard' });
-  } else if (msgLower.includes('report') || msgLower.includes('brief') || msgLower.includes('pdf') || msgLower.includes('hub')) {
-    reply = "Opening the **Report** step.";
-    commands.push({ type: 'SELECT_TAB', tab: 'reports' });
-  } else if (msgLower.includes('ingest') || msgLower.includes('upload') || msgLower.includes('csv')) {
-    reply = "Opening the **Import** step.";
-    commands.push({ type: 'SELECT_TAB', tab: 'ingest' });
-  } else if (msgLower.includes('add column') || msgLower.includes('create column')) {
-    let label = 'NewDimension';
-    const parts = userMsg.split(/add column|create column/i);
-    if (parts[1]) {
-      const potentialName = parts[1].trim().split(' ')[0].replace(/[^a-zA-Z0-9_]/g, '');
-      if (potentialName) label = potentialName;
-    }
-    reply = `I’ll add a column named **"${label}"**. Press **Run Plan** to do it.`;
-    commands.push({ type: 'ADD_COLUMN', column: label, columnType: 'categorical', value: 'DefaultVal' });
-    commands.push({ type: 'SELECT_TAB', tab: 'clean' });
-  } else if (msgLower.includes('add row') || msgLower.includes('insert row')) {
-    reply = `I’ll add an empty row. Press **Run Plan** to do it.`;
-    commands.push({ type: 'ADD_ROW' });
-    commands.push({ type: 'SELECT_TAB', tab: 'clean' });
-  } else if (msgLower.includes('delete row') || msgLower.includes('remove row')) {
-    const match = userMsg.match(/\d+/);
-    const index = match ? parseInt(match[0]) : 0;
-    reply = `I’ll delete row **${Number(index) + 1}**. Press **Run Plan** to do it.`;
-    commands.push({ type: 'DELETE_ROW', index });
-    commands.push({ type: 'SELECT_TAB', tab: 'clean' });
-  } else if (msgLower.includes('group by') || msgLower.includes('groupby')) {
-    const foundCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase())) || colNames[0];
-    if (foundCol) {
-      reply = `I am executing a group-by operation. Grouping the active dataset by **"${foundCol}"** and displaying aggregation breakdown in the Cleaning Studio.`;
-      commands.push({ type: 'SELECT_TAB', tab: 'clean' });
-    } else {
-      reply = `I can group your columns for aggregate summaries, but please specify one from: ${colNamesList || 'N/A'}`;
-    }
-  } else if (msgLower.includes('reset') || msgLower.includes('restore') || msgLower.includes('original')) {
-    reply = "I’ll restore the data to how it was imported. Press **Run Plan** to do it.";
-    commands.push({ type: 'RESET_DATASET' });
-    commands.push({ type: 'SELECT_TAB', tab: 'clean' });
-  } else if (msgLower.includes('hello') || msgLower.includes('hi') || msgLower.includes('who are you') || msgLower.includes('creater') || msgLower.includes('deepak')) {
-    reply = `Hello! I am **AskAI**, acting as your interactive **AskDeepakAI** co-pilot built by **Gorisi Deepak Reddy**. 
-    
-I can analyze your dataset, clean missing cells, add or delete rows and columns, compute group-by metrics, run ML prediction models, and manage tabs. Try prompts like:
-- *"Add column PremiumCustomer"*
-- *"Insert a blank row"*
-- *"Delete row 3"*
-- *"Group by Country"*
-- *"Drop column PaymentMethod"*
-- *"Impute missing Age with median"*
-- *"Run classification models for target Churn"*
-- *"Reset dataset"*`;
-  } else {
-    reply = `I have received your message: "${userMsg}". 
-    
-As your AI code copilot, I can read and write the active dataset! I can add/delete rows & columns, perform group values, and execute smart operations. Current dataset has **${rowCount}** rows with columns: ${colNamesList || 'None'}.`;
-  }
-
-  return { message: reply, commands };
-}
-
-/** A proposed plan: what will happen, then live progress and a checked report. */
-function PlanCard({ message, busy, onRun, onCancel, onStop, onUndo }: {
-  message: ChatMessage; busy: boolean; onRun: () => void; onCancel: () => void; onStop: () => void; onUndo?: () => void;
-}) {
-  const plan = message.plan ?? [];
-  const outcomes = message.outcomes ?? [];
-  const state = message.planState;
-  const runnable = plan.some(s => !s.problem);
-  const done = outcomes.filter(o => o.status === 'done').length;
-  const failed = outcomes.filter(o => o.status === 'failed').length;
-  const skipped = outcomes.filter(o => o.status === 'skipped').length;
-  return (
-    <div className="mt-2 pt-2 border-t border-separator text-[12px] space-y-1.5">
-      <span className="block font-medium text-label-2">
-        {state === 'proposed' ? 'Plan — nothing has changed yet' : state === 'cancelled' ? 'Plan cancelled — nothing changed' : state === 'running' ? 'Running the plan' : 'Completion report'}
-      </span>
-      <ol className="space-y-1">
-        {plan.map((step, i) => {
-          const o = outcomes.find(x => x.stepId === step.id);
-          return (
-            <li key={step.id} className="flex items-start gap-1.5 text-label">
-              <span className="w-4 shrink-0 text-center">
-                {o ? (o.status === 'done' ? <Check className="w-3 h-3 text-green inline" /> : o.status === 'failed' ? <AlertTriangle className="w-3 h-3 text-red inline" /> : <span className="text-label-3">–</span>)
-                  : state === 'running' && outcomes.length === i ? <Orb state="working" size={20} label="Running this step" /> : <span className="text-label-3 tabular-nums">{i + 1}</span>}
-              </span>
-              <span className="min-w-0">
-                {step.label}
-                {(o?.detail || (!o && step.problem)) && (
-                  <span className={`block text-[11px] ${o?.status === 'failed' || (!o && step.problem) ? 'text-orange' : 'text-label-2'}`}>{o?.detail ?? step.problem}</span>
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-      {state === 'proposed' && (
-        <div className="flex gap-2 pt-1">
-          <button type="button" onClick={onRun} disabled={busy || !runnable} className="btn btn-sm btn-primary">Run Plan</button>
-          <button type="button" onClick={onCancel} disabled={busy} className="btn btn-sm btn-secondary">Cancel</button>
-        </div>
-      )}
-      {state === 'running' && (
-        <button type="button" onClick={onStop} className="btn btn-sm btn-secondary">Stop After This Step</button>
-      )}
-      {state === 'done' && (
-        <div className="pt-1 space-y-1.5">
-          <p className="text-label">
-            {done} of {plan.length} step{plan.length === 1 ? '' : 's'} done and checked{failed ? `, ${failed} failed` : ''}{skipped ? `, ${skipped} skipped` : ''}.
-          </p>
-          {onUndo && done > 0 && (
-            <button type="button" onClick={onUndo} className="btn btn-sm btn-secondary">Undo All</button>
-          )}
-        </div>
-      )}
-    </div>
   );
 }

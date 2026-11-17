@@ -115,7 +115,7 @@ export default function StatsCompare({ dataset, sessionTests, onTestRun }: {
     <div className="space-y-6">
       <div className="card p-5 sm:p-6 space-y-4">
         <div>
-          <h3 className="card-title">Compare or relate two columns</h3>
+          <h3 className="card-title" data-agent="area-compare">Compare or relate two columns</h3>
           <p className="mt-1 text-sm text-label-2">
             The right test is chosen from the column types: numbers vs groups compares averages, two number columns are correlated,
             and two category columns are tested for a link. Every result comes with its effect size, a confidence interval and the
@@ -125,19 +125,19 @@ export default function StatsCompare({ dataset, sessionTests, onTestRun }: {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="field-label" htmlFor="cmp-a">First column</label>
-            <select id="cmp-a" className="input" value={a} onChange={e => setColA(e.target.value)}>
+            <select id="cmp-a" data-agent="cmp-a" className="input" value={a} onChange={e => setColA(e.target.value)}>
               {names.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
           <div>
             <label className="field-label" htmlFor="cmp-b">Second column</label>
-            <select id="cmp-b" className="input" value={b} onChange={e => setColB(e.target.value)}>
+            <select id="cmp-b" data-agent="cmp-b" className="input" value={b} onChange={e => setColB(e.target.value)}>
               {names.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
           <div>
             <label className="field-label" htmlFor="cmp-alt">Direction</label>
-            <select id="cmp-alt" className="input" value={alternative} onChange={e => setAlternative(e.target.value as typeof alternative)}>
+            <select id="cmp-alt" data-agent="cmp-alt" className="input" value={alternative} onChange={e => setAlternative(e.target.value as typeof alternative)}>
               <option value="two-sided">Any difference (two-sided)</option>
               <option value="greater">First is greater (one-sided)</option>
               <option value="less">First is smaller (one-sided)</option>
@@ -145,7 +145,7 @@ export default function StatsCompare({ dataset, sessionTests, onTestRun }: {
           </div>
           <div>
             <label className="field-label" htmlFor="cmp-alpha">Significance level</label>
-            <select id="cmp-alpha" className="input" value={alpha} onChange={e => setAlpha(Number(e.target.value))}>
+            <select id="cmp-alpha" data-agent="cmp-alpha" className="input" value={alpha} onChange={e => setAlpha(Number(e.target.value))}>
               <option value={0.01}>0.01 (99% confidence)</option>
               <option value={0.05}>0.05 (95% confidence)</option>
               <option value={0.1}>0.10 (90% confidence)</option>
@@ -158,7 +158,7 @@ export default function StatsCompare({ dataset, sessionTests, onTestRun }: {
             These are two measurements of the same thing on each row (before/after) — compare them as pairs
           </label>
         )}
-        <button type="button" onClick={run} disabled={loading || !a || !b} aria-busy={loading} className="btn btn-primary">
+        <button type="button" data-agent="cmp-run" onClick={run} disabled={loading || !a || !b} aria-busy={loading} className="btn btn-primary">
           {loading ? <><Orb state="solving" onAccent label="Running the test" /> Running…</> : 'Run Test'}
         </button>
         {error && (

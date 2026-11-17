@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
+import { useLogRun } from '../contexts/WorkspaceContext';
 
 type PowerTest = 'two-sample-t' | 'paired-t' | 'anova' | 'correlation' | 'two-proportions';
 
@@ -20,6 +21,7 @@ const TESTS: Record<PowerTest, { label: string; effect: string; presets: [string
 
 /** How many rows a study needs, or how likely it is to detect an effect. */
 export default function StatsPower() {
+  const logRun = useLogRun();
   const [test, setTest] = useState<PowerTest>('two-sample-t');
   const [effect, setEffect] = useState('0.5');
   const [alpha, setAlpha] = useState(0.05);
@@ -46,6 +48,14 @@ export default function StatsPower() {
       const body = await res.json().catch(() => null);
       if (!res.ok || !body) throw new Error(body?.error || `The calculation couldn’t run (HTTP ${res.status}).`);
       setResult(body);
+      logRun({
+        kind: 'power',
+        title: `${TESTS[test].label}: ${TESTS[test].effect} = ${effect}`,
+        summary: body.solvedFor === 'n' ? `${body.n} ${body.unit} needed for ${Math.round(Number(power) * 100)}% power` : `${(body.power * 100).toFixed(1)}% power with ${n}`,
+        status: 'succeeded',
+        params: { test, effect: Number(effect), alpha },
+        result: body,
+      });
     } catch (err) {
       setResult(null);
       setError((err as Error).message);
@@ -60,7 +70,7 @@ export default function StatsPower() {
     <div className="space-y-6">
       <div className="card p-5 sm:p-6 space-y-4">
         <div>
-          <h3 className="card-title">Sample size and power</h3>
+          <h3 className="card-title" data-agent="area-power">Sample size and power</h3>
           <p className="mt-1 text-sm text-label-2">
             Plan a study: how many rows you need to reliably detect an effect of a given size, or how likely your current sample is to detect it.
           </p>
@@ -68,14 +78,14 @@ export default function StatsPower() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="field-label" htmlFor="pw-test">What you want to test</label>
-            <select id="pw-test" className="input" value={test} onChange={e => { const t = e.target.value as PowerTest; setTest(t); setEffect(String(TESTS[t].presets[1][1])); setResult(null); }}>
+            <select id="pw-test" data-agent="pw-test" className="input" value={test} onChange={e => { const t = e.target.value as PowerTest; setTest(t); setEffect(String(TESTS[t].presets[1][1])); setResult(null); }}>
               {(Object.keys(TESTS) as PowerTest[]).map(t => <option key={t} value={t}>{TESTS[t].label}</option>)}
             </select>
           </div>
           <div>
             <label className="field-label" htmlFor="pw-effect">Effect size ({meta.effect})</label>
             <div className="flex gap-2">
-              <input id="pw-effect" className="input flex-1" inputMode="decimal" value={effect} onChange={e => setEffect(e.target.value)} />
+              <input id="pw-effect" data-agent="pw-effect" className="input flex-1" inputMode="decimal" value={effect} onChange={e => setEffect(e.target.value)} />
               {meta.presets.map(([label, v]) => (
                 <button key={label} type="button" className={`btn btn-sm ${Number(effect) === v ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setEffect(String(v))}>{label}</button>
               ))}
@@ -92,7 +102,7 @@ export default function StatsPower() {
           {solveFor === 'n' ? (
             <div>
               <label className="field-label" htmlFor="pw-power">Desired power</label>
-              <select id="pw-power" className="input" value={power} onChange={e => setPower(e.target.value)}>
+              <select id="pw-power" data-agent="pw-power" className="input" value={power} onChange={e => setPower(e.target.value)}>
                 <option value="0.8">80% (common)</option>
                 <option value="0.9">90%</option>
                 <option value="0.95">95%</option>
@@ -101,12 +111,12 @@ export default function StatsPower() {
           ) : (
             <div>
               <label className="field-label" htmlFor="pw-n">Sample size ({unitFor(test)})</label>
-              <input id="pw-n" className="input" inputMode="numeric" value={n} onChange={e => setN(e.target.value)} />
+              <input id="pw-n" data-agent="pw-n" className="input" inputMode="numeric" value={n} onChange={e => setN(e.target.value)} />
             </div>
           )}
           <div>
             <label className="field-label" htmlFor="pw-alpha">Significance level</label>
-            <select id="pw-alpha" className="input" value={alpha} onChange={e => setAlpha(Number(e.target.value))}>
+            <select id="pw-alpha" data-agent="pw-alpha" className="input" value={alpha} onChange={e => setAlpha(Number(e.target.value))}>
               <option value={0.01}>0.01</option>
               <option value={0.05}>0.05</option>
               <option value={0.1}>0.10</option>
@@ -115,11 +125,11 @@ export default function StatsPower() {
           {test === 'anova' && (
             <div>
               <label className="field-label" htmlFor="pw-groups">Number of groups</label>
-              <input id="pw-groups" className="input" inputMode="numeric" value={groups} onChange={e => setGroups(e.target.value)} />
+              <input id="pw-groups" data-agent="pw-groups" className="input" inputMode="numeric" value={groups} onChange={e => setGroups(e.target.value)} />
             </div>
           )}
         </div>
-        <button type="button" onClick={run} disabled={loading} aria-busy={loading} className="btn btn-primary">
+        <button type="button" data-agent="pw-run" onClick={run} disabled={loading} aria-busy={loading} className="btn btn-primary">
           {loading ? <><Orb state="solving" onAccent label="Calculating" /> Calculating…</> : 'Calculate'}
         </button>
         {error && (

@@ -143,12 +143,12 @@ export default function DashboardToolbar({ dataset, datasetId, onInitialLoad }: 
             )}
             {naming ? (
               <form onSubmit={e => { e.preventDefault(); save(true); }} className="flex items-center gap-2">
-                <input autoFocus className="input w-44" placeholder="Dashboard name" value={name} onChange={e => setName(e.target.value)} aria-label="Dashboard name" />
-                <button type="submit" className="btn btn-sm btn-primary">Save</button>
+                <input autoFocus data-agent="dash-name" className="input w-44" placeholder="Dashboard name" value={name} onChange={e => setName(e.target.value)} aria-label="Dashboard name" />
+                <button type="submit" data-agent="dash-save-confirm" className="btn btn-sm btn-primary">Save</button>
                 <button type="button" onClick={() => setNaming(false)} className="btn btn-sm btn-plain">Cancel</button>
               </form>
             ) : (
-              <button type="button" onClick={() => setNaming(true)} className="btn btn-sm btn-secondary">
+              <button type="button" data-agent="dash-save-new" onClick={() => setNaming(true)} className="btn btn-sm btn-secondary">
                 {openId ? 'Save as New' : <><Save className="w-4 h-4" /> Save Dashboard</>}
               </button>
             )}
@@ -159,10 +159,10 @@ export default function DashboardToolbar({ dataset, datasetId, onInitialLoad }: 
             )}
           </>
         )}
-        <button type="button" onClick={() => setKpiOpen(o => !o)} className="btn btn-sm btn-secondary" aria-expanded={kpiOpen}>
+        <button type="button" data-agent="dash-add-kpi" onClick={() => setKpiOpen(o => !o)} className="btn btn-sm btn-secondary" aria-expanded={kpiOpen}>
           <Plus className="w-4 h-4" /> Add KPI
         </button>
-        {message && <span role="status" className="text-sm text-green">{message}</span>}
+        {message && <span role="status" data-agent="dash-message" className="text-sm text-green">{message}</span>}
       </div>
 
       {filterChips.length > 0 && (
@@ -254,15 +254,15 @@ function KpiBuilder({ dataset, onAdd, onCancel }: { dataset: Dataset; onAdd: (k:
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_auto] gap-4">
         <div>
           <label className="field-label" htmlFor="kpi-name">Name</label>
-          <input id="kpi-name" className="input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Revenue per customer" />
+          <input id="kpi-name" data-agent="kpi-name" className="input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Revenue per customer" />
         </div>
         <div>
           <label className="field-label" htmlFor="kpi-formula">Formula</label>
-          <input id="kpi-formula" className="input font-code" value={formula} onChange={e => setFormula(e.target.value)} placeholder="SUM(revenue) / COUNT()" spellCheck={false} />
+          <input id="kpi-formula" data-agent="kpi-formula" className="input font-code" value={formula} onChange={e => setFormula(e.target.value)} placeholder="SUM(revenue) / COUNT()" spellCheck={false} />
         </div>
         <div>
           <label className="field-label" htmlFor="kpi-format">Show as</label>
-          <select id="kpi-format" className="input" value={format} onChange={e => setFormat(e.target.value as KpiFormat)}>
+          <select id="kpi-format" data-agent="kpi-format" className="input" value={format} onChange={e => setFormat(e.target.value as KpiFormat)}>
             <option value="number">Number</option>
             <option value="percent">Percent (0.25 → 25%)</option>
             <option value="currency">Money (2 decimals)</option>
@@ -283,7 +283,7 @@ function KpiBuilder({ dataset, onAdd, onCancel }: { dataset: Dataset; onAdd: (k:
           : <p className="text-sm text-label">On the current view: <span className="font-semibold tabular-nums">{formatKpi(preview.value ?? null, format)}</span></p>
       )}
       <div className="flex gap-2">
-        <button type="submit" className="btn btn-primary" disabled={!name.trim() || !preview || 'error' in preview}>Add KPI</button>
+        <button type="submit" data-agent="kpi-add" className="btn btn-primary" disabled={!name.trim() || !preview || 'error' in preview}>Add KPI</button>
         <button type="button" onClick={onCancel} className="btn btn-secondary">Cancel</button>
       </div>
     </form>

@@ -3,7 +3,7 @@ import { BrainCircuit, Copy, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
 import { useLogRun } from '../contexts/WorkspaceContext';
-import { normalCdf, normalQuantile } from '../utils/normal';
+import { abTest } from '../utils/abTest';
 
 export default function ABTestInterpreter() {
   const [controlSize, setControlSize] = useState(1000);
@@ -19,40 +19,10 @@ export default function ABTestInterpreter() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Manual calculation for A/B Test (Two Proportion Z-Test)
   const calculateTest = () => {
-     const p1 = controlRate;
-     const p2 = treatmentRate;
-     const n1 = controlSize;
-     const n2 = treatmentSize;
-
-     const pPool = (p1*n1 + p2*n2) / (n1 + n2);
-     const sePool = Math.sqrt(pPool * (1 - pPool) * ((1/n1) + (1/n2)));
-     const zScore = sePool > 0 ? (p2 - p1) / sePool : 0;
-
-     // Exact normal-distribution p-value. One-tailed tests whether the
-     // treatment is better than the control.
-     const pValue = testType === 'two-tailed'
-       ? 2 * (1 - normalCdf(Math.abs(zScore)))
-       : 1 - normalCdf(zScore);
-     const relativeLift = p1 > 0 ? ((p2 - p1) / p1) * 100 : 0;
-     const alpha = 1 - confidence;
-     const isSig = pValue < alpha;
-
-     // Minimum detectable effect: the smallest lift these sample sizes detect
-     // with 80% power at the chosen confidence level.
-     const zAlpha = normalQuantile(1 - (testType === 'two-tailed' ? alpha / 2 : alpha));
-     const zPower = normalQuantile(0.8);
-     const mdeAbs = (zAlpha + zPower) * Math.sqrt(p1 * (1 - p1) * (1 / n1 + 1 / n2));
-     const mdeRel = p1 > 0 ? (mdeAbs / p1) * 100 : 0;
-
-     return {
-       zScore: zScore.toFixed(3),
-       pValue: pValue < 0.0001 ? '< 0.0001' : pValue.toFixed(4),
-       relativeLift: relativeLift.toFixed(2),
-       isSignificant: isSig,
-       mde: `${mdeRel.toFixed(1)}% relative (${(mdeAbs * 100).toFixed(2)} pts) at 80% power`
-     };
+    const { pValueNumber: _p, ...rest } = abTest({ controlSize, controlRate, treatmentSize, treatmentRate, confidence, testType: testType as 'two-tailed' | 'one-tailed' });
+    void _p;
+    return rest;
   };
 
   const generateMemo = async () => {

@@ -119,7 +119,7 @@ export default function DeployPanel({ dataset, datasetId, activeVersionId, mlRes
       </div>
       <div className="segmented w-max" role="tablist" aria-label="Deploy and monitor">
         {([['models', 'Models'], ['predict', 'Predict'], ['monitor', 'Monitor']] as [Tab, string][]).map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setError(null); }}>{label}</button>
+          <button key={id} type="button" role="tab" data-agent={`deploy-tab-${id}`} aria-selected={tab === id} onClick={() => { setTab(id); setError(null); }}>{label}</button>
         ))}
       </div>
       {notice && <p role="status" className="rounded-xl bg-blue/10 px-3 py-2.5 text-sm text-label">{notice}</p>}
@@ -214,7 +214,7 @@ function ModelsTab({ dataset, datasetId, activeVersionId, mlResult, models, refr
           <p className="text-sm font-semibold text-label">Register the current model: {mlResult.modelAlgorithm} predicting {mlResult.target}</p>
           <GateList gate={gate} />
           {registered ? (
-            <p className="text-sm text-label-2">This model is already registered.</p>
+            <p className="text-sm text-label-2" data-agent="deploy-registered">This model is already registered.</p>
           ) : gateBlocks(gate) ? (
             <p className="text-sm text-red">It can’t be registered until the failed checks are fixed.</p>
           ) : (
@@ -222,17 +222,17 @@ function ModelsTab({ dataset, datasetId, activeVersionId, mlResult, models, refr
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="field-label" htmlFor="reg-name">Name</label>
-                  <input id="reg-name" className="input" value={name} onChange={e => setName(e.target.value)} placeholder={`${mlResult.target} model`} />
+                  <input id="reg-name" data-agent="deploy-name" className="input" value={name} onChange={e => setName(e.target.value)} placeholder={`${mlResult.target} model`} />
                 </div>
                 <div>
                   <label className="field-label" htmlFor="reg-use">Intended use (for the model card)</label>
-                  <input id="reg-use" className="input" value={use} onChange={e => setUse(e.target.value)} placeholder="e.g. Rank customers for retention calls" />
+                  <input id="reg-use" data-agent="deploy-use" className="input" value={use} onChange={e => setUse(e.target.value)} placeholder="e.g. Rank customers for retention calls" />
                 </div>
               </div>
               <label className="flex items-center gap-2 text-sm text-label">
                 <input type="checkbox" checked={makeActive} onChange={e => setMakeActive(e.target.checked)} /> Make it the active model
               </label>
-              <button type="button" onClick={register} disabled={!canRegister} className="btn btn-primary">Register Model</button>
+              <button type="button" data-agent="deploy-register" onClick={register} disabled={!canRegister} className="btn btn-primary">Register Model</button>
               {!activeVersionId && <p className="text-xs text-label-2">Waiting for the data version to be saved…</p>}
             </>
           )}
@@ -345,12 +345,12 @@ function PredictTab({ model, onRestored, setError }: {
           <div key={f.name}>
             <label className="field-label" htmlFor={`pred-${f.name}`}>{f.name}</label>
             {f.type !== 'numeric' && f.values && f.values.length <= 50 ? (
-              <select id={`pred-${f.name}`} className="input" value={inputs[f.name] ?? ''} onChange={e => setInputs({ ...inputs, [f.name]: e.target.value })}>
+              <select id={`pred-${f.name}`} data-agent={`pred-${f.name}`} className="input" value={inputs[f.name] ?? ''} onChange={e => setInputs({ ...inputs, [f.name]: e.target.value })}>
                 <option value="">(empty)</option>
                 {f.values.map(v => <option key={v} value={v}>{v}</option>)}
               </select>
             ) : (
-              <input id={`pred-${f.name}`} className="input" inputMode={f.type === 'numeric' ? 'decimal' : undefined} value={inputs[f.name] ?? ''} onChange={e => setInputs({ ...inputs, [f.name]: e.target.value })} />
+              <input id={`pred-${f.name}`} data-agent={`pred-${f.name}`} className="input" inputMode={f.type === 'numeric' ? 'decimal' : undefined} value={inputs[f.name] ?? ''} onChange={e => setInputs({ ...inputs, [f.name]: e.target.value })} />
             )}
             {f.type === 'numeric' && f.min !== undefined && <p className="mt-1 text-[11px] text-label-3">Training range {f.min} – {f.max}</p>}
           </div>
@@ -360,11 +360,11 @@ function PredictTab({ model, onRestored, setError }: {
         <ul className="space-y-1">{warnings.map(w => <li key={w} className="flex items-start gap-2 text-xs text-orange"><AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{w}</li>)}</ul>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={predictOne} disabled={!!busy} aria-busy={busy === 'one'} className="btn btn-primary">
+        <button type="button" data-agent="deploy-predict" onClick={predictOne} disabled={!!busy} aria-busy={busy === 'one'} className="btn btn-primary">
           {busy === 'one' ? <><Orb state="solving" onAccent label="Predicting" /> Predicting…</> : 'Predict'}
         </button>
         {prediction !== undefined && (
-          <p role="status" className="text-[17px] text-label">Predicted {model.recipe.target}: <span className="font-semibold">{typeof prediction === 'number' ? Number(prediction.toFixed(4)).toLocaleString() : String(prediction)}</span></p>
+          <p role="status" data-agent="deploy-prediction" className="text-[17px] text-label">Predicted {model.recipe.target}: <span className="font-semibold">{typeof prediction === 'number' ? Number(prediction.toFixed(4)).toLocaleString() : String(prediction)}</span></p>
         )}
       </div>
 

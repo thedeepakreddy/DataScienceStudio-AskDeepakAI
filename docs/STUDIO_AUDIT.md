@@ -283,7 +283,7 @@ pull requests of about the size of the recent ones.
 - CI now runs the frontend unit tests (`npm test`). Vitest: 78 tests.
 
 **Phase 8 status: done.**
-- Typed tool list for the assistant (`src/agent/tools.ts`): every action the planner proposes is checked against the data before running (unknown columns, rows that don’t exist, a column removed by an earlier step).
+- Typed tool list for the assistant (`src/agent/tools.ts`, since replaced by the agent swarm’s capability catalog — see `docs/SWARM.md`): every action the planner proposes is checked against the data before running (unknown columns, rows that don’t exist, a column removed by an earlier step).
 - Plan → confirm → run → verify: actions that change data or train a model appear as a plan (“nothing has changed yet”) with Run Plan / Cancel; moving between steps happens at once. Each step’s effect is then checked from the data (e.g. no missing values left, every kept row matches the filter).
 - Completion report in the chat: each step done/failed/skipped with its check, a summary, and Undo All (back to the version before the plan). Stop After This Step cancels the rest.
 - Same behaviour with or without AI: Gemini and the built-in rules produce the same commands, so the same plan, checks and report. Built-in replies now describe what will happen instead of claiming it already did.

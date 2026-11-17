@@ -34,6 +34,7 @@ export default function StatisticsStage({ dataset }: { dataset: Dataset }) {
               key={tab.id}
               type="button"
               role="tab"
+              data-agent={`stats-tab-${tab.id}`}
               aria-selected={view === tab.id}
               onClick={() => setView(tab.id)}
             >

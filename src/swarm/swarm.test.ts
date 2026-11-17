@@ -1,45 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { parseCSV } from '../utils/csvParser';
-import type { Dataset, MLResult } from '../types';
-import { mentionedColumns, rulePlan, validatePlan, TaskSpec } from './plan';
-import { RuntimePort, SwarmRun, SwarmRuntime, newRun } from './runtime';
+import { mentionedColumns, rulePlan, validatePlan } from './plan';
+import { SwarmRun, SwarmRuntime, newRun } from './runtime';
 
-const csv = `id,MonthlyCharges,Contract,const,Churn
-1,50,Monthly,x,Yes
-2,,Yearly,x,No
-3,70,Monthly,x,Yes
-3,70,Monthly,x,Yes
-4,20,Yearly,x,No`;
-
-function fakePort(start: Dataset, over: Partial<RuntimePort> = {}) {
-  let ds = start;
-  let version = 0;
-  const applied: { parent: number; capability: string }[] = [];
-  const port: RuntimePort & { commits: string[]; steps: string[] } = {
-    commits: [], steps: [],
-    getDataset: () => ds,
-    commitDataset: (next, _op, summary) => { ds = next; version++; port.commits.push(summary); },
-    openStep: s => { port.steps.push(s); },
-    train: vi.fn(async () => ({ modelAlgorithm: 'RF', metrics: { accuracy: 0.9 }, cv: { mean: 0.88, std: 0.02 }, modelId: 'm1', leakageWarnings: [] } as unknown as MLResult)),
-    getModel: () => null,
-    api: vi.fn(async () => ({ test: 'Welch’s t-test', pValue: 0.01, significant: true, rowsUsed: 4, assumptions: [] })),
-    settle: async () => `v${version}`,
-    findAppliedVersion: async () => { void applied; return null; },
-    ...over,
-  };
-  return port;
-}
-
-async function runToEnd(rt: SwarmRuntime) {
-  for (let i = 0; i < 200 && !['completed', 'partial', 'failed', 'cancelled'].includes(rt.run.status); i++) await new Promise(r => setTimeout(r, 5));
-  return rt.run;
-}
-
-const make = (tasks: TaskSpec[], port: RuntimePort) => {
-  const saved: SwarmRun[] = [];
-  const rt = new SwarmRuntime(newRun({ request: 'x', reply: '', plannedBy: 'rules', tasks, datasetId: 'd', startVersionId: 'v0' }), port, async r => { saved.push(r); }, () => {});
-  return { rt, saved };
-};
+import { csv, fakePort, make, runToEnd } from './testkit';
 
 describe('rule planner', () => {
   const ds = parseCSV(csv, 'c.csv');
@@ -106,8 +70,9 @@ describe('swarm runtime', () => {
     expect(run.status).toBe('completed');
     expect(port.commits).toEqual(['Removed 1 duplicate row.', 'Removed “const”.', expect.stringContaining('Filled 1 missing value in “MonthlyCharges”')]);
     expect(port.train).toHaveBeenCalledTimes(1);
-    expect(run.report!.headline).toBe('Done: all 5 tasks completed and self-checked.');
-    expect(run.report!.limitations[0]).toContain('self-checks');
+    expect(run.report!.headline).toBe('Done: all 5 tasks completed and self-checked; 1 independently reviewed.');
+    expect(run.report!.reviews).toEqual([expect.objectContaining({ label: 'Train a model to predict “Churn”', agrees: true })]);
+    expect(run.report!.limitations[0]).toContain('self-check');
     expect(run.telemetry.aiCalls).toBe(0);
     expect(run.messages.some(m => m.type === 'handoff' && m.to === 'ml_engineer')).toBe(true);
   });

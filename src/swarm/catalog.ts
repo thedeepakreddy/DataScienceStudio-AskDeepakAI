@@ -15,6 +15,9 @@ import { detectDuplicateRecords, findExtremeOutliers } from '../utils/edaEngine'
 import { computeReportFindings } from '../utils/reportFindings';
 import { runReadOnlySql } from '../utils/safeSql';
 import type { AgentRole } from './agents';
+import { abTest } from '../utils/abTest';
+import { UI_SCRIPTS, type UiScript } from './uiScripts';
+import { reviewDataChange, reviewModel, reviewTest } from './review';
 
 // The capability catalog: every studio action the swarm may take (blueprint
 // 5.3). Each one calls the same code the studio's own buttons use - the
@@ -37,6 +40,12 @@ export interface StudioPort {
   getModel: () => MLResult | null;
   /** Calls the studio's API (counts as a job; abortable). */
   api: (url: string, body: unknown, signal?: AbortSignal) => Promise<any>;
+  /** Restores the data to how it was imported. */
+  resetOriginal: () => Dataset | null;
+  /** Runs user/AI-written transformation code in the sandbox and returns the new data. */
+  runCode: (code: string, ds: Dataset) => Promise<Dataset>;
+  /** Runs the Explore AI advisory (an AI call unless AI is unavailable). */
+  runAdvisory: () => Promise<{ source?: string; recommendedTarget?: string } | null>;
 }
 
 export interface CapabilityResult {
@@ -66,6 +75,10 @@ export interface Capability {
   params: string;
   validate: (p: any, ds: Dataset | null) => string | null;
   run: (p: any, port: StudioPort, signal: AbortSignal) => Promise<CapabilityResult>;
+  /** How it is done on the user's page, through the real controls (PR 2). */
+  ui?: UiScript;
+  /** Only possible on the page (its state lives in a screen, not in data). */
+  uiOnly?: boolean;
   /** The producing agent's own check of its output (labelled self-check, 9.3). */
   selfCheck: (p: any, before: Dataset | null, after: Dataset | null, result: CapabilityResult) => { ok: boolean; detail: string };
 }
@@ -92,6 +105,9 @@ const DATA_OPS: Partial<Record<OperationId, { label: (p: any) => string; params:
   convert_type: { label: p => `Change “${p.column}” to ${p.to}`, params: '{ column: string, to: "numeric"|"categorical"|"boolean"|"datetime" }', columns: p => [p.column] },
   derive_column: { label: p => `Create a ${p.transform} column from “${p.source}”`, params: '{ source: string, transform: "log"|"sqrt"|"square"|"minmax"|"standard"|"multiply"|"divide", other?: string, name?: string }', columns: p => [p.source, ...(p.other ? [p.other] : [])] },
   one_hot_encode: { label: p => `Split “${p.column}” into yes/no columns`, params: '{ column: string }', columns: p => [p.column] },
+  add_column: { label: p => `Add a column “${p.name}”`, params: '{ name: string, type: "numeric"|"categorical"|"boolean", value: string|number|boolean|null }', columns: () => [] },
+  add_row: { label: () => 'Add a row', params: '{ values?: { [column]: value } }', columns: () => [] },
+  delete_rows: { label: p => `Delete ${p.indices?.length === 1 ? `row ${Number(p.indices[0]) + 1}` : `${p.indices?.length} rows`}`, params: '{ indices: number[] }  // 0-based', columns: () => [] },
 };
 
 function dataCapability(op: OperationId): Capability {
@@ -313,16 +329,134 @@ const OTHER: Capability[] = [
     },
     selfCheck: passthroughCheck,
   },
+  {
+    id: 'verify.review', studio: 'Research', label: p => `Independently review: ${p?.target?.label ?? 'a result'}`, defaultRole: 'verifier',
+    approval: 'autonomous', sideEffect: 'none', backend: false, idempotent: true, step: 'reports', timeoutMs: 60_000,
+    params: '{ target }  // added automatically for risky results; not for planners',
+    validate: (p, ds) => (!ds ? 'No dataset is loaded.' : !p?.target?.capability ? 'Nothing to review.' : null),
+    run: async (p, port) => {
+      const ds = port.getDataset()!;
+      const t = p.target;
+      const outcome = t.capability === 'stats.compare' ? reviewTest(ds, t.params, t.result ?? {})
+        : t.capability === 'models.train' ? reviewModel(port.getModel(), ds)
+        : reviewDataChange(t.capability, t.params, ds);
+      return { summary: `${outcome.agrees ? 'Agrees' : 'Disagrees'} — ${outcome.detail} (${outcome.method})`, data: outcome };
+    },
+    // The review is itself the independent check; it reports, it doesn't grade itself.
+    selfCheck: (_p, _b, _a, r) => ({ ok: true, detail: (r.data as any)?.agrees ? 'Independent review agrees.' : 'Independent review found a contradiction (reported).' }),
+  },
+  {
+    id: 'data.reset', studio: 'Data', label: () => 'Restore the data as imported', defaultRole: 'data_engineer',
+    approval: 'batch', sideEffect: 'new-version', backend: false, idempotent: true, step: 'clean', timeoutMs: 10_000, params: '{}',
+    validate: (_p, ds) => (ds ? null : 'No dataset is loaded.'),
+    run: async (_p, port) => {
+      const ds = port.resetOriginal();
+      if (!ds) throw new OperationError('There is no original data to restore.');
+      return { summary: `Restored the imported data (${ds.rows.length.toLocaleString()} rows).`, data: { rows: ds.rows.length } };
+    },
+    selfCheck: (_p, _b, after) => (after ? { ok: true, detail: `${after.rows.length} rows × ${after.columns.length} columns.` } : { ok: false, detail: 'No data.' }),
+  },
+  {
+    id: 'data.custom_code', studio: 'Data', label: p => `Run custom transformation code${p.explanation ? `: ${p.explanation}` : ''}`, defaultRole: 'data_engineer',
+    // Code isn't a known operation, so every run needs its own approval.
+    approval: 'separate', sideEffect: 'new-version', backend: false, idempotent: false, step: 'clean', timeoutMs: 15_000,
+    params: '{ code: string /* (dataset) => dataset, runs in a sandbox */, explanation?: string }',
+    validate: (p, ds) => (!ds ? 'No dataset is loaded.' : typeof p?.code !== 'string' || !p.code.trim() ? 'No code was given.' : null),
+    run: async (p, port) => {
+      const ds = port.getDataset()!;
+      const next = await port.runCode(p.code, ds);
+      port.commitDataset(next, undefined, p.explanation ? `Custom code: ${p.explanation}` : 'Ran custom transformation code');
+      return { summary: `Ran the code: ${ds.rows.length} → ${next.rows.length} rows, ${ds.columns.length} → ${next.columns.length} columns.`, data: { rows: next.rows.length, columns: next.columns.length } };
+    },
+    selfCheck: (_p, before, after) => (after && after !== before ? { ok: true, detail: 'A new data version was produced.' } : { ok: false, detail: 'The data didn’t change.' }),
+  },
+  {
+    id: 'stats.power', studio: 'Statistics', label: p => `Plan the sample size (${p.test}, effect ${p.effect})`, defaultRole: 'statistician',
+    approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'stats', timeoutMs: 60_000,
+    params: '{ test: "two-sample-t"|"paired-t"|"anova"|"correlation"|"two-proportions", effect: number, power?: number, n?: number }',
+    validate: p => (typeof p?.effect !== 'number' || !p.effect ? 'Give a non-zero effect size.' : !['two-sample-t', 'paired-t', 'anova', 'correlation', 'two-proportions'].includes(p.test) ? 'Unknown design.' : null),
+    run: async (p, port, signal) => {
+      const body = await port.api('/api/stats/power', { test: p.test, effect: p.effect, ...(p.n ? { n: p.n } : { power: p.power ?? 0.8 }) }, signal);
+      return { summary: body.solvedFor === 'n' ? `${body.n} ${body.unit} needed for ${Math.round((p.power ?? 0.8) * 100)}% power.` : `${(body.power * 100).toFixed(1)}% power with ${p.n}.`, data: body };
+    },
+    selfCheck: passthroughCheck,
+  },
+  {
+    id: 'stats.ab_test', studio: 'Statistics', label: p => `A/B test: ${(p.controlRate * 100).toFixed(1)}% vs ${(p.treatmentRate * 100).toFixed(1)}%`, defaultRole: 'statistician',
+    approval: 'autonomous', sideEffect: 'none', backend: false, idempotent: true, step: 'stats', timeoutMs: 5_000,
+    params: '{ controlSize: number, controlRate: number /* 0-1 */, treatmentSize: number, treatmentRate: number, confidence?: number }',
+    validate: p => ([p?.controlSize, p?.treatmentSize].some(n => !(n > 1)) || [p?.controlRate, p?.treatmentRate].some(r => !(r >= 0 && r <= 1)) ? 'Sizes must be over 1 and rates between 0 and 1.' : null),
+    run: async p => {
+      const r = abTest({ controlSize: p.controlSize, controlRate: p.controlRate, treatmentSize: p.treatmentSize, treatmentRate: p.treatmentRate, confidence: p.confidence ?? 0.95, testType: 'two-tailed' });
+      return { summary: `Lift ${r.relativeLift}%, p ${r.pValue.startsWith('<') ? r.pValue : `= ${r.pValue}`} — ${r.isSignificant ? 'significant' : 'not significant'}; detectable effect ${r.mde}.`, data: r };
+    },
+    selfCheck: passthroughCheck,
+  },
+  {
+    id: 'explore.ai_advisory', studio: 'Explore', label: () => 'Get the AI advisory on the dataset', defaultRole: 'data_scientist',
+    approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'eda', timeoutMs: 120_000, params: '{}  // uses one AI call',
+    validate: (_p, ds) => (ds ? null : 'No dataset is loaded.'),
+    run: async (_p, port) => {
+      const r = await port.runAdvisory();
+      if (!r) throw new Error('The advisory didn’t return.');
+      return { summary: `Suggested target: ${r.recommendedTarget ?? 'none'}${r.source === 'rules' ? ' (built-in, AI unavailable)' : ''}.`, data: { usedAi: r.source !== 'rules', ...r } };
+    },
+    selfCheck: passthroughCheck,
+  },
+  ...([
+    ['dashboard.add_kpi', 'Research', p => `Add the KPI “${p.name}”`, 'bi_analyst', 'dashboard', '{ name: string, formula: string /* e.g. SUM(revenue) / COUNT() */, format?: "number"|"percent"|"currency" }', (p: any) => (!p?.name || !p?.formula ? 'A KPI needs a name and a formula.' : null)],
+    ['dashboard.save', 'Research', p => `Save the dashboard as “${p.name}”`, 'bi_analyst', 'dashboard', '{ name: string }', (p: any) => (!p?.name ? 'Give the dashboard a name.' : null)],
+    ['quality.add_rule', 'Data', p => `Add a ${String(p.kind).replace(/_/g, ' ')} rule for “${p.column}”`, 'data_quality', 'clean', '{ column: string, kind: "not_empty"|"unique"|"range"|"allowed_values"|"pattern", min?: number, max?: number, allowed?: string[], pattern?: string }', (p: any, ds: Dataset | null) => requireCols(ds, [p?.column])],
+    ['workflow.save', 'Data', p => `Save the cleaning steps as “${p.name}”`, 'data_engineer', 'clean', '{ name: string }', (p: any) => (!p?.name ? 'Give the workflow a name.' : null)],
+    ['workflow.apply', 'Data', p => `Run the workflow “${p.name}”`, 'data_engineer', 'clean', '{ name: string }', (p: any) => (!p?.name ? 'Name the workflow to run.' : null)],
+    ['report.pdf', 'Research', () => 'Download the report PDF', 'research_analyst', 'reports', '{}', () => null],
+    ['report.package', 'Research', () => 'Download the reproducibility package', 'research_analyst', 'reports', '{}', () => null],
+    ['deploy.register', 'Deploy', p => `Register the current model${p.name ? ` as “${p.name}”` : ''}`, 'ml_engineer', 'ml', '{ name?: string, intendedUse?: string }', () => null],
+    ['deploy.predict', 'Deploy', () => 'Predict with the active model', 'ml_engineer', 'ml', '{ values: { [feature]: value } }', (p: any) => (!p?.values ? 'Give the input values.' : null)],
+  ] as [string, Capability['studio'], (p: any) => string, AgentRole, PipelineStage, string, Capability['validate']][]).map(([id, studio, label, role, step, params, validate]): Capability => ({
+    id, studio, label, defaultRole: role, step, params, validate,
+    // Registering a model makes it the one used for predictions, so it has its own approval.
+    approval: id === 'deploy.register' ? 'separate' : id === 'workflow.apply' ? 'batch' : 'autonomous',
+    sideEffect: id === 'workflow.apply' ? 'new-version' : id.startsWith('deploy.register') ? 'model' : 'none',
+    backend: false, idempotent: !['workflow.apply', 'deploy.register', 'dashboard.add_kpi'].includes(id), timeoutMs: 180_000, uiOnly: true,
+    run: async () => { throw new Error('This is done on the studio page; open the page to run it.'); },
+    selfCheck: passthroughCheck,
+  })),
 ];
 
 export const CAPABILITIES: Record<string, Capability> = Object.fromEntries(
-  [...(Object.keys(DATA_OPS) as OperationId[]).filter(op => op in OPERATIONS).map(dataCapability), ...OTHER].map(c => [c.id, c]),
+  [...(Object.keys(DATA_OPS) as OperationId[]).filter(op => op in OPERATIONS).map(dataCapability), ...OTHER]
+    .map(c => [c.id, UI_SCRIPTS[c.id] ? { ...c, ui: UI_SCRIPTS[c.id] } : c]),
 );
+
+/**
+ * Features agents deliberately don't operate, with the reason. Everything
+ * else with a data-agent control must be in the catalog (checked by a test).
+ */
+export const NOT_FOR_AGENTS: Record<string, string> = {
+  'data.join': 'Needs a file you choose; agents can’t pick files from your computer.',
+  'data.append_rows': 'Needs a file you choose; agents can’t pick files from your computer.',
+  'import.file': 'Needs a file you choose.',
+  'deploy.monitor': 'Needs a file of new data you choose.',
+  'workspace.import': 'Replaces all saved work; only you can do it.',
+  'workspace.clear': 'Deletes all saved work; only you can do it.',
+};
+
+/**
+ * Features agents use without the page: the capability does the same work
+ * directly. Every feature component (one that changes data or logs a run)
+ * must have data-agent controls or be listed here; a test enforces it.
+ */
+export const FEATURES_WITHOUT_PAGE: Record<string, string[]> = {
+  ABTestInterpreter: ['stats.ab_test'],
+  SQLAssistant: ['sql.query'],
+  HypothesisLab: ['stats.compare'],
+};
 
 /** The catalog as text for the AI planner (ids, studios, parameters). */
 export function catalogForPlanner(): string {
   return Object.values(CAPABILITIES)
-    .filter(c => c.approval !== 'prohibited')
+    .filter(c => c.approval !== 'prohibited' && c.id !== 'verify.review')
     .map(c => `- ${c.id} (${c.studio}; usually ${c.defaultRole}): params ${c.params}`)
     .join('\n');
 }

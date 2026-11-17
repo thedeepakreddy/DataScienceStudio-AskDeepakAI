@@ -18,6 +18,7 @@ const RUN_KIND_LABEL: Record<RunRecord['kind'], string> = {
   'sql-query': 'SQL',
   regression: 'Regression',
   forecast: 'Forecast',
+  power: 'Sample size',
   other: 'Run',
 };
 

@@ -172,7 +172,7 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
   const [pFn, setPFn] = useState<AggregateFn>(numeric[0] ? 'sum' : 'count');
 
   const columnSelect = (id: string, value: string, onChange: (v: string) => void, options = names) => (
-    <select id={id} className="input" value={options.includes(value) ? value : options[0] ?? ''} onChange={e => { onChange(e.target.value); reset(); }}>
+    <select id={id} data-agent={id} className="input" value={options.includes(value) ? value : options[0] ?? ''} onChange={e => { onChange(e.target.value); reset(); }}>
       {options.map(n => <option key={n} value={n}>{n}</option>)}
     </select>
   );
@@ -183,7 +183,7 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
   return (
     <section aria-labelledby="more-tools-heading" className="space-y-5">
       <div>
-        <h2 id="more-tools-heading" className="section-title">More tools</h2>
+        <h2 id="more-tools-heading" data-agent="area-more-tools" className="section-title">More tools</h2>
         <p className="mt-1 text-sm text-label-2">Preview a change before you apply it. Every change is saved as a new version you can undo.</p>
       </div>
 
@@ -193,7 +193,7 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
             ['standardise', 'Standardise'], ['filter', 'Filter rows'], ['duplicates', 'Duplicates'],
             ['rules', 'Quality rules'], ['combine', 'Combine'], ['summarise', 'Summarise'], ['workflows', 'Workflows'],
           ] as [Tab, string][]).map(([id, label]) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setError(null); }}>{label}</button>
+            <button key={id} type="button" role="tab" data-agent={`more-tab-${id}`} aria-selected={tab === id} onClick={() => { setTab(id); setError(null); }}>{label}</button>
           ))}
         </div>
       </div>
@@ -208,7 +208,7 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
               </div>
               <div>
                 <label className="field-label" htmlFor="std-action">Change</label>
-                <select id="std-action" className="input" value={stdAction} onChange={e => { setStdAction(e.target.value as typeof stdAction); reset(); }}>
+                <select id="std-action" data-agent="std-action" className="input" value={stdAction} onChange={e => { setStdAction(e.target.value as typeof stdAction); reset(); }}>
                   <option value="tidy">Tidy text (spaces and capitals)</option>
                   <option value="type">Change the column type</option>
                   <option value="replace">Replace a value</option>
@@ -218,7 +218,7 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
             {stdAction === 'tidy' && (
               <div>
                 <label className="field-label" htmlFor="std-case">Capitals</label>
-                <select id="std-case" className="input" value={stdCase} onChange={e => { setStdCase(e.target.value as typeof stdCase); reset(); }}>
+                <select id="std-case" data-agent="std-case" className="input" value={stdCase} onChange={e => { setStdCase(e.target.value as typeof stdCase); reset(); }}>
                   <option value="none">Keep as they are</option>
                   <option value="lower">all lowercase</option>
                   <option value="upper">ALL UPPERCASE</option>
@@ -230,7 +230,7 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
             {stdAction === 'type' && (
               <div>
                 <label className="field-label" htmlFor="std-type">New type <span className="text-label-3">(now {stdCol?.type})</span></label>
-                <select id="std-type" className="input" value={stdType} onChange={e => { setStdType(e.target.value as ColumnType); reset(); }}>
+                <select id="std-type" data-agent="std-type" className="input" value={stdType} onChange={e => { setStdType(e.target.value as ColumnType); reset(); }}>
                   <option value="numeric">Number</option>
                   <option value="categorical">Text</option>
                   <option value="boolean">True/false</option>
@@ -243,12 +243,12 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="field-label" htmlFor="rep-from">Replace</label>
-                  <input id="rep-from" className="input" list="rep-from-values" value={replaceFrom} onChange={e => { setReplaceFrom(e.target.value); reset(); }} placeholder="Value to find" />
+                  <input id="rep-from" data-agent="rep-from" className="input" list="rep-from-values" value={replaceFrom} onChange={e => { setReplaceFrom(e.target.value); reset(); }} placeholder="Value to find" />
                   <datalist id="rep-from-values">{topValues.map(v => <option key={v} value={v} />)}</datalist>
                 </div>
                 <div>
                   <label className="field-label" htmlFor="rep-to">With</label>
-                  <input id="rep-to" className="input" value={replaceTo} onChange={e => { setReplaceTo(e.target.value); reset(); }} placeholder="Leave blank to make it empty" />
+                  <input id="rep-to" data-agent="rep-to" className="input" value={replaceTo} onChange={e => { setReplaceTo(e.target.value); reset(); }} placeholder="Leave blank to make it empty" />
                 </div>
               </div>
             )}
@@ -271,14 +271,14 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
               </div>
               <div>
                 <label className="field-label" htmlFor="f-op">Condition</label>
-                <select id="f-op" className="input" value={fOp} onChange={e => { setFOp(e.target.value as FilterOperator); reset(); }}>
+                <select id="f-op" data-agent="f-op" className="input" value={fOp} onChange={e => { setFOp(e.target.value as FilterOperator); reset(); }}>
                   {(Object.keys(OPERATOR_LABELS) as FilterOperator[]).map(o => <option key={o} value={o}>{OPERATOR_LABELS[o]}</option>)}
                 </select>
               </div>
               {fOp !== 'is_empty' && fOp !== 'is_not_empty' && (
                 <div>
                   <label className="field-label" htmlFor="f-val">Value</label>
-                  <input id="f-val" className="input" value={fValue} onChange={e => { setFValue(e.target.value); reset(); }} />
+                  <input id="f-val" data-agent="f-val" className="input" value={fValue} onChange={e => { setFValue(e.target.value); reset(); }} />
                 </div>
               )}
             </div>
@@ -337,13 +337,13 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
               <div>
                 <label className="field-label" htmlFor="r-col">Column</label>
-                <select id="r-col" className="input" value={valid(rColumn)} onChange={e => setRColumn(e.target.value)}>
+                <select id="r-col" data-agent="r-col" className="input" value={valid(rColumn)} onChange={e => setRColumn(e.target.value)}>
                   {names.map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
               <div>
                 <label className="field-label" htmlFor="r-kind">Rule</label>
-                <select id="r-kind" className="input" value={rKind} onChange={e => setRKind(e.target.value as RuleKind)}>
+                <select id="r-kind" data-agent="r-kind" className="input" value={rKind} onChange={e => setRKind(e.target.value as RuleKind)}>
                   {(Object.keys(RULE_LABELS) as RuleKind[]).map(k => <option key={k} value={k}>{RULE_LABELS[k]}</option>)}
                 </select>
               </div>
@@ -351,28 +351,28 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="field-label" htmlFor="r-min">Min</label>
-                    <input id="r-min" className="input" inputMode="decimal" value={rMin} onChange={e => setRMin(e.target.value)} />
+                    <input id="r-min" data-agent="r-min" className="input" inputMode="decimal" value={rMin} onChange={e => setRMin(e.target.value)} />
                   </div>
                   <div>
                     <label className="field-label" htmlFor="r-max">Max</label>
-                    <input id="r-max" className="input" inputMode="decimal" value={rMax} onChange={e => setRMax(e.target.value)} />
+                    <input id="r-max" data-agent="r-max" className="input" inputMode="decimal" value={rMax} onChange={e => setRMax(e.target.value)} />
                   </div>
                 </div>
               )}
               {rKind === 'allowed_values' && (
                 <div>
                   <label className="field-label" htmlFor="r-list">Allowed values</label>
-                  <input id="r-list" className="input" value={rList} onChange={e => setRList(e.target.value)} placeholder="Comma-separated" />
+                  <input id="r-list" data-agent="r-list" className="input" value={rList} onChange={e => setRList(e.target.value)} placeholder="Comma-separated" />
                 </div>
               )}
               {rKind === 'pattern' && (
                 <div>
                   <label className="field-label" htmlFor="r-pattern">Pattern (regular expression)</label>
-                  <input id="r-pattern" className="input font-code" value={rPattern} onChange={e => setRPattern(e.target.value)} placeholder="^[^@]+@[^@]+$" />
+                  <input id="r-pattern" data-agent="r-pattern" className="input font-code" value={rPattern} onChange={e => setRPattern(e.target.value)} placeholder="^[^@]+@[^@]+$" />
                 </div>
               )}
             </div>
-            <button type="button" onClick={addRule} className="btn btn-secondary"><Plus className="w-4 h-4" /> Add Rule</button>
+            <button type="button" data-agent="rule-add" onClick={addRule} className="btn btn-secondary"><Plus className="w-4 h-4" /> Add Rule</button>
             {rulesError && <p role="alert" className="text-sm text-red">{rulesError}</p>}
           </div>
         )}
@@ -521,7 +521,7 @@ export default function MoreCleanTools({ dataset, datasetId, activeVersionId = n
 }
 
 function PreviewButton({ onClick }: { onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="btn btn-secondary">Preview</button>;
+  return <button type="button" data-agent="tool-preview" onClick={onClick} className="btn btn-secondary">Preview</button>;
 }
 
 function PreviewPanel({ before, preview, onApply, onCancel }: { before: Dataset; preview: Preview; onApply: () => void; onCancel: () => void }) {
@@ -554,7 +554,7 @@ function PreviewPanel({ before, preview, onApply, onCancel }: { before: Dataset;
         </div>
       )}
       <div className="mt-4 flex gap-2">
-        <button type="button" onClick={onApply} className="btn btn-primary">Apply</button>
+        <button type="button" data-agent="tool-apply" onClick={onApply} className="btn btn-primary">Apply</button>
         <button type="button" onClick={onCancel} className="btn btn-secondary">Cancel</button>
       </div>
     </div>
@@ -628,8 +628,8 @@ function WorkflowsTab({ dataset, datasetId, activeVersionId, onPreview, onError 
               <p className="text-xs text-orange">Not repeatable, so left out: {skipped.join('; ')}.</p>
             )}
             <div className="flex flex-wrap gap-2">
-              <input className="input w-64" aria-label="Workflow name" placeholder="Workflow name" value={name} onChange={e => setName(e.target.value)} />
-              <button type="button" onClick={save} className="btn btn-secondary">Save Workflow</button>
+              <input className="input w-64" data-agent="workflow-name" aria-label="Workflow name" placeholder="Workflow name" value={name} onChange={e => setName(e.target.value)} />
+              <button type="button" data-agent="workflow-save" onClick={save} className="btn btn-secondary">Save Workflow</button>
             </div>
             {message && <p role="status" className="text-sm text-green">{message}</p>}
           </>
@@ -646,7 +646,7 @@ function WorkflowsTab({ dataset, datasetId, activeVersionId, onPreview, onError 
                   <p className="text-sm text-label">{w.name}</p>
                   <p className="text-xs text-label-2">{w.steps.length} step{w.steps.length === 1 ? '' : 's'} · from {w.source.datasetName}</p>
                 </div>
-                <button type="button" className="btn btn-sm btn-secondary" disabled={running === w.id} onClick={() => preview(w)}>
+                <button type="button" data-agent={`workflow-run-${w.name}`} className="btn btn-sm btn-secondary" disabled={running === w.id} onClick={() => preview(w)}>
                   {running === w.id ? <><Orb state="working" label="Running the workflow" /> Running…</> : 'Preview on This Data'}
                 </button>
                 <button
