@@ -1270,7 +1270,7 @@ app.post('/api/chat-bot', async (req, res) => {
       }
 
       if (isQueryProcessed) {
-        reply = `I have decoded your action request! Running dataset operations pipeline.\n- **Transformed query**: \`${sqlQuery}\`\n- **Database Action**: Executes dynamic row-set corrections seamlessly.`;
+        reply = `Here’s the plan for your query (\`${sqlQuery}\`). Check it below and press **Run Plan** to apply it.`;
         commands.push({
           type: 'EXECUTE_DATASET_JS',
           jsCode,
@@ -1286,7 +1286,7 @@ app.post('/api/chat-bot', async (req, res) => {
       // Find which column to drop
       const foundCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase()));
       if (foundCol) {
-        reply = `I have successfully analyzed your command to drop column. Dropping **"${foundCol}"** and updating active pipelines.`;
+        reply = `I’ll remove the column **"${foundCol}"**. Press **Run Plan** to do it.`;
         commands.push({ type: 'DROP_COLUMN', column: foundCol });
         commands.push({ type: 'SELECT_TAB', tab: 'clean' });
       } else {
@@ -1300,7 +1300,7 @@ app.post('/api/chat-bot', async (req, res) => {
       else if (msgLower.includes('mode') || msgLower.includes('common')) strategy = 'mode';
 
       if (foundCol) {
-        reply = `I am executing an data imputation task on column **"${foundCol}"** using the **"${strategy}"** strategy to clean the dataset.`;
+        reply = `I’ll fill the missing values in **"${foundCol}"** using the **${strategy}**. Press **Run Plan** to do it.`;
         commands.push({ type: 'FILL_MISSING', column: foundCol, strategy });
         commands.push({ type: 'SELECT_TAB', tab: 'clean' });
       } else {
@@ -1310,7 +1310,7 @@ app.post('/api/chat-bot', async (req, res) => {
       reply = "Opening the **Statistics** step, where you can test a hypothesis on your data or check an A/B test result.";
       commands.push({ type: 'SELECT_TAB', tab: 'stats' });
     } else if (msgLower.includes('eda') || msgLower.includes('scan') || msgLower.includes('analyze') || msgLower.includes('exploratory')) {
-      reply = "Starting Exploratory Data Scan and Statistical Analysis on active datasets using our intelligent analytics engine!";
+      reply = "I’ll open **Explore** and analyze the dataset. Press **Run Plan** to start.";
       commands.push({ type: 'SELECT_TAB', tab: 'eda' });
       commands.push({ type: 'RUN_EDA_SCAN' });
     } else if (msgLower.includes('model') || msgLower.includes('predict') || msgLower.includes('ml') || msgLower.includes('train')) {
@@ -1319,17 +1319,17 @@ app.post('/api/chat-bot', async (req, res) => {
       const features = colNames.filter((c: string) => c !== targetCol).slice(0, 4);
       const mType = msgLower.includes('class') || targetCol.toLowerCase().includes('churn') ? 'classification' : 'regression';
       
-      reply = `I've configured and triggered an automated Machine Learning pipeline for you!\n- **Stage**: ML Modeling\n- **Target Column**: \`${targetCol}\`\n- **Features**: ${JSON.stringify(features)}\n- **Model Type**: \`${mType}\`\n\nTraining starting now...`;
+      reply = `Here’s a training plan:\n- **Predict**: \`${targetCol}\`\n- **Using**: ${features.join(', ')}\n- **Type**: ${mType}\n\nPress **Run Plan** to train it.`;
       commands.push({ type: 'SELECT_TAB', tab: 'ml' });
       commands.push({ type: 'RUN_ML', targetColumn: targetCol, featureColumns: features, modelType: mType });
     } else if (msgLower.includes('dashboard') || msgLower.includes('chart') || msgLower.includes('metric') || msgLower.includes('slicer')) {
-      reply = "Right away! Moving you to the **Stakeholder Dashboard** stage where you can filter columns and monitor business outcomes.";
+      reply = "Opening the **Dashboard** step.";
       commands.push({ type: 'SELECT_TAB', tab: 'dashboard' });
     } else if (msgLower.includes('report') || msgLower.includes('brief') || msgLower.includes('pdf') || msgLower.includes('hub')) {
-      reply = "Transitioning to **Strategic Reports Hub** stage. You can compile, view, and export executive analysis briefs here.";
+      reply = "Opening the **Report** step.";
       commands.push({ type: 'SELECT_TAB', tab: 'reports' });
     } else if (msgLower.includes('ingest') || msgLower.includes('upload') || msgLower.includes('csv')) {
-      reply = "Opening **Data Ingestion** panel so you can upload or template a dataset.";
+      reply = "Opening the **Import** step.";
       commands.push({ type: 'SELECT_TAB', tab: 'ingest' });
     } else if (msgLower.includes('add column') || msgLower.includes('create column')) {
       let label = 'NewDimension';
@@ -1338,17 +1338,17 @@ app.post('/api/chat-bot', async (req, res) => {
         const potentialName = parts[1].trim().split(' ')[0].replace(/[^a-zA-Z0-9_]/g, '');
         if (potentialName) label = potentialName;
       }
-      reply = `I am executing a pipeline task to add a new column named **"${label}"** with default values. Checking structures...`;
+      reply = `I’ll add a column named **"${label}"**. Press **Run Plan** to do it.`;
       commands.push({ type: 'ADD_COLUMN', column: label, columnType: 'categorical', value: 'DefaultVal' });
       commands.push({ type: 'SELECT_TAB', tab: 'clean' });
     } else if (msgLower.includes('add row') || msgLower.includes('insert row')) {
-      reply = `Instructing the pipeline studio to append a new default row with placeholder entries!`;
+      reply = `I’ll add an empty row. Press **Run Plan** to do it.`;
       commands.push({ type: 'ADD_ROW' });
       commands.push({ type: 'SELECT_TAB', tab: 'clean' });
     } else if (msgLower.includes('delete row') || msgLower.includes('remove row')) {
       const match = userMsg.match(/\d+/);
       const index = match ? parseInt(match[0]) : 0;
-      reply = `Applying dataset correction: Deleting active row at index **#${index}**.`;
+      reply = `I’ll delete row **${Number(index) + 1}**. Press **Run Plan** to do it.`;
       commands.push({ type: 'DELETE_ROW', index });
       commands.push({ type: 'SELECT_TAB', tab: 'clean' });
     } else if (msgLower.includes('group by') || msgLower.includes('groupby')) {
@@ -1360,7 +1360,7 @@ app.post('/api/chat-bot', async (req, res) => {
         reply = `I can group your columns for aggregate summaries, but please specify one from: ${colNamesList || 'N/A'}`;
       }
     } else if (msgLower.includes('reset') || msgLower.includes('restore') || msgLower.includes('original')) {
-      reply = "I've reset the active worksheet back to its original raw state. All values restored successfully!";
+      reply = "I’ll restore the data to how it was imported. Press **Run Plan** to do it.";
       commands.push({ type: 'RESET_DATASET' });
       commands.push({ type: 'SELECT_TAB', tab: 'clean' });
     } else if (msgLower.includes('hello') || msgLower.includes('hi') || msgLower.includes('who are you') || msgLower.includes('creater') || msgLower.includes('deepak')) {
@@ -1400,6 +1400,8 @@ You have visual and logical agency over a 7-stage web workspace app consisting o
 - Stage 5: 'ml' (Model: training and parameter tuning)
 - Stage 6: 'dashboard' (Dashboard: slicers and interactive charts)
 - Stage 7: 'reports' (Report: findings and PDF export)
+
+How actions run: commands that change the data or train a model are shown to the user as a plan and run only after they press "Run Plan"; each step's effect is then checked against the data. So in "message", describe what you WILL do (never claim it is already done), and list the steps in the order they should run. Opening a step (SELECT_TAB) happens immediately.
 
 You must output a STRICT, valid JSON object following this EXACT TypeScript interface:
 interface ChatBotResponse {

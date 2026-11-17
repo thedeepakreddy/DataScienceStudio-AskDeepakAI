@@ -282,6 +282,13 @@ pull requests of about the size of the recent ones.
 - Workflows (Clean → More tools → Workflows): save the repeatable steps behind a version and run them on a new file with a preview; join/append steps reload their second table from its saved version; steps that can’t be repeated are listed.
 - CI now runs the frontend unit tests (`npm test`). Vitest: 78 tests.
 
+**Phase 8 status: done.**
+- Typed tool list for the assistant (`src/agent/tools.ts`): every action the planner proposes is checked against the data before running (unknown columns, rows that don’t exist, a column removed by an earlier step).
+- Plan → confirm → run → verify: actions that change data or train a model appear as a plan (“nothing has changed yet”) with Run Plan / Cancel; moving between steps happens at once. Each step’s effect is then checked from the data (e.g. no missing values left, every kept row matches the filter).
+- Completion report in the chat: each step done/failed/skipped with its check, a summary, and Undo All (back to the version before the plan). Stop After This Step cancels the rest.
+- Same behaviour with or without AI: Gemini and the built-in rules produce the same commands, so the same plan, checks and report. Built-in replies now describe what will happen instead of claiming it already did.
+- Vitest: 80 tests; Python: 80 tests.
+
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the
 foundation is stable, as the plan itself recommends.

@@ -978,6 +978,12 @@ export default function App() {
         setActiveTab={setActiveTab}
         triggerAIScan={triggerAIScan}
         triggerPrediction={triggerPrediction}
+        activeVersionId={activeVersionId}
+        onRestoreVersion={async id => {
+          await saveQueue.current;
+          const v = await getVersion(id);
+          if (v) handleUseVersion(v);
+        }}
       />
 
       <AnimatePresence>
