@@ -11,6 +11,7 @@ import {
   CircleUser,
   FileSpreadsheet,
   Github,
+  History,
   Linkedin,
   Mail,
   MapPin,
@@ -36,10 +37,18 @@ import AppIcon from './components/AppIcon';
 import Orb from './components/Orb';
 import AiKeySheet from './components/AiKeySheet';
 import { aiKeyHeaders, getUserGeminiKey, AI_KEY_CHANGED_EVENT } from './utils/aiKey';
+import { buildAdvisoryFallback } from './utils/advisoryFallback';
 import LoadingScreen from './components/LoadingScreen';
 import { usePipelineContext, PipelineStage } from './contexts/PipelineContext';
 import { STAGES, STAGE_ORDER } from './stages';
 import { apiFetch, API_SETTLED_EVENT } from './utils/api';
+import StatisticsStage from './components/StatisticsStage';
+import HistorySheet from './components/HistorySheet';
+import { WorkspaceContext, RunInput } from './contexts/WorkspaceContext';
+import { describeChange } from './utils/describeChange';
+import {
+  DatasetVersion, clearWorkspace, getVersion, loadSession, recordRun, saveSession, saveVersion,
+} from './utils/workspaceStore';
 
 type Theme = 'light' | 'dark';
 
@@ -192,28 +201,158 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [isAboutModalOpen]);
 
+  // ---- Saved work (IndexedDB) -------------------------------------------
+  // Every dataset change becomes a version linked to its parent; runs are
+  // recorded against the version they used; the session is restored on reload.
+  const [datasetId, setDatasetId] = useState<string | null>(null);
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+  const [originalVersionId, setOriginalVersionId] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [restoredFrom, setRestoredFrom] = useState<string | null>(null);
+  const [restoreDone, setRestoreDone] = useState(false);
+  const [statsRunCount, setStatsRunCount] = useState(0);
+  const activeDatasetRef = useRef<Dataset | null>(null);
+  const activeVersionRef = useRef<string | null>(null);
+  const originalVersionRef = useRef<string | null>(null);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+
+  const storageFailed = (err: any) => {
+    console.warn('Saving work failed', err);
+    setStorageError(`Your work couldn’t be saved in this browser: ${err?.message || err}. It still works, but won’t survive a reload.`);
+  };
+
+  const applyVersionIds = (version: { id: string; datasetId: string } | null, original?: string | null) => {
+    activeVersionRef.current = version?.id ?? null;
+    setActiveVersionId(version?.id ?? null);
+    setDatasetId(version?.datasetId ?? null);
+    if (original !== undefined) {
+      originalVersionRef.current = original;
+      setOriginalVersionId(original);
+    }
+  };
+
+  // Saves run one after another so each new version links to the one before.
+  const persistVersion = (dataset: Dataset, label: string, isImport: boolean) => {
+    saveQueue.current = saveQueue.current
+      .then(async () => {
+        const v = await saveVersion(dataset, {
+          parentId: isImport ? null : activeVersionRef.current,
+          label,
+          keep: originalVersionRef.current ? [originalVersionRef.current] : [],
+        });
+        applyVersionIds(v, isImport ? v.id : undefined);
+        setStorageError(null);
+      })
+      .catch(storageFailed);
+  };
+
+  const logRun = useCallback((run: RunInput) => {
+    if (run.kind === 'hypothesis-test' || run.kind === 'ab-test') setStatsRunCount(n => n + 1);
+    recordRun({ ...run, versionId: activeVersionRef.current }).catch(storageFailed);
+  }, []);
+
   const handleDatasetLoaded = (dataset: Dataset) => {
+    activeDatasetRef.current = dataset;
     setOriginalDataset(dataset);
     setActiveDataset(dataset);
     setAiAnalysis(null);
     setMlResult(null);
     setErrorLine(null);
+    setRestoredFrom(null);
+    persistVersion(dataset, 'Imported', true);
   };
 
   const handleUpdateDataset = (updated: Dataset) => {
+    const label = describeChange(activeDatasetRef.current, updated);
+    activeDatasetRef.current = updated;
     setActiveDataset(updated);
     // Reset AI analysis since data changed
     setAiAnalysis(null);
     setMlResult(null);
+    if (label !== 'No changes') persistVersion(updated, label, false);
   };
 
   const handleResetOriginal = () => {
     if (originalDataset) {
+      activeDatasetRef.current = originalDataset;
       setActiveDataset(originalDataset);
       setAiAnalysis(null);
       setMlResult(null);
+      saveQueue.current = saveQueue.current.then(() => {
+        activeVersionRef.current = originalVersionRef.current;
+        setActiveVersionId(originalVersionRef.current);
+      });
     }
   };
+
+  const handleUseVersion = (version: DatasetVersion) => {
+    activeDatasetRef.current = version.dataset;
+    setActiveDataset(version.dataset);
+    setAiAnalysis(null);
+    setMlResult(null);
+    applyVersionIds(version);
+    setHistoryOpen(false);
+  };
+
+  const handleClearSavedWork = async () => {
+    try {
+      await saveQueue.current;
+      await clearWorkspace();
+      applyVersionIds(null, null);
+      activeDatasetRef.current = null;
+      setOriginalDataset(null);
+      setActiveDataset(null);
+      setAiAnalysis(null);
+      setMlResult(null);
+      setRestoredFrom(null);
+      setActiveTab('ingest');
+    } catch (err) {
+      storageFailed(err);
+    }
+  };
+
+  // Restore the last session once, on load.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const session = await loadSession();
+        if (!session?.activeVersionId) return;
+        const active = await getVersion(session.activeVersionId);
+        if (!active || cancelled) return;
+        const original = session.originalVersionId ? await getVersion(session.originalVersionId) : undefined;
+        if (cancelled) return;
+        activeDatasetRef.current = active.dataset;
+        setActiveDataset(active.dataset);
+        setOriginalDataset(original?.dataset ?? active.dataset);
+        applyVersionIds(active, original?.id ?? active.id);
+        setMlResult((session.mlResult as MLResult) ?? null);
+        setAiAnalysis(session.aiAnalysis ?? null);
+        if (session.aiAnalysis) setHasRunEda(true);
+        const tab = STAGE_ORDER.includes(session.activeTab as PipelineStage) ? (session.activeTab as PipelineStage) : 'ingest';
+        setVisited(new Set(STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(tab) + 1)));
+        setActiveTabState(tab);
+        setRestoredFrom(active.filename);
+      } catch (err) {
+        if (!cancelled) storageFailed(err);
+      } finally {
+        if (!cancelled) setRestoreDone(true);
+      }
+    })();
+    return () => { cancelled = true; };
+    // Runs once on mount by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the session saved as you work (after the restore attempt).
+  useEffect(() => {
+    if (!restoreDone) return;
+    const timer = setTimeout(() => {
+      saveSession({ activeVersionId, originalVersionId, activeTab, mlResult, aiAnalysis }).catch(storageFailed);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [restoreDone, activeVersionId, originalVersionId, activeTab, mlResult, aiAnalysis]);
 
   // 1. RUN GEMINI AUTOMATED EXPLORATORY SCAN
   const triggerAIScan = async () => {
@@ -249,13 +388,21 @@ export default function App() {
         parsed = resText ? JSON.parse(resText) : {};
       } catch (parseErr) {
         console.warn('Backend server returned invalid or HTML response. running local analysis fallback...', parseErr);
-        parsed = getClientSideAnalysisFallback(activeDataset.filename, payloadCols, activeDataset.rowCount);
+        parsed = buildAdvisoryFallback(activeDataset.filename, payloadCols, activeDataset.rowCount);
       }
 
       setAiAnalysis(parsed);
       setHasRunEda(true);
+      logRun({
+        kind: 'ai-advisory',
+        title: parsed?.source === 'rules' ? 'Dataset advisory (automatic, AI unavailable)' : 'Dataset advisory (AI)',
+        summary: `Suggested target: ${parsed?.recommendedTarget ?? 'none'} (${parsed?.modelType ?? 'unknown'})`,
+        status: 'succeeded',
+        result: parsed,
+      });
     } catch (err: any) {
       console.error(err);
+      logRun({ kind: 'ai-advisory', title: 'Dataset advisory', summary: 'Failed', status: 'failed', error: err.message || String(err) });
       setErrorLine('AI analysis failed: ' + (err.message || 'Check model keys.'));
     } finally {
       setLoadingAI(false);
@@ -304,9 +451,30 @@ export default function App() {
       }
 
       setMlResult(parsed);
+      const m = parsed.metrics || {};
+      const isClf = parsed.modelType === 'classification';
+      const score = isClf ? m.accuracy : m.r2Score;
+      logRun({
+        kind: 'model-training',
+        title: `${parsed.modelAlgorithm || 'Model'} predicting ${targetCol}`,
+        summary: typeof score === 'number'
+          ? (isClf ? `Accuracy ${(score * 100).toFixed(1)}%` : `R² ${score.toFixed(3)}`)
+          : 'Trained',
+        status: 'succeeded',
+        params: { target: targetCol, features, modelType: modelClass, hyperparameters },
+        result: { modelId: parsed.modelId, metrics: parsed.metrics, featureImportance: parsed.featureImportance },
+      });
       return parsed;
     } catch (err: any) {
       console.error(err);
+      logRun({
+        kind: 'model-training',
+        title: `Model predicting ${targetCol}`,
+        summary: 'Failed',
+        status: 'failed',
+        params: { target: targetCol, features, modelType: modelClass, hyperparameters },
+        error: err.message || String(err),
+      });
       setErrorLine('Model training failed: ' + (err.message || 'The ML engine may be offline.'));
       throw err;
     } finally {
@@ -314,18 +482,22 @@ export default function App() {
     }
   };
 
+  const workspaceValue = React.useMemo(() => ({ logRun }), [logRun]);
+
   // A stage counts as complete once its key action has been done. Completion
   // drives the checkmarks and the emphasis of "Continue" — it never locks a step.
   const stageComplete: Record<PipelineStage, boolean> = {
     ingest: !!activeDataset,
     clean: hasRunAudit,
     eda: hasRunEda,
+    stats: statsRunCount > 0,
     ml: !!mlResult,
     dashboard: !!activeDataset && visited.has('dashboard'),
     reports: !!activeDataset && visited.has('reports'),
   };
 
   return (
+    <WorkspaceContext.Provider value={workspaceValue}>
     <div className="min-h-screen flex flex-col bg-canvas text-label" id="workstation_app">
       <AnimatePresence>
         {showLoading && <LoadingScreen onComplete={handleLoadingComplete} />}
@@ -378,6 +550,16 @@ export default function App() {
 
             <button
               type="button"
+              onClick={() => setHistoryOpen(true)}
+              className="btn btn-icon"
+              aria-label="History of versions and runs"
+              title="History"
+            >
+              <History className="w-[18px] h-[18px]" />
+            </button>
+
+            <button
+              type="button"
               onClick={() => setAiKeySheetOpen(true)}
               className="btn btn-icon relative"
               aria-label={hasOwnKey ? 'Your Gemini API key (added)' : 'Use your own Gemini API key'}
@@ -410,7 +592,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Stage bar: the six-step workflow. Stays in view while the page scrolls. */}
+      {/* Stage bar: the seven-step workflow. Stays in view while the page scrolls. */}
       <div className="material sticky top-0 z-40 border-b border-separator">
         <div ref={stageBarRef} className="mx-auto max-w-[1400px] px-4 sm:px-6 py-2 overflow-x-auto scrollbar-none">
           <nav className="flex w-max mx-auto p-[3px] rounded-[11px] bg-fill" aria-label="Workflow steps">
@@ -465,6 +647,41 @@ export default function App() {
               onClick={() => setErrorLine(null)}
               className="shrink-0 -m-1 p-1 rounded-full hover:bg-red/10"
               aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {storageError && (
+          <div role="status" className="mb-6 flex items-start gap-3 rounded-2xl bg-orange/10 px-4 py-3 text-sm">
+            <AlertTriangle className="w-[18px] h-[18px] text-orange shrink-0 mt-0.5" />
+            <p className="flex-1 min-w-0 text-label">{storageError}</p>
+            <button
+              type="button"
+              onClick={() => setStorageError(null)}
+              className="shrink-0 -m-1 p-1 rounded-full text-label-2 hover:bg-fill"
+              aria-label="Hide saving notice"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {restoredFrom && (
+          <div role="status" className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl bg-blue/10 px-4 py-3 text-sm">
+            <History className="w-[18px] h-[18px] text-blue shrink-0" />
+            <p className="flex-1 min-w-[200px] text-label">
+              <span className="font-semibold">Picked up where you left off</span> with {restoredFrom}.
+            </p>
+            <button type="button" onClick={() => setHistoryOpen(true)} className="btn btn-sm btn-secondary shrink-0">
+              View History
+            </button>
+            <button
+              type="button"
+              onClick={() => setRestoredFrom(null)}
+              className="shrink-0 -m-1 p-1 rounded-full text-label-2 hover:bg-fill"
+              aria-label="Hide notice"
             >
               <X className="w-4 h-4" />
             </button>
@@ -569,6 +786,10 @@ export default function App() {
               />
             )}
 
+            {activeTab === 'stats' && activeDataset && (
+              <StatisticsStage dataset={activeDataset} />
+            )}
+
             {activeTab === 'ml' && activeDataset && (
               <MLPipeline
                 dataset={activeDataset}
@@ -646,6 +867,19 @@ export default function App() {
         triggerAIScan={triggerAIScan}
         triggerPrediction={triggerPrediction}
       />
+
+      <AnimatePresence>
+        {historyOpen && (
+          <HistorySheet
+            onClose={() => setHistoryOpen(false)}
+            datasetId={datasetId}
+            activeVersionId={activeVersionId}
+            onUseVersion={handleUseVersion}
+            onClear={handleClearSavedWork}
+            storageError={storageError}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {aiKeySheetOpen && (
@@ -744,66 +978,6 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </WorkspaceContext.Provider>
   );
-}
-
-function getClientSideAnalysisFallback(filename: string, columns: any[], rowCount: number) {
-  const safeFilename = filename || 'dataset.csv';
-  const safeColumns = columns || [];
-  const safeRowCount = rowCount || 0;
-  
-  const columnsJson = JSON.stringify(safeColumns);
-  const isChurn = safeFilename.toLowerCase().includes('churn');
-  const isSaas = safeFilename.toLowerCase().includes('saas') || columnsJson.includes('Recurring');
-
-  if (isChurn) {
-    return {
-      overviewSummary: "This customer intelligence dataset captures demographics, monthly financial charges, subscription contractual tenure, and payment modalities to flag churn behavior.",
-      recommendedTarget: "Target_Churn",
-      modelType: "classification",
-      suggestedFeatures: ["Age", "Tenure", "MonthlyCharges", "ContractType", "PaymentMethod"],
-      scientistFocus: "Tenure",
-      scientistRationale: "Tenure exhibits standard correlations with subscriber churn. It is essential to focus on early drop-offs (months 0-6) and check if contractual onboarding buffers are missing.",
-      strategicSlicer: "ContractType",
-      insights: [
-        "Customers on Month-to-month terms have 4x the attrition risk levels compared to those on One/Two Year agreements.",
-        "A high concentration of churn is triggered near MonthlyCharges exceeding $75, showing high charging sensitivity.",
-        "Subscribers utilizing Electronic Checks exhibit a standard higher rate of payment failures and churn."
-      ]
-    };
-  } else if (isSaas) {
-    return {
-      overviewSummary: "SaaS revenue telemetry dataset showing core metrics across client segments, active ratios, support overload ticket indicators, and rating indexes to determine churn probability.",
-      recommendedTarget: "Target_ChurnProbability",
-      modelType: "regression",
-      suggestedFeatures: ["Monthly_Recurring_Revenue", "Users_Active_Daily", "Support_Tickets_Opened", "Customer_Success_Rating"],
-      scientistFocus: "Support_Tickets_Opened",
-      scientistRationale: "The ticket metrics hold non-linear links with success ratings. Investigating delayed support resolutions will uncover specific friction points.",
-      strategicSlicer: "Customer_Segment",
-      insights: [
-        "Enterprise clients stay robustly solid, while standard/SMB users represent the highest churn risk due to lower daily activity.",
-        "Customer success ratings below 3.5 strongly predict immediate contract risk within 14 days.",
-        "Daily active ratios of standard cohorts drop by 30% right before support tickets peak."
-      ]
-    };
-  } else {
-    const numericColumns = safeColumns.filter(c => c.type === 'numeric').map(c => c.name);
-    const categorical = safeColumns.filter(c => c.type === 'categorical').map(c => c.name);
-    const target = numericColumns[numericColumns.length - 1] || safeColumns[safeColumns.length - 1]?.name || "unknown_target";
-    
-    return {
-      overviewSummary: `Automated scan of "${safeFilename}" comprising ${safeRowCount} rows across ${safeColumns.length} features parsed securely.`,
-      recommendedTarget: target,
-      modelType: "regression",
-      suggestedFeatures: safeColumns.map(c => c.name).filter(n => n !== target).slice(0, 5),
-      scientistFocus: target,
-      scientistRationale: "As the designated modeling target, verifying standard outliers, normal distributions, and null rate values here ensures predictive consistency.",
-      strategicSlicer: categorical[0] || safeColumns[0]?.name || "None",
-      insights: [
-        "Initial statistical test shows solid variance in primary numerical covariates.",
-        "Missing cells are concentrated primarily in categorical labels, requiring imputation.",
-        "Primary variables are distributed normally with standard variance limits."
-      ]
-    };
-  }
 }

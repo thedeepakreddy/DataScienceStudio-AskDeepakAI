@@ -8,7 +8,7 @@ export interface PipelineIntelligence {
   stageInstructions: Record<string, string>;
 }
 
-export type PipelineStage = 'ingest' | 'clean' | 'eda' | 'ml' | 'dashboard' | 'reports';
+export type PipelineStage = 'ingest' | 'clean' | 'eda' | 'stats' | 'ml' | 'dashboard' | 'reports';
 
 export interface StageChecklist {
   [key: string]: boolean;
@@ -116,7 +116,8 @@ export const PipelineProvider = ({ children }: { children: ReactNode }) => {
   const [checklists, setChecklists] = useState<Record<PipelineStage, StageChecklist>>({
     ingest: { 'Upload CSV': false, 'Review schema': false, 'Set context': false, 'Review intel': false },
     clean: { 'Run audit': false, 'Review issues': false, 'Apply fixes': false, 'Verify data': false },
-    eda: { 'Run profiling': false, 'Review column intel': false, 'Explore hypotheses': false, 'Run AB Test': false },
+    eda: { 'Run profiling': false, 'Review column intel': false },
+    stats: { 'Explore hypotheses': false, 'Run AB Test': false },
     ml: { 'Review model recommendation': false, 'Select target': false, 'Configure params': false, 'Run model': false },
     dashboard: { 'Review layout': false, 'Customise components': false, 'Apply filters': false, 'Review business insights': false },
     reports: { 'Review risk register': false, 'Review recommendations': false, 'Generate PDF': false, 'Download ETL Script': false }

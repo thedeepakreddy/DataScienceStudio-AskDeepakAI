@@ -31,8 +31,6 @@ import {
   OutlierDetail,
   CategoricalValue
 } from '../utils/edaEngine';
-import HypothesisLab from './HypothesisLab';
-import ABTestInterpreter from './ABTestInterpreter';
 import SQLAssistant from './SQLAssistant';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
@@ -41,6 +39,8 @@ import Orb from './Orb';
 interface EDAReportProps {
   dataset: Dataset;
   aiAnalysis: {
+    /** 'rules' when built from column statistics because AI was unavailable. */
+    source?: 'rules';
     overviewSummary?: string;
     recommendedTarget?: string;
     modelType?: string;
@@ -57,7 +57,7 @@ interface EDAReportProps {
 export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI }: EDAReportProps) {
   const { expertMode } = usePipelineContext();
   // State for Sub-Workspaces
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'hypothesis' | 'abtest' | 'sql' | 'deepeda'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'sql' | 'deepeda'>('overview');
 
   // Real server-side EDA (Python/pandas) — computed on-demand since it hits the network.
   const [deepEdaResult, setDeepEdaResult] = useState<EdaReportType | null>(null);
@@ -202,7 +202,8 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
         <section className="card p-5 sm:p-6 animate-fade-in" aria-label="AI advisory results">
           <div className="flex items-center gap-2">
             <Sparkles className="w-[18px] h-[18px] text-blue" />
-            <h2 className="card-title">AI insights</h2>
+            <h2 className="card-title">{aiAnalysis.source === 'rules' ? 'Automatic summary' : 'AI insights'}</h2>
+            {aiAnalysis.source === 'rules' && <span className="tag">Computed from column statistics — AI unavailable</span>}
           </div>
           <p className="mt-3 text-base text-label leading-relaxed max-w-4xl">{aiAnalysis.overviewSummary}</p>
 
@@ -254,9 +255,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
               { id: 'outliers', label: 'Outliers' },
               { id: 'correlation', label: 'Correlation' },
               { id: 'distributions', label: 'Distributions' },
-              { id: 'categorical', label: 'Categories' },
-              { id: 'hypothesis', label: 'Hypotheses' },
-              { id: 'abtest', label: 'A/B Test' }
+              { id: 'categorical', label: 'Categories' }
             ] : [])
           ].map(tab => (
             <button
@@ -1044,16 +1043,6 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI 
               )}
             </div>
           </div>
-        )}
-
-        {/* 8. HYPOTHESIS LAB */}
-        {activeSubTab === 'hypothesis' && (
-          <HypothesisLab dataset={dataset} />
-        )}
-
-        {/* 9. A/B TEST INTERPRETER */}
-        {activeSubTab === 'abtest' && (
-          <ABTestInterpreter />
         )}
 
         {/* 10. SQL ASSISTANT */}

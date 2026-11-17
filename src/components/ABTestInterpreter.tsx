@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { BrainCircuit, Copy, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
+import { useLogRun } from '../contexts/WorkspaceContext';
+import { normalCdf, normalQuantile } from '../utils/normal';
 
 export default function ABTestInterpreter() {
   const [controlSize, setControlSize] = useState(1000);
@@ -11,6 +13,7 @@ export default function ABTestInterpreter() {
   const [confidence, setConfidence] = useState(0.95);
   const [testType, setTestType] = useState('two-tailed');
   
+  const logRun = useLogRun();
   const [loading, setLoading] = useState(false);
   const [memo, setMemo] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -25,25 +28,30 @@ export default function ABTestInterpreter() {
 
      const pPool = (p1*n1 + p2*n2) / (n1 + n2);
      const sePool = Math.sqrt(pPool * (1 - pPool) * ((1/n1) + (1/n2)));
-     const zScore = (p2 - p1) / sePool;
+     const zScore = sePool > 0 ? (p2 - p1) / sePool : 0;
 
-     // Rough normal-tail approximation, valid for z >= 0 - hence Math.abs.
-     // This formula already approximates the two-tailed probability P(|Z| > z)
-     // directly: it evaluates to 1.0 at z=0 (verified) and ~0.05 at z=1.96
-     // (the textbook two-tailed 5% threshold, verified), not a one-tailed
-     // tail area that would need doubling.
-     const absZ = Math.abs(zScore);
-     const twoTailedP = Math.exp(-0.717 * absZ - 0.416 * Math.pow(absZ, 2));
-     const pValue = testType === 'two-tailed' ? twoTailedP : twoTailedP / 2;
-     const relativeLift = ((p2 - p1) / p1) * 100;
-     const isSig = pValue < (1 - confidence);
+     // Exact normal-distribution p-value. One-tailed tests whether the
+     // treatment is better than the control.
+     const pValue = testType === 'two-tailed'
+       ? 2 * (1 - normalCdf(Math.abs(zScore)))
+       : 1 - normalCdf(zScore);
+     const relativeLift = p1 > 0 ? ((p2 - p1) / p1) * 100 : 0;
+     const alpha = 1 - confidence;
+     const isSig = pValue < alpha;
+
+     // Minimum detectable effect: the smallest lift these sample sizes detect
+     // with 80% power at the chosen confidence level.
+     const zAlpha = normalQuantile(1 - (testType === 'two-tailed' ? alpha / 2 : alpha));
+     const zPower = normalQuantile(0.8);
+     const mdeAbs = (zAlpha + zPower) * Math.sqrt(p1 * (1 - p1) * (1 / n1 + 1 / n2));
+     const mdeRel = p1 > 0 ? (mdeAbs / p1) * 100 : 0;
 
      return {
        zScore: zScore.toFixed(3),
-       pValue: pValue.toFixed(4),
+       pValue: pValue < 0.0001 ? '< 0.0001' : pValue.toFixed(4),
        relativeLift: relativeLift.toFixed(2),
        isSignificant: isSig,
-       mde: '2.5%' // standard mock calculation for simplicity
+       mde: `${mdeRel.toFixed(1)}% relative (${(mdeAbs * 100).toFixed(2)} pts) at 80% power`
      };
   };
 
@@ -53,6 +61,14 @@ export default function ABTestInterpreter() {
     setError(null);
     try {
        const results = calculateTest();
+       logRun({
+         kind: 'ab-test',
+         title: `A/B test: ${(controlRate * 100).toFixed(1)}% vs ${(treatmentRate * 100).toFixed(1)}%`,
+         summary: `Lift ${results.relativeLift}% · p = ${results.pValue} · ${results.isSignificant ? 'significant' : 'not significant'}`,
+         status: 'succeeded',
+         params: { controlSize, controlRate, treatmentSize, treatmentRate, confidence, testType },
+         result: results,
+       });
        const response = await apiFetch('/api/ab-test-interpreter', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },

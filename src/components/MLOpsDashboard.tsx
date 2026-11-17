@@ -60,7 +60,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
       let body: any = null;
       try { body = text ? JSON.parse(text) : null; } catch { /* host returned a non-JSON gateway page */ }
       if (!response.ok) {
-        throw new Error(body?.error || `Deployment failed (HTTP ${response.status}). The ML compute service may still be waking up from an idle sleep — try again in a moment.`);
+        throw new Error(body?.error || `Training failed (HTTP ${response.status}). The ML compute service may still be waking up from an idle sleep — try again in a moment.`);
       }
       const champion = body.champion;
       setDeploySummary({
@@ -72,7 +72,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
       fetchDriftMetrics();
     } catch (err: any) {
       console.error(err);
-      setDeployError(err.message || 'Deployment failed — is the ML compute service running?');
+      setDeployError(err.message || 'Training failed — is the ML service running?');
       setDeployStatus('idle');
     }
   };
@@ -121,7 +121,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
           <Cpu className="w-6 h-6 text-blue" />
           <div>
             <h2 className="text-lg font-semibold text-label">Model monitoring</h2>
-            <p className="text-sm text-label-2">Real Python Compute — trains an actual Random Forest on your active dataset</p>
+            <p className="text-sm text-label-2">Trains a Random Forest on your dataset, then checks whether its numeric columns drift between the first and second half of the rows.</p>
           </div>
         </div>
 
@@ -131,9 +131,9 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
           aria-busy={deployStatus === 'deploying'}
           className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-xl shadow-sm transition-all ${deployStatus === 'online' ? 'bg-green/20 text-green border border-green/50 cursor-default' : 'bg-blue hover:bg-blue text-white active:scale-95'}`}
         >
-          {deployStatus === 'idle' && <><Rocket className="w-4 h-4" /> 1-Click Deploy</>}
-          {deployStatus === 'deploying' && <><Orb state="solving" onAccent label="Training" /> Training on Real Data...</>}
-          {deployStatus === 'online' && <><CheckCircle className="w-4 h-4" /> Live Deployment Online</>}
+          {deployStatus === 'idle' && <><Rocket className="w-4 h-4" /> Train and check drift</>}
+          {deployStatus === 'deploying' && <><Orb state="solving" onAccent label="Training" /> Training…</>}
+          {deployStatus === 'online' && <><CheckCircle className="w-4 h-4" /> Model trained</>}
         </button>
       </div>
 
@@ -149,7 +149,7 @@ export default function MLOpsDashboard({ dataset, target, features }: MLOpsDashb
           {deploySummary && (
             <div className="bg-green/10 border border-green/20 rounded-xl p-4 flex items-center justify-between">
               <div>
-                <p className="text-[11px] text-green font-medium tabular-nums">Real Trained Model</p>
+                <p className="text-[11px] text-green font-medium tabular-nums">Trained model</p>
                 <p className="text-sm text-label font-semibold mt-0.5">{deploySummary.modelName}</p>
               </div>
               <div className="text-right">

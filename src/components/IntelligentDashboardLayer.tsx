@@ -77,7 +77,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
         max: c.statistics?.max,
         uniqueValues: c.statistics?.uniqueCount
       })),
-      mlTarget: mlResult ? mlResult.targetCol : null
+      mlTarget: mlResult ? mlResult.target ?? null : null
     };
   }, [dataset, mlResult]);
 

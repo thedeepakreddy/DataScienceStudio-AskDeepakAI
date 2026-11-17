@@ -8,6 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
+import { buildAdvisoryFallback } from './src/utils/advisoryFallback';
 import { type GeminiFailureKind, classifyGeminiError, describeGeminiFailure, mostTellingFailure, summarizeGeminiError } from './geminiHealth';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -646,19 +647,9 @@ app.post('/api/analyze-dataset', async (req, res) => {
   const safeRowCount = typeof rowCount === 'number' ? rowCount : 0;
   const safeColumns = Array.isArray(columns) ? columns : [];
 
-  const columnsJson = JSON.stringify(safeColumns);
-  const isChurn = safeFilename.toLowerCase().includes('churn');
-  const isSaas = safeFilename.toLowerCase().includes('saas') || columnsJson.includes('Recurring');
-
-  const getFallback = () => {
-    if (isChurn) {
-      return getChurnAnalysisFallback(safeFilename, safeRowCount);
-    } else if (isSaas) {
-      return getSaasAnalysisFallback(safeFilename, safeRowCount);
-    } else {
-      return getDefaultAnalysisFallback(safeFilename, safeColumns, safeRowCount);
-    }
-  };
+  // Without AI, the advisory is built from the column statistics only - never
+  // from canned text keyed on the file name.
+  const getFallback = () => buildAdvisoryFallback(safeFilename, safeColumns, safeRowCount);
 
   const client = getGeminiClient();
   const hasKey = aiKeyAvailable();
@@ -855,6 +846,9 @@ app.post('/api/run-ml-prediction', async (req, res) => {
 
   // Everything numeric below comes straight from the trained model's real evaluation.
   const baseResult = {
+    // What was predicted from what - recorded so results can be traced and reproduced.
+    target: safeTarget,
+    features: safeFeatures,
     modelType: trainResult.task,
     modelAlgorithm: champion.modelName,
     modelId: champion.modelId,
@@ -1290,6 +1284,9 @@ app.post('/api/chat-bot', async (req, res) => {
       } else {
         reply = `Imputation can only be executed when a column is specified. Available columns: ${colNamesList || 'N/A'}`;
       }
+    } else if (/hypothes|a\/b|\bab test|significan|t-test|chi-square|anova/.test(msgLower)) {
+      reply = "Opening the **Statistics** step, where you can test a hypothesis on your data or check an A/B test result.";
+      commands.push({ type: 'SELECT_TAB', tab: 'stats' });
     } else if (msgLower.includes('eda') || msgLower.includes('scan') || msgLower.includes('analyze') || msgLower.includes('exploratory')) {
       reply = "Starting Exploratory Data Scan and Statistical Analysis on active datasets using our intelligent analytics engine!";
       commands.push({ type: 'SELECT_TAB', tab: 'eda' });
@@ -1373,20 +1370,21 @@ As your AI code copilot, I can read and write the active dataset! I can add/dele
   try {
     // Inject full schema, history, and active dataset stats context as a system guideline to AskAI
     const systemInstruction = `You are "AskAI", an advanced Data Science and Automation Agent integrated into "AskDeepakAI" (designed by Gorisi Deepak Reddy).
-You have visual and logical agency over a 6-stage web workspace app consisting of:
-- Stage 1: 'ingest' (Data Ingestion/upload)
-- Stage 2: 'clean' (Cleaning Studio for imputation, dropping columns, resetting rows, adding/deleting elements, grouping stats)
-- Stage 3: 'eda' (Exploratory Data Analysis AI report scan)
-- Stage 4: 'ml' (ML Pipeline model training & parameters tuning)
-- Stage 5: 'dashboard' (Active slicers & interactive charts)
-- Stage 6: 'reports' (Strategic reports & PDF briefs export)
+You have visual and logical agency over a 7-stage web workspace app consisting of:
+- Stage 1: 'ingest' (Import: upload a dataset)
+- Stage 2: 'clean' (Clean: imputation, dropping columns, resetting rows, adding/deleting elements, grouping stats)
+- Stage 3: 'eda' (Explore: profiling, quality, correlations, SQL, AI advisory)
+- Stage 4: 'stats' (Statistics: hypothesis tests and A/B test analysis)
+- Stage 5: 'ml' (Model: training and parameter tuning)
+- Stage 6: 'dashboard' (Dashboard: slicers and interactive charts)
+- Stage 7: 'reports' (Report: findings and PDF export)
 
 You must output a STRICT, valid JSON object following this EXACT TypeScript interface:
 interface ChatBotResponse {
   message: string; // Friendly, professional, markdown-styled response. Detail what action you are taking or how you are answering. Keep it concise, insightful and respectful.
   commands: {
     type: 'SELECT_TAB' | 'DROP_COLUMN' | 'FILL_MISSING' | 'RUN_EDA_SCAN' | 'RUN_ML' | 'RESET_DATASET' | 'FILTER_ROWS' | 'ADD_COLUMN' | 'ADD_ROW' | 'DELETE_ROW' | 'EXECUTE_DATASET_JS';
-    tab?: 'ingest' | 'clean' | 'eda' | 'ml' | 'dashboard' | 'reports';
+    tab?: 'ingest' | 'clean' | 'eda' | 'stats' | 'ml' | 'dashboard' | 'reports';
     column?: string;
     columnType?: 'numeric' | 'categorical' | 'boolean';
     strategy?: 'mean' | 'median' | 'zero' | 'mode';
@@ -2231,7 +2229,7 @@ import { Client } from 'pg';
 const savedDbConfig: any = null;
 
 app.post('/api/db-connections', async (req, res) => {
-  const { provider, connectionString, schedule } = req.body;
+  const { provider, connectionString } = req.body;
 
   if (!provider || !connectionString) {
     return res.status(400).json({ error: "Provider and Connection string required." });
@@ -2273,7 +2271,7 @@ app.post('/api/db-connections', async (req, res) => {
 
       return res.json({
         status: "success",
-        message: `Connected to PostgreSQL and sync scheduled via ${schedule}. Loaded ${dataRes.rows.length} rows from table "${firstTable}".`,
+        message: `Connected to PostgreSQL. Loaded ${dataRes.rows.length} rows from table "${firstTable}".`,
         data: dataRes.rows
       });
 
@@ -2302,8 +2300,8 @@ app.post('/api/db-connections', async (req, res) => {
     }
   }
 
-  // Handle other providers (Snowflake mock for now)
-  return res.json({ status: "success", message: `Connected to ${provider} and scheduled sync via ${schedule}`, data: null });
+  // Only PostgreSQL is supported; never report a connection that didn't happen.
+  return res.status(400).json({ error: `${provider || 'This provider'} is not supported yet. Only PostgreSQL connections are available.` });
 });
 
 // Mock BI utility for schema validation check
@@ -2410,60 +2408,8 @@ start();
 
 // --- FAILBACK HELPERS TO ENERGIZE THE WORKSTATION INSTANTLY EVEN WITHOUT KEYS ---
 
-function getChurnAnalysisFallback(filename: string, rowCount: number) {
-  return {
-    overviewSummary: "This customer intelligence dataset captures demographics, monthly financial charges, subscription contractual tenure, and payment modalities to flag churn behavior.",
-    recommendedTarget: "Target_Churn",
-    modelType: "classification",
-    suggestedFeatures: ["Age", "Tenure", "MonthlyCharges", "ContractType", "PaymentMethod"],
-    scientistFocus: "Tenure",
-    scientistRationale: "Tenure exhibits standard correlations with subscriber churn. It is essential to focus on early drop-offs (months 0-6) and check if contractual onboarding buffers are missing.",
-    strategicSlicer: "ContractType",
-    insights: [
-      "Customers on Month-to-month terms have 4x the attrition risk levels compared to those on One/Two Year agreements.",
-      "A high concentration of churn is triggered near MonthlyCharges exceeding $75, showing high charging sensitivity.",
-      "Subscribers utilizing Electronic Checks exhibit a standard higher rate of payment failures and churn."
-    ]
-  };
-}
 
-function getSaasAnalysisFallback(filename: string, rowCount: number) {
-  return {
-    overviewSummary: "SaaS revenue telemetry dataset showing core metrics across client segments, active ratios, support overload ticket indicators, and rating indexes to determine churn probability.",
-    recommendedTarget: "Target_ChurnProbability",
-    modelType: "regression",
-    suggestedFeatures: ["Monthly_Recurring_Revenue", "Users_Active_Daily", "Support_Tickets_Opened", "Customer_Success_Rating"],
-    scientistFocus: "Support_Tickets_Opened",
-    scientistRationale: "The ticket metrics hold non-linear links with success ratings. Investigating delayed support resolutions will uncover specific friction points.",
-    strategicSlicer: "Customer_Segment",
-    insights: [
-      "Enterprise clients stay robustly solid, while standard/SMB users represent the highest churn risk due to lower daily activity.",
-      "Customer success ratings below 3.5 strongly predict immediate contract risk within 14 days.",
-      "Daily active ratios of standard cohorts drop by 30% right before support tickets peak."
-    ]
-  };
-}
 
-function getDefaultAnalysisFallback(filename: string, columns: any[], rowCount: number) {
-  const numericColumns = columns.filter(c => c.type === 'numeric').map(c => c.name);
-  const categorical = columns.filter(c => c.type === 'categorical').map(c => c.name);
-  const target = numericColumns[numericColumns.length - 1] || columns[columns.length - 1]?.name || "unknown_target";
-  
-  return {
-    overviewSummary: `Automated scan of "${filename}" comprising ${rowCount} rows across ${columns.length} features parsed securely.`,
-    recommendedTarget: target,
-    modelType: "regression",
-    suggestedFeatures: columns.map(c => c.name).filter(n => n !== target).slice(0, 5),
-    scientistFocus: target,
-    scientistRationale: "As the designated modeling target, verifying standard outliers, normal distributions, and null rate values here ensures predictive consistency.",
-    strategicSlicer: categorical[0] || columns[0]?.name || "None",
-    insights: [
-      "Initial statistical test shows solid variance in primary numerical covariates.",
-      "Missing cells are concentrated primarily in categorical labels, requiring imputation.",
-      "Primary variables are distributed normally with standard variance limits."
-    ]
-  };
-}
 
 // Truthful, non-AI fallback narrative used only when GEMINI_API_KEY isn't
 // configured or the interpretation call fails. Every figure it quotes is read

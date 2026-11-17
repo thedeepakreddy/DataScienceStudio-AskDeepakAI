@@ -10,6 +10,8 @@ import type { OrbState } from 'thinking-orbs';
 import { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
+import { STAGES } from '../stages';
+import type { PipelineStage } from '../contexts/PipelineContext';
 
 interface AssistiveTouchBotProps {
   activeDataset: Dataset | null;
@@ -45,7 +47,7 @@ const FAILED_ACTION = /not found|couldn’t|could not|error|invalid|already exis
 /** A present-tense label and matching orb for an action the assistant is about to run. */
 function describeAction(cmd: any): { label: string; orb: OrbState } {
   switch (cmd?.type) {
-    case 'SELECT_TAB': return { label: `Opening the ${cmd.tab || 'requested'} step`, orb: 'connecting' };
+    case 'SELECT_TAB': return { label: `Opening the ${STAGES[cmd.tab as PipelineStage]?.label ?? cmd.tab ?? 'requested'} step`, orb: 'connecting' };
     case 'RESET_DATASET': return { label: 'Restoring the original dataset', orb: 'working' };
     case 'DROP_COLUMN': return { label: `Removing column “${cmd.column}”`, orb: 'working' };
     case 'FILL_MISSING': return { label: `Filling missing values in “${cmd.column}”`, orb: 'weaving' };
@@ -264,7 +266,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
           case 'SELECT_TAB':
             if (cmd.tab) {
               setActiveTab(cmd.tab);
-              executedLogs.push(`Opened the ${cmd.tab} step`);
+              executedLogs.push(`Opened the ${STAGES[cmd.tab as PipelineStage]?.label ?? cmd.tab} step`);
             }
             break;
 
@@ -1292,6 +1294,9 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
     } else {
       reply = `Imputation can only be executed when a column is specified. Available columns: ${colNamesList || 'N/A'}`;
     }
+  } else if (/hypothes|a\/b|\bab test|significan|t-test|chi-square|anova/.test(msgLower)) {
+    reply = "Opening the **Statistics** step, where you can test a hypothesis on your data or check an A/B test result.";
+    commands.push({ type: 'SELECT_TAB', tab: 'stats' });
   } else if (msgLower.includes('eda') || msgLower.includes('scan') || msgLower.includes('analyze') || msgLower.includes('exploratory')) {
     reply = "Starting Exploratory Data Scan and Statistical Analysis on active datasets using our intelligent analytics engine!";
     commands.push({ type: 'SELECT_TAB', tab: 'eda' });

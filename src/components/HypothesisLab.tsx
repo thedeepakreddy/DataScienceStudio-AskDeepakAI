@@ -3,6 +3,7 @@ import { Dataset } from '../types';
 import { Lightbulb, FlaskConical, Play, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
+import { useLogRun } from '../contexts/WorkspaceContext';
 
 interface HypothesisLabProps {
   dataset: Dataset;
@@ -15,6 +16,7 @@ interface Hypothesis {
 }
 
 export default function HypothesisLab({ dataset }: HypothesisLabProps) {
+  const logRun = useLogRun();
   const [loading, setLoading] = useState(false);
   const [hypotheses, setHypotheses] = useState<Hypothesis[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,8 +102,26 @@ export default function HypothesisLab({ dataset }: HypothesisLabProps) {
        }
        result = data;
        setTestResults(prev => ({ ...prev, [idx]: result }));
+       logRun({
+         kind: 'hypothesis-test',
+         title: `${result.testName ?? 'Statistical test'}: ${testColumns.join(' vs ')}`,
+         summary: typeof result.pValue === 'number'
+           ? `p = ${result.pValue < 0.0001 ? '< 0.0001' : result.pValue.toFixed(4)} · ${result.rejectNull ? 'significant' : 'not significant'}`
+           : 'Completed',
+         status: 'succeeded',
+         params: { hypothesis: hypothesis.statement, columns: testColumns },
+         result,
+       });
      } catch (err: any) {
        console.error('Hypothesis test failed', err);
+       logRun({
+         kind: 'hypothesis-test',
+         title: `Test: ${testColumns.join(' vs ')}`,
+         summary: 'Failed',
+         status: 'failed',
+         params: { hypothesis: hypothesis.statement, columns: testColumns },
+         error: err.message || String(err),
+       });
        setTestResults(prev => ({ ...prev, [idx]: {
          error: true,
          message: err.message || 'Real statistical test failed - is the ML compute service running?'

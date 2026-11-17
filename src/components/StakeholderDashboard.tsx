@@ -41,12 +41,10 @@ import {
   Globe,
   MapPin,
   SlidersHorizontal,
-  Plus,
   Trash2,
   LineChart,
   Sparkles,
   Info,
-  BrainCircuit,
 } from 'lucide-react';
 import { Dataset } from '../types';
 import { isIdentifierColumn } from '../utils/csvParser';
@@ -239,7 +237,7 @@ const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY';
 function StakeholderDashboardInner({ dataset, strategicSlicer, mlResult, aiAnalysis }: StakeholderDashboardProps) {
   // Enhanced state including manual geo-enrichment simulation if dataset doesn't have country/coordinates
   const [copied, setCopied] = useState(false);
-  const [sandboxTab, setSandboxTab] = useState<'script' | 'guide' | 'visuals'>('visuals');
+  const [sandboxTab, setSandboxTab] = useState<'script' | 'guide'>('script');
 
 
   const generatePythonWorkflow = (): string => {
@@ -568,87 +566,33 @@ if __name__ == "__main__":
           const scatterLon = (Math.cos(idx * 0.4) * 1.8);
           return {
             ...row,
-            _simulated_latitude: parseFloat((coords.lat + scatterLat).toFixed(4)),
-            _simulated_longitude: parseFloat((coords.lon + scatterLon).toFixed(4)),
-            _simulated_country: displayName,
-            _simulated_region: coords.continent
+            _geo_latitude: parseFloat((coords.lat + scatterLat).toFixed(4)),
+            _geo_longitude: parseFloat((coords.lon + scatterLon).toFixed(4)),
+            _geo_country: displayName,
+            _geo_region: coords.continent
           };
         }
 
-        // Cycle through standard values so every point matches somewhere nicely on screen
-        const countriesKeys = Object.keys(COUNTRY_COORDINATES);
-        const cycleCountry = countriesKeys[idx % countriesKeys.length];
-        const cycleCoords = COUNTRY_COORDINATES[cycleCountry];
-        return {
-          ...row,
-          _simulated_latitude: parseFloat((cycleCoords.lat + (Math.sin(idx * 0.5) * 2)).toFixed(4)),
-          _simulated_longitude: parseFloat((cycleCoords.lon + (Math.cos(idx * 0.5) * 2)).toFixed(4)),
-          _simulated_country: cycleCountry.toUpperCase(),
-          _simulated_region: cycleCoords.continent
-        };
+        // An unrecognised country stays unmapped - it is never assigned a made-up place.
+        return row;
       });
 
       setEnrichedRows(upgradedRows);
       setIsGeographicallyEnriched(true);
     } else {
-      // If dataset contains no geographic headers whatsoever, automatically seed elegant spatial coordinates
-      const countriesKeys = Object.keys(COUNTRY_COORDINATES);
-      const upgradedRows = rows.map((row, idx) => {
-        const cycleCountry = countriesKeys[idx % countriesKeys.length];
-        const cycleCoords = COUNTRY_COORDINATES[cycleCountry];
-        return {
-          ...row,
-          _simulated_latitude: parseFloat((cycleCoords.lat + (Math.sin(idx * 0.7) * 3.5)).toFixed(4)),
-          _simulated_longitude: parseFloat((cycleCoords.lon + (Math.cos(idx * 0.7) * 3.5)).toFixed(4)),
-          _simulated_country: cycleCountry.toUpperCase(),
-          _simulated_region: cycleCoords.continent
-        };
-      });
-
-      setEnrichedRows(upgradedRows);
-      setIsGeographicallyEnriched(true);
+      // No location data: the map stays empty rather than inventing locations.
+      setEnrichedRows(rows);
+      setIsGeographicallyEnriched(false);
     }
   }, [dataset, geoColumns]);
-
-  // Geographical simulation helper to enrich row variables with custom global distributions
-  const handleSimulateGeoAttributes = () => {
-    const mockCountries = [
-      { name: 'United States', lat: 37.0902, lon: -95.7129, region: 'North America' },
-      { name: 'United Kingdom', lat: 55.3781, lon: -3.4360, region: 'Europe' },
-      { name: 'Germany', lat: 51.1657, lon: 10.4515, region: 'Eurasia' },
-      { name: 'India', lat: 20.5937, lon: 78.9629, region: 'Eurasia' },
-      { name: 'Australia', lat: -25.2744, lon: 133.7751, region: 'Australia' },
-      { name: 'Brazil', lat: -14.2350, lon: -51.9253, region: 'South America' },
-      { name: 'South Africa', lat: -30.5595, lon: 22.9375, region: 'Africa' },
-      { name: 'Canada', lat: 56.1304, lon: -106.3468, region: 'North America' },
-      { name: 'Japan', lat: 36.2048, lon: 138.2529, region: 'Eurasia' },
-      { name: 'France', lat: 46.2276, lon: 2.2137, region: 'Europe' }
-    ];
-
-    const upgradedRows = dataset.rows.map((row, idx) => {
-      const geoSpot = mockCountries[idx % mockCountries.length];
-      const noiseLat = (Math.sin(idx * 0.7) * 4) + (Math.cos(idx * 1.3) * 2);
-      const noiseLon = (Math.cos(idx * 0.9) * 5) + (Math.sin(idx * 1.1) * 3);
-      return {
-        ...row,
-        _simulated_latitude: parseFloat((geoSpot.lat + noiseLat).toFixed(4)),
-        _simulated_longitude: parseFloat((geoSpot.lon + noiseLon).toFixed(4)),
-        _simulated_country: geoSpot.name,
-        _simulated_region: geoSpot.region
-      };
-    });
-
-    setEnrichedRows(upgradedRows);
-    setIsGeographicallyEnriched(true);
-  };
 
   // Determine active keys for geospatial rendering
   const activeGeoKeys = useMemo(() => {
     if (isGeographicallyEnriched) {
       return {
-        latKey: '_simulated_latitude',
-        lonKey: '_simulated_longitude',
-        countryKey: '_simulated_country',
+        latKey: '_geo_latitude',
+        lonKey: '_geo_longitude',
+        countryKey: '_geo_country',
         hasLocation: true
       };
     }
@@ -784,8 +728,8 @@ if __name__ == "__main__":
         let countryVal = '';
         if (activeGeoKeys.countryKey && row[activeGeoKeys.countryKey]) {
           countryVal = String(row[activeGeoKeys.countryKey]).toLowerCase().trim();
-        } else if (row._simulated_country) {
-          countryVal = String(row._simulated_country).toLowerCase().trim();
+        } else if (row._geo_country) {
+          countryVal = String(row._geo_country).toLowerCase().trim();
         }
 
         const lowerSelected = selectedMapCountry.toLowerCase().trim();
@@ -827,8 +771,8 @@ if __name__ == "__main__":
 
     enrichedRows.forEach(row => {
       let cVal = '';
-      if (row._simulated_country) {
-        cVal = String(row._simulated_country).toLowerCase().trim();
+      if (row._geo_country) {
+        cVal = String(row._geo_country).toLowerCase().trim();
       } else if (countryKey && row[countryKey]) {
         cVal = String(row[countryKey]).toLowerCase().trim();
       }
@@ -1048,7 +992,7 @@ if __name__ == "__main__":
     filteredRows.forEach(row => {
       let regionKey = 'Other';
       if (isGeographicallyEnriched) {
-        regionKey = row._simulated_region || 'Other';
+        regionKey = row._geo_region || 'Other';
       } else {
         // Guess continent based on country name string
         const cNorm = String(row[countryKey] || '').toLowerCase();
@@ -1229,8 +1173,8 @@ if __name__ == "__main__":
                 ))}
                 {isGeographicallyEnriched && (
                   <>
-                    <option value="_simulated_country" className="bg-well text-label">_simulated_country</option>
-                    <option value="_simulated_region" className="bg-well text-label">_simulated_region</option>
+                    <option value="_geo_country" className="bg-well text-label">_geo_country</option>
+                    <option value="_geo_region" className="bg-well text-label">_geo_region</option>
                   </>
                 )}
               </select>
@@ -1433,24 +1377,18 @@ if __name__ == "__main__":
 
               {!geoColumns.hasLatLon && !geoColumns.hasCountry && !isGeographicallyEnriched && (
                 <div className="pt-1.5 border-t border-separator">
-                  <div className="flex items-start gap-1.5 mb-1.5 p-1 bg-orange/5 rounded border border-orange/10">
+                  <div className="flex items-start gap-1.5 p-1 bg-orange/5 rounded border border-orange/10">
                     <Info className="w-3 h-3 text-orange shrink-0 mt-0.5" />
                     <span className="text-[11px] text-orange leading-tight">
-                      No country or GPS headers detected. Enrich dataset to display coordinates mapping.
+                      No country or latitude/longitude columns found, so there is nothing to map.
                     </span>
                   </div>
-                  <button
-                    onClick={handleSimulateGeoAttributes}
-                    className="w-full py-1.5 px-2.5 rounded-lg bg-blue hover:bg-blue text-white font-medium text-[11px] tabular-nums transition-all cursor-pointer flex items-center justify-center gap-1 shadow-sm"
-                  >
-                    <Plus className="w-3 h-3" /> Geographically Enrich
-                  </button>
                 </div>
               )}
 
               {(geoColumns.hasLatLon || isGeographicallyEnriched) && (
                 <div className="text-[11px] text-green tabular-nums font-semibold flex items-center gap-1 bg-green/10 py-1 px-2 rounded border border-green/20">
-                  <CheckCircle className="w-3 h-3" /> {isGeographicallyEnriched ? 'Automated Coordinate Geocoder' : 'Native Coordinates Auto-Linked'} ({mapDataPoints.length} mapped)
+                  <CheckCircle className="w-3 h-3" /> {isGeographicallyEnriched ? 'Matched by country name' : 'Native Coordinates Auto-Linked'} ({mapDataPoints.length} mapped)
                 </div>
               )}
             </div>
@@ -1684,8 +1622,8 @@ if __name__ == "__main__":
                 ))}
                 {isGeographicallyEnriched && (
                   <>
-                    <option value="_simulated_country" className="bg-well text-label">_simulated_country</option>
-                    <option value="_simulated_region" className="bg-well text-label">_simulated_region</option>
+                    <option value="_geo_country" className="bg-well text-label">_geo_country</option>
+                    <option value="_geo_region" className="bg-well text-label">_geo_region</option>
                   </>
                 )}
               </select>
@@ -1755,7 +1693,7 @@ if __name__ == "__main__":
               <Code className="w-5 h-5 text-blue" /> Python export
             </h2>
             <p className="text-xs text-label-2 mt-1 max-w-2xl">
-              Replicate secure browser model experiments locally. Download complete auto-tuned classifier pipelines, imputation modules, and seaborn diagnostic graphing templates.
+              A Python script that repeats this analysis on your own computer with pandas and scikit-learn.
             </p>
           </div>
 
@@ -1764,21 +1702,11 @@ if __name__ == "__main__":
                onClick={() => setSandboxTab('script')}
                className={`text-xs py-1.5 px-3 rounded-lg tabular-nums font-semibold transition-all cursor-pointer ${
                  sandboxTab === 'script'
-                   ? 'bg-blue'
+                   ? 'bg-blue text-white'
                    : 'text-label-2 hover:text-label'
                }`}
             >
               Pipeline Code
-            </button>
-            <button
-               onClick={() => setSandboxTab('visuals')}
-               className={`text-xs py-1.5 px-3 rounded-lg tabular-nums font-semibold transition-all cursor-pointer ${
-                 sandboxTab === 'visuals'
-                   ? 'bg-blue'
-                   : 'text-label-2 hover:text-label'
-               }`}
-            >
-              Visuals
             </button>
             <button
               onClick={() => setSandboxTab('guide')}
@@ -1828,161 +1756,6 @@ if __name__ == "__main__":
               <pre className="bg-surface p-5 rounded-xl border border-separator max-h-[380px] overflow-auto text-xs tabular-nums leading-relaxed text-label select-text scrollbar-thin scrollbar-thumb-slate-800">
                 {generatePythonWorkflow()}
               </pre>
-            </div>
-          ) : sandboxTab === 'visuals' ? (
-            <div className="space-y-6">
-              {/* Alert/Callout banner explaining the Local Experiments */}
-              <div className="p-5 rounded-2xl bg-surface border border-separator-strong text-label flex items-start gap-3.5 relative overflow-hidden">
-                <div className="p-2.5 rounded-xl bg-blue/10 text-blue shrink-0">
-                  <BrainCircuit className="w-5 h-5 text-blue" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="text-xs font-medium text-blue tabular-nums">Run it locally</h4>
-                  <p className="text-xs leading-relaxed text-label">
-                    Replicate secure browser model experiments locally. Download complete auto-tuned classifier pipelines, imputation modules, and seaborn diagnostic graphing templates.
-                  </p>
-                </div>
-              </div>
-
-              {/* Grid of professional diagnostic graphics */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* Graphics 1: Classifier Pipeline (ROC Curve) */}
-                <div className="bg-surface border border-separator rounded-2xl p-5 space-y-4">
-                  <div className="flex justify-between items-center border-b border-separator pb-2.5">
-                    <h4 className="text-xs font-medium text-label tabular-nums flex items-center gap-1.5">
-                      Classifier ROC Curve
-                    </h4>
-                    <span className="text-[11px] tabular-nums text-green bg-green/10 px-1.5 py-0.5 rounded border border-green/20">
-                      AUC: {mlResult?.metrics?.rocAuc !== undefined && mlResult?.metrics?.rocAuc !== null ? mlResult.metrics.rocAuc.toFixed(2) : 'N/A'}
-                    </span>
-                  </div>
-                  
-                  <div className="h-[200px] w-full flex items-center justify-center bg-well rounded-xl relative py-2 border border-separator">
-                    <svg className="w-full h-full max-h-[180px]" viewBox="0 0 200 150">
-                      <line x1="30" y1="20" x2="180" y2="20" stroke="var(--chart-grid)" strokeDasharray="2,2" />
-                      <line x1="30" y1="60" x2="180" y2="60" stroke="var(--chart-grid)" strokeDasharray="2,2" />
-                      <line x1="30" y1="100" x2="180" y2="100" stroke="var(--chart-grid)" strokeDasharray="2,2" />
-                      <line x1="75" y1="20" x2="75" y2="130" stroke="var(--chart-grid)" strokeDasharray="2,2" />
-                      <line x1="120" y1="20" x2="120" y2="130" stroke="var(--chart-grid)" strokeDasharray="2,2" />
-                      <line x1="165" y1="20" x2="165" y2="130" stroke="var(--chart-grid)" strokeDasharray="2,2" />
-                      
-                      <line x1="30" y1="130" x2="180" y2="20" stroke="var(--chart-grid)" strokeWidth="1" strokeDasharray="3,3" />
-                      
-                      <path d="M 30 130 Q 35 60 70 40 T 180 20" fill="none" stroke="var(--chart-6)" strokeWidth="2.5" strokeLinecap="round" />
-                      
-                      <circle cx="70" cy="40" r="3.5" fill="var(--chart-3)" />
-                      
-                      <line x1="30" y1="130" x2="180" y2="130" stroke="var(--separator-strong)" strokeWidth="1.5" />
-                      <line x1="30" y1="20" x2="30" y2="130" stroke="var(--separator-strong)" strokeWidth="1.5" />
-                      
-                      <text x="105" y="145" fill="var(--chart-axis)" fontSize="7" textAnchor="middle">FPR (1 - Specificity)</text>
-                      <text x="10" y="75" fill="var(--chart-axis)" fontSize="7" textAnchor="middle" transform="rotate(-90,10,75)">TPR (Sensitivity)</text>
-                      
-                      <text x="28" y="138" fill="var(--chart-axis)" fontSize="6" textAnchor="end">0.0</text>
-                      <text x="180" y="138" fill="var(--chart-axis)" fontSize="6" textAnchor="middle">1.0</text>
-                      <text x="24" y="24" fill="var(--chart-axis)" fontSize="6" textAnchor="end">1.0</text>
-                    </svg>
-                  </div>
-                  <p className="text-[11px] text-label-2 tabular-nums leading-relaxed bg-well p-2.5 rounded-lg border border-separator">
-                    <strong>Classifier Pipeline:</strong> Automatically optimized classifier algorithm achieving maximum separation of prediction thresholds.
-                  </p>
-                </div>
-
-                {/* Graphics 2: Imputation Module Impact */}
-                <div className="bg-surface border border-separator rounded-2xl p-5 space-y-4">
-                  <div className="flex justify-between items-center border-b border-separator pb-2.5">
-                    <h4 className="text-xs font-medium text-label tabular-nums flex items-center gap-1.5">
-                      Imputation Variance
-                    </h4>
-                    <span className="text-[11px] tabular-nums text-teal bg-teal/10 px-1.5 py-0.5 rounded border border-teal/20">
-                      KNN / Mean Fit
-                    </span>
-                  </div>
-
-                  <div className="h-[200px] w-full flex items-center justify-center bg-well rounded-xl relative py-2 border border-separator">
-                    <svg className="w-full h-full max-h-[180px]" viewBox="0 0 200 150">
-                      <line x1="30" y1="125" x2="185" y2="125" stroke="var(--separator-strong)" strokeWidth="1.5" />
-                      <line x1="30" y1="20" x2="30" y2="125" stroke="var(--separator-strong)" strokeWidth="1.5" />
-
-                      <path d="M 30 125 Q 60 125 75 80 T 110 35 T 145 125 H 185" fill="none" stroke="var(--chart-3)" strokeOpacity="0.6" strokeWidth="1.8" strokeDasharray="3,2" />
-                      
-                      <path d="M 30 125 Q 55 125 70 65 T 107 20 T 140 125 H 185" fill="var(--chart-1)" fillOpacity="0.1" stroke="var(--chart-1)" strokeWidth="2.2" />
-
-                      <rect x="110" y="25" width="6" height="6" fill="var(--chart-1)" rx="1" />
-                      <text x="120" y="30" fill="var(--chart-axis)" fontSize="6.5">Imputed (Clean)</text>
-                      
-                      <line x1="110" y1="39" x2="116" y2="39" stroke="var(--chart-3)" strokeWidth="1.2" strokeDasharray="2,1" />
-                      <text x="120" y="41" fill="var(--chart-axis)" fontSize="6.5">Original (Raw)</text>
-
-                      <text x="107" y="142" fill="var(--chart-axis)" fontSize="7" textAnchor="middle">Variable Distribution</text>
-                      <text x="12" y="72" fill="var(--chart-axis)" fontSize="7" textAnchor="middle" transform="rotate(-90,12,72)">Density</text>
-                    </svg>
-                  </div>
-                  <p className="text-[11px] text-label-2 tabular-nums leading-relaxed bg-well p-2.5 rounded-lg border border-separator">
-                    <strong>Imputation Modules:</strong> Mitigates feature skew by aligning continuous and modular variables using optimized statistical estimations.
-                  </p>
-                </div>
-
-                {/* Graphics 3: Seaborn Diagnostic Template */}
-                <div className="bg-surface border border-separator rounded-2xl p-5 space-y-4">
-                  <div className="flex justify-between items-center border-b border-separator pb-2.5">
-                    <h4 className="text-xs font-medium text-label tabular-nums flex items-center gap-1.5">
-                      Seaborn Diagnostics
-                    </h4>
-                    <span className="text-[11px] tabular-nums text-blue bg-blue/10 px-1.5 py-0.5 rounded border border-blue/20">
-                      sns.heatmap()
-                    </span>
-                  </div>
-
-                  <div className="h-[200px] w-full flex items-center justify-center bg-well rounded-xl relative p-3 border border-separator">
-                    <div className="grid grid-cols-3 gap-1.5 w-full h-full max-h-[175px] content-center tabular-nums text-[11px]">
-                      <div className="bg-blue/15 text-label rounded p-1.5 flex flex-col justify-between items-center border border-blue/30">
-                        <span className="text-[11px] text-blue opacity-80">v1 / v1</span>
-                        <span className="font-semibold">1.00</span>
-                      </div>
-                      <div className="bg-blue/30 text-blue rounded p-1.5 flex flex-col justify-between items-center border border-blue/20">
-                        <span className="text-[11px] opacity-80">v1 / v2</span>
-                        <span className="font-semibold">0.68</span>
-                      </div>
-                      <div className="bg-red/15 text-red rounded p-1.5 flex flex-col justify-between items-center border border-red/10">
-                        <span className="text-[11px] opacity-80">v1 / v3</span>
-                        <span className="font-semibold">-0.24</span>
-                      </div>
-
-                      <div className="bg-blue/30 text-blue rounded p-1.5 flex flex-col justify-between items-center border border-blue/20">
-                        <span className="text-[11px] opacity-80">v2 / v1</span>
-                        <span className="font-semibold">0.68</span>
-                      </div>
-                      <div className="bg-blue/15 text-label rounded p-1.5 flex flex-col justify-between items-center border border-blue/30">
-                        <span className="text-[11px] opacity-80">v2 / v2</span>
-                        <span className="font-semibold">1.00</span>
-                      </div>
-                      <div className="bg-surface text-label-2 rounded p-1.5 flex flex-col justify-between items-center border border-separator">
-                        <span className="text-[11px] opacity-80">v2 / v3</span>
-                        <span className="font-semibold">0.05</span>
-                      </div>
-
-                      <div className="bg-red/15 text-red rounded p-1.5 flex flex-col justify-between items-center border border-red/10">
-                        <span className="text-[11px] opacity-80">v3 / v1</span>
-                        <span className="font-semibold">-0.24</span>
-                      </div>
-                      <div className="bg-surface text-label-2 rounded p-1.5 flex flex-col justify-between items-center border border-separator">
-                        <span className="text-[11px] opacity-80">v3 / v2</span>
-                        <span className="font-semibold">0.05</span>
-                      </div>
-                      <div className="bg-blue/15 text-label rounded p-1.5 flex flex-col justify-between items-center border border-blue/30">
-                        <span className="text-[11px] opacity-80">v3 / v3</span>
-                        <span className="font-semibold">1.00</span>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-label-2 tabular-nums leading-relaxed bg-well p-2.5 rounded-lg border border-separator">
-                    <strong>Seaborn Diagnostics:</strong> Beautiful pre-constructed templates to plot cross-feature correlations and feature predictive strengths automatically.
-                  </p>
-                </div>
-
-              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 leading-relaxed">
