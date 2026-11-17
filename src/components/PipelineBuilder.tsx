@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { Clock, Key, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Key, CheckCircle2, AlertCircle } from 'lucide-react';
 import { parseCSV } from '../utils/csvParser';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
 
 export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?: (dataset: any) => void }) {
-  const [provider, setProvider] = useState<'PostgreSQL' | 'Snowflake'>('PostgreSQL');
   const [connectionString, setConnectionString] = useState('');
-  const [schedule, setSchedule] = useState('0 0 * * *');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
 
@@ -20,7 +18,7 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
       const response = await apiFetch('/api/db-connections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, connectionString, schedule })
+        body: JSON.stringify({ provider: 'PostgreSQL', connectionString })
       });
 
       const data = await response.json();
@@ -45,7 +43,7 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
             csvLines.push(line);
           });
           const csvString = csvLines.join('\n');
-          const parsed = parseCSV(csvString, `${provider}_sync_${new Date().getTime()}.csv`);
+          const parsed = parseCSV(csvString, `postgres_import_${new Date().getTime()}.csv`);
           onDatasetLoaded(parsed);
         }
       } else {
@@ -61,42 +59,11 @@ export default function PipelineBuilder({ onDatasetLoaded }: { onDatasetLoaded?:
   return (
     <div className="card p-5 sm:p-6 w-full h-full flex flex-col">
       <div className="mb-5">
-        <h3 className="card-title">Connect a database</h3>
-        <p className="mt-1 text-sm text-label-2">Pull a table straight from your warehouse and keep it in sync.</p>
+        <h3 className="card-title">Connect a PostgreSQL database</h3>
+        <p className="mt-1 text-sm text-label-2">Load up to 2,000 rows from the first table in a PostgreSQL database’s public schema. This is a one-time copy.</p>
       </div>
 
       <form onSubmit={handleConnect} className="space-y-4 flex-1 flex flex-col">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div className="space-y-1.5">
-            <label className="field-label">Provider</label>
-            <div className="relative">
-              <select
-                value={provider}
-                onChange={(e) => setProvider(e.target.value as any)}
-                className="input"
-              >
-                <option value="PostgreSQL">PostgreSQL</option>
-                <option value="Snowflake">Snowflake</option>
-              </select>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <label className="field-label">Sync</label>
-            <div className="relative flex items-center">
-              <Clock className="w-4 h-4 text-label-3 absolute left-3" />
-              <select
-                value={schedule}
-                onChange={(e) => setSchedule(e.target.value)}
-                className="input pl-9"
-              >
-                <option value="*/15 * * * *">Every 15 minutes</option>
-                <option value="0 * * * *">Hourly</option>
-                <option value="0 0 * * *">Nightly</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
         <div className="space-y-1.5">
           <label className="field-label">Connection string</label>
           <div className="relative flex items-center">

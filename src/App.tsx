@@ -36,6 +36,7 @@ import AppIcon from './components/AppIcon';
 import Orb from './components/Orb';
 import AiKeySheet from './components/AiKeySheet';
 import { aiKeyHeaders, getUserGeminiKey, AI_KEY_CHANGED_EVENT } from './utils/aiKey';
+import { buildAdvisoryFallback } from './utils/advisoryFallback';
 import LoadingScreen from './components/LoadingScreen';
 import { usePipelineContext, PipelineStage } from './contexts/PipelineContext';
 import { STAGES, STAGE_ORDER } from './stages';
@@ -249,7 +250,7 @@ export default function App() {
         parsed = resText ? JSON.parse(resText) : {};
       } catch (parseErr) {
         console.warn('Backend server returned invalid or HTML response. running local analysis fallback...', parseErr);
-        parsed = getClientSideAnalysisFallback(activeDataset.filename, payloadCols, activeDataset.rowCount);
+        parsed = buildAdvisoryFallback(activeDataset.filename, payloadCols, activeDataset.rowCount);
       }
 
       setAiAnalysis(parsed);
@@ -745,65 +746,4 @@ export default function App() {
       </AnimatePresence>
     </div>
   );
-}
-
-function getClientSideAnalysisFallback(filename: string, columns: any[], rowCount: number) {
-  const safeFilename = filename || 'dataset.csv';
-  const safeColumns = columns || [];
-  const safeRowCount = rowCount || 0;
-  
-  const columnsJson = JSON.stringify(safeColumns);
-  const isChurn = safeFilename.toLowerCase().includes('churn');
-  const isSaas = safeFilename.toLowerCase().includes('saas') || columnsJson.includes('Recurring');
-
-  if (isChurn) {
-    return {
-      overviewSummary: "This customer intelligence dataset captures demographics, monthly financial charges, subscription contractual tenure, and payment modalities to flag churn behavior.",
-      recommendedTarget: "Target_Churn",
-      modelType: "classification",
-      suggestedFeatures: ["Age", "Tenure", "MonthlyCharges", "ContractType", "PaymentMethod"],
-      scientistFocus: "Tenure",
-      scientistRationale: "Tenure exhibits standard correlations with subscriber churn. It is essential to focus on early drop-offs (months 0-6) and check if contractual onboarding buffers are missing.",
-      strategicSlicer: "ContractType",
-      insights: [
-        "Customers on Month-to-month terms have 4x the attrition risk levels compared to those on One/Two Year agreements.",
-        "A high concentration of churn is triggered near MonthlyCharges exceeding $75, showing high charging sensitivity.",
-        "Subscribers utilizing Electronic Checks exhibit a standard higher rate of payment failures and churn."
-      ]
-    };
-  } else if (isSaas) {
-    return {
-      overviewSummary: "SaaS revenue telemetry dataset showing core metrics across client segments, active ratios, support overload ticket indicators, and rating indexes to determine churn probability.",
-      recommendedTarget: "Target_ChurnProbability",
-      modelType: "regression",
-      suggestedFeatures: ["Monthly_Recurring_Revenue", "Users_Active_Daily", "Support_Tickets_Opened", "Customer_Success_Rating"],
-      scientistFocus: "Support_Tickets_Opened",
-      scientistRationale: "The ticket metrics hold non-linear links with success ratings. Investigating delayed support resolutions will uncover specific friction points.",
-      strategicSlicer: "Customer_Segment",
-      insights: [
-        "Enterprise clients stay robustly solid, while standard/SMB users represent the highest churn risk due to lower daily activity.",
-        "Customer success ratings below 3.5 strongly predict immediate contract risk within 14 days.",
-        "Daily active ratios of standard cohorts drop by 30% right before support tickets peak."
-      ]
-    };
-  } else {
-    const numericColumns = safeColumns.filter(c => c.type === 'numeric').map(c => c.name);
-    const categorical = safeColumns.filter(c => c.type === 'categorical').map(c => c.name);
-    const target = numericColumns[numericColumns.length - 1] || safeColumns[safeColumns.length - 1]?.name || "unknown_target";
-    
-    return {
-      overviewSummary: `Automated scan of "${safeFilename}" comprising ${safeRowCount} rows across ${safeColumns.length} features parsed securely.`,
-      recommendedTarget: target,
-      modelType: "regression",
-      suggestedFeatures: safeColumns.map(c => c.name).filter(n => n !== target).slice(0, 5),
-      scientistFocus: target,
-      scientistRationale: "As the designated modeling target, verifying standard outliers, normal distributions, and null rate values here ensures predictive consistency.",
-      strategicSlicer: categorical[0] || safeColumns[0]?.name || "None",
-      insights: [
-        "Initial statistical test shows solid variance in primary numerical covariates.",
-        "Missing cells are concentrated primarily in categorical labels, requiring imputation.",
-        "Primary variables are distributed normally with standard variance limits."
-      ]
-    };
-  }
 }

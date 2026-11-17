@@ -43,6 +43,9 @@ export interface MLConfig {
 }
 
 export interface MLResult {
+  /** The column the model predicts, and the columns it used (provenance). */
+  target?: string;
+  features?: string[];
   modelType: 'classification' | 'regression' | 'timeseries';
   modelAlgorithm: string;
   modelId?: string; // real trained-model id in the Python service, used for /predict and /download
