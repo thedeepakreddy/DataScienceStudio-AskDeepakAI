@@ -46,6 +46,11 @@ export interface MLResult {
   /** The column the model predicts, and the columns it used (provenance). */
   target?: string;
   features?: string[];
+  /** How the rows were split, the seed, any tuning, and leakage warnings. */
+  split?: { strategy: 'random' | 'time' | 'group'; testSize: number; seed: number; trainRows: number; testRows: number; timeColumn?: string; trainUntil?: string; testFrom?: string; testTo?: string; groupColumn?: string; trainGroups?: number; testGroups?: number };
+  seed?: number;
+  tuning?: { tuned: boolean; reason?: string; iterations?: number; metric?: string; bestParams?: Record<string, unknown>; bestCvScore?: number; trials?: { params: Record<string, unknown>; mean: number; std: number }[] } | null;
+  leakageWarnings?: { column: string; reason: string }[];
   modelType: 'classification' | 'regression' | 'timeseries';
   modelAlgorithm: string;
   modelId?: string; // real trained-model id in the Python service, used for /predict and /download

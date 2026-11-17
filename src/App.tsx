@@ -45,6 +45,8 @@ import { apiFetch, API_SETTLED_EVENT } from './utils/api';
 import StatisticsStage from './components/StatisticsStage';
 import HistorySheet from './components/HistorySheet';
 import JobsButton from './components/JobsButton';
+import ExperimentsPanel from './components/ExperimentsPanel';
+import ForecastPanel from './components/ForecastPanel';
 import { WorkspaceContext, RunInput } from './contexts/WorkspaceContext';
 import { describeChange } from './utils/describeChange';
 import type { AppliedOperation } from './operations/registry';
@@ -543,7 +545,11 @@ export default function App() {
           : 'Trained',
         status: 'succeeded',
         params: { target: targetCol, features, modelType: modelClass, hyperparameters },
-        result: { modelId: parsed.modelId, metrics: parsed.metrics, featureImportance: parsed.featureImportance },
+        result: {
+          modelId: parsed.modelId, algorithm: parsed.modelAlgorithm, metrics: parsed.metrics, cv: parsed.cv,
+          split: parsed.split, tuning: parsed.tuning, leakageWarnings: parsed.leakageWarnings,
+          featureImportance: (parsed.featureImportance || []).slice(0, 10),
+        },
       });
       return parsed;
     } catch (err: any) {
@@ -887,6 +893,19 @@ export default function App() {
                 mlResult={mlResult}
                 loadingML={loadingML}
               />
+            )}
+
+            {activeTab === 'ml' && activeDataset && (
+              <div className="mt-10 space-y-8">
+                <ExperimentsPanel
+                  datasetId={datasetId}
+                  activeVersionId={activeVersionId}
+                  refreshKey={mlResult}
+                  onRerun={p => { triggerPrediction(p.target, p.features, p.modelType, p.hyperparameters).catch(() => {}); }}
+                  onOpenVersion={handleUseVersion}
+                />
+                <ForecastPanel dataset={activeDataset} />
+              </div>
             )}
 
             {activeTab === 'dashboard' && activeDataset && loadingML && (

@@ -97,6 +97,15 @@ export default function MLPipeline({
   const [splitRatio, setSplitRatio] = useState<number>(0.8);
   const [clusterK, setClusterK] = useState<number>(3);
   const [mlpMaxIterations, setMlpMaxIterations] = useState<number>(200);
+  // Reproducibility and honest evaluation: the seed fixes every random step;
+  // the split can follow time or keep related rows (one customer) together.
+  const [seed, setSeed] = useState<number>(42);
+  const [splitStrategy, setSplitStrategy] = useState<'random' | 'time' | 'group'>('random');
+  const dateColumns = dataset.columns.filter(c => c.type === 'datetime').map(c => c.name);
+  const [timeColumn, setTimeColumn] = useState<string>(dateColumns[0] ?? '');
+  const [groupColumn, setGroupColumn] = useState<string>(dataset.columns.find(c => /id$/i.test(c.name))?.name ?? dataset.columns[0]?.name ?? '');
+  const [tune, setTune] = useState<boolean>(false);
+  const [tuneIterations, setTuneIterations] = useState<number>(12);
 
   const [progressLog, setProgressLog] = useState<string[]>([]);
   const [unsupervisedRes, setUnsupervisedRes] = useState<UnsupervisedResult | null>(null);
@@ -196,7 +205,13 @@ export default function MLPipeline({
       train_ratio: splitRatio,
       k: clusterK,
       epochs: mlpMaxIterations,
-      selectedAlgorithmId
+      selectedAlgorithmId,
+      seed,
+      split_strategy: splitStrategy,
+      time_column: splitStrategy === 'time' ? timeColumn : undefined,
+      group_column: splitStrategy === 'group' ? groupColumn : undefined,
+      tune: tune && selectedAlgorithmId !== 'auto',
+      tune_iterations: tuneIterations,
     };
 
     setProgressLog(prev => [...prev, `Training real scikit-learn/XGBoost model(s) on a genuine ${Math.round(splitRatio * 100)}/${Math.round((1 - splitRatio) * 100)} train/test split — this can take several seconds depending on dataset size...`]);
@@ -564,6 +579,54 @@ export default function MLPipeline({
                       className="w-full"
                     />
                   </div>
+                  <div className="col-span-2">
+                    <label className="field-label" htmlFor="hp-split-strategy">How to pick the test rows</label>
+                    <select id="hp-split-strategy" className="input" value={splitStrategy} onChange={e => setSplitStrategy(e.target.value as typeof splitStrategy)}>
+                      <option value="random">At random{modelType === 'classification' ? ' (keeping class balance)' : ''}</option>
+                      <option value="time" disabled={dateColumns.length === 0}>The most recent rows{dateColumns.length === 0 ? ' (needs a date column)' : ''}</option>
+                      <option value="group">Whole groups (e.g. all rows of a customer)</option>
+                    </select>
+                    {splitStrategy === 'time' && (
+                      <select aria-label="Date column" className="input mt-2" value={timeColumn} onChange={e => setTimeColumn(e.target.value)}>
+                        {dateColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    )}
+                    {splitStrategy === 'group' && (
+                      <select aria-label="Group column" className="input mt-2" value={groupColumn} onChange={e => setGroupColumn(e.target.value)}>
+                        {dataset.columns.filter(c => c.name !== target).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                      </select>
+                    )}
+                    <p className="mt-1.5 text-xs text-label-2 leading-relaxed">
+                      {splitStrategy === 'time'
+                        ? 'Trains on the past and tests on the latest rows, like using the model for real.'
+                        : splitStrategy === 'group'
+                        ? 'A group is never in both training and testing, so the score reflects new groups.'
+                        : 'Use “most recent” for data over time, and “whole groups” when several rows describe the same customer.'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="hp-seed">Random seed</label>
+                    <input id="hp-seed" type="number" className="input" value={seed} onChange={e => setSeed(Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="hp-tune-iter">Tuning trials</label>
+                    <select id="hp-tune-iter" className="input" value={tuneIterations} disabled={!tune} onChange={e => setTuneIterations(Number(e.target.value))}>
+                      <option value={8}>8</option>
+                      <option value={12}>12</option>
+                      <option value={20}>20</option>
+                    </select>
+                  </div>
+                  <label className="col-span-2 flex items-start gap-2 text-sm text-label">
+                    <input type="checkbox" className="mt-1" checked={tune} disabled={selectedAlgorithmId === 'auto'} onChange={e => setTune(e.target.checked)} />
+                    <span>
+                      Tune the settings automatically
+                      <span className="block text-xs text-label-2">
+                        {selectedAlgorithmId === 'auto'
+                          ? 'Choose one algorithm to tune it.'
+                          : 'Tries different settings with cross-validation on the training rows and keeps the best. Slower.'}
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -624,6 +687,7 @@ export default function MLPipeline({
       {/* RESULTS PORTFOLIO — everything below is sourced from mlResult (real Python training response) */}
       {mlResult && (
         <div className="space-y-8 animate-fade-in">
+          <RunDetails result={mlResult} />
 
           {/* SYSTEM-WIDE MODEL COMPARISON & SERIALIZATION ROW */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -714,6 +778,12 @@ export default function MLPipeline({
                     <span>Train / Test Rows:</span>
                     <strong className="text-label">{mlResult.trainRows ?? '-'} / {mlResult.testRows ?? '-'}</strong>
                   </div>
+                  {mlResult.seed !== undefined && (
+                    <div className="flex justify-between">
+                      <span>Random seed:</span>
+                      <strong className="text-label">{mlResult.seed}</strong>
+                    </div>
+                  )}
                   <div className="flex justify-between border-t border-separator pt-1.5 mt-1 text-[11px]">
                     <span>Model ID:</span>
                     <span className="text-label-3 truncate max-w-[140px]" title={mlResult.modelId}>{mlResult.modelId?.slice(0, 12) || 'n/a'}…</span>
@@ -1376,6 +1446,49 @@ export default function MLPipeline({
         </div>
       )}
 
+    </div>
+  );
+}
+
+/** How this model was evaluated: the split, tuning, and any columns that look like leaks. */
+function RunDetails({ result }: { result: MLResult }) {
+  const split = result.split;
+  const leaks = result.leakageWarnings ?? [];
+  const tuning = result.tuning;
+  if (!split && !leaks.length && !tuning) return null;
+  return (
+    <div className="space-y-3">
+      {leaks.length > 0 && (
+        <div role="alert" className="rounded-2xl bg-orange/10 px-4 py-3 text-sm">
+          <p className="font-semibold text-label">Possible data leakage</p>
+          <ul className="mt-1 space-y-0.5 text-label-2">
+            {leaks.map(l => <li key={l.column}><span className="font-medium text-label">{l.column}</span>: {l.reason}</li>)}
+          </ul>
+          <p className="mt-1 text-xs text-label-2">A column that already contains the answer makes the score look better than it will be on new data. Untick it under the features and train again.</p>
+        </div>
+      )}
+      {split && (
+        <p className="text-sm text-label-2">
+          <span className="font-medium text-label">Evaluation:</span>{' '}
+          {split.strategy === 'time'
+            ? `trained on rows up to ${split.trainUntil}, tested on ${split.testFrom} – ${split.testTo} (${split.testRows} rows); cross-validation only trains on earlier rows.`
+            : split.strategy === 'group'
+            ? `${split.trainGroups} “${split.groupColumn}” groups for training, ${split.testGroups} different groups for testing (${split.testRows} rows).`
+            : `${split.trainRows} rows for training and ${split.testRows} randomly chosen rows for testing.`}
+          {' '}Seed {split.seed}; the same settings give the same result.
+        </p>
+      )}
+      {tuning?.tuned && (
+        <div className="rounded-2xl bg-well px-4 py-3 text-sm">
+          <p className="text-label">
+            <span className="font-medium">Tuned over {tuning.iterations} trials</span> — best cross-validated {tuning.metric}: {tuning.bestCvScore}
+          </p>
+          <p className="mt-1 text-xs text-label-2 font-code break-words">
+            {Object.entries(tuning.bestParams ?? {}).map(([k, v]) => `${k} = ${Array.isArray(v) ? `(${v.join(', ')})` : String(v)}`).join(' · ')}
+          </p>
+        </div>
+      )}
+      {tuning && !tuning.tuned && tuning.reason && <p className="text-xs text-label-2">{tuning.reason}</p>}
     </div>
   );
 }

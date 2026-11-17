@@ -7,6 +7,7 @@ test split — nothing here is narrated or guessed by an LLM.
 """
 import gc
 import os
+import random
 import time
 import uuid
 from typing import Any, Literal
@@ -39,11 +40,13 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score, train_test_split
+from sklearn.model_selection import cross_val_score
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 
+import forecasting
+import model_extras
 import stats_engine
 
 try:
@@ -118,6 +121,14 @@ class TrainRequest(BaseModel):
     cv_folds: int = Field(default=5, ge=2, le=10)
     random_state: int = 42
     hyperparameters: dict[str, Any] | None = None
+    # How rows are split: shuffled, by time (test on the most recent rows), or
+    # by group (all rows of one customer on the same side).
+    split_strategy: Literal["random", "time", "group"] = "random"
+    time_column: str | None = None
+    group_column: str | None = None
+    # Randomized hyperparameter search on the training rows (single model only).
+    tune: bool = False
+    tune_iterations: int = Field(default=12, ge=4, le=40)
 
 
 class PredictRequest(BaseModel):
@@ -648,6 +659,11 @@ def train_model(request: TrainRequest):
 
     feature_cols = request.features or [c for c in df.columns if c != request.target]
     feature_cols = [c for c in feature_cols if c in df.columns and c != request.target]
+    # The column a split is based on is never also a feature: a date would let
+    # the model memorise time, and a group ID would let it memorise the group.
+    split_column = request.time_column if request.split_strategy == "time" else request.group_column if request.split_strategy == "group" else None
+    if split_column:
+        feature_cols = [c for c in feature_cols if c != split_column]
     if not feature_cols:
         raise HTTPException(status_code=400, detail="No valid feature columns provided.")
 
@@ -679,29 +695,27 @@ def train_model(request: TrainRequest):
     if not requested_models:
         requested_models = DEFAULT_MODELS
 
-    # Single split shared across all requested models for a fair, apples-to-apples comparison.
-    stratify = y if (task == "classification" and y.value_counts().min() >= 2) else None
-    try:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=request.test_size, random_state=request.random_state, stratify=stratify
-        )
-    except ValueError:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=request.test_size, random_state=request.random_state
-        )
+    if request.tune and len(requested_models) != 1:
+        raise HTTPException(status_code=400, detail="Tuning runs on one model at a time; choose a single algorithm.")
+    random.seed(request.random_state)
+    np.random.seed(request.random_state)
+    hyperparameters = {**(request.hyperparameters or {}), "random_state": request.random_state}
 
-    hyperparameters = request.hyperparameters or {}
+    # One split shared by every candidate, for a fair comparison.
+    try:
+        split = model_extras.build_split(
+            df, X, y, task=task, strategy=request.split_strategy, test_size=request.test_size,
+            cv_folds=request.cv_folds, random_state=request.random_state,
+            time_column=request.time_column, group_column=request.group_column,
+        )
+    except model_extras.SplitError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    X_train, X_test, y_train, y_test = split["X_train"], split["X_test"], split["y_train"], split["y_test"]
+    cv_splitter, groups_train = split["cv"], split["groups_train"]
+    cv_folds = cv_splitter.get_n_splits()
     scoring = "accuracy" if task == "classification" else "r2"
-    cv_folds = min(request.cv_folds, y_train.value_counts().min()) if task == "classification" else request.cv_folds
-    cv_folds = max(cv_folds, 2)
-    # Large datasets: cap folds at 3. More rows per fold already gives a
-    # statistically stable CV estimate as data grows, so the dominant cost
-    # (a full pipeline refit per fold, per candidate model) stays roughly
-    # bounded instead of scaling with both row count and fold count at once -
-    # this is what keeps AutoML mode (5 candidates x refits) from running the
-    # free-tier host out of memory/time on a real-sized dataset.
-    if len(X_train) > 5000:
-        cv_folds = min(cv_folds, 3)
+    leakage = model_extras.leakage_warnings(X_train, y_train, task, request.target)
+    tuning_report = None
 
     results = []
     errors = []
@@ -719,17 +733,20 @@ def train_model(request: TrainRequest):
             pipeline = Pipeline([("preprocess", preprocessor), ("model", estimator)])
 
             start = time.time()
-            pipeline.fit(X_train, y_train)
+            if request.tune:
+                pipeline, tuning_report = model_extras.tune(
+                    pipeline, model_key, task, X_train, y_train, cv_splitter, groups_train,
+                    scoring, request.tune_iterations, request.random_state,
+                )
+            else:
+                pipeline.fit(X_train, y_train)
             elapsed_ms = int((time.time() - start) * 1000)
 
             y_pred = pipeline.predict(X_test)
 
             # Cross-validation on the training fold only (never touches the held-out test set).
             try:
-                cv_splitter = (StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=request.random_state)
-                               if task == "classification"
-                               else KFold(n_splits=cv_folds, shuffle=True, random_state=request.random_state))
-                cv_scores = cross_val_score(pipeline, X_train, y_train, cv=cv_splitter, scoring=scoring)
+                cv_scores = cross_val_score(pipeline, X_train, y_train, cv=cv_splitter, scoring=scoring, groups=groups_train)
                 cv_result = {
                     "scores": [round(float(s), 4) for s in cv_scores],
                     "mean": round(float(np.mean(cv_scores)), 4),
@@ -898,6 +915,10 @@ def train_model(request: TrainRequest):
         "results": results,
         "errors": errors,
         "trainRatio": round(1 - request.test_size, 2),
+        "split": split["info"],
+        "leakageWarnings": leakage,
+        "tuning": tuning_report,
+        "seed": request.random_state,
     }
 
 
@@ -1162,6 +1183,27 @@ class StatsPowerRequest(BaseModel):
     n: float | None = None
     groups: int = Field(default=3, ge=2, le=50)
     alternative: Literal["two-sided", "less", "greater"] = "two-sided"
+
+
+class ForecastRequest(BaseModel):
+    data: list[dict[str, Any]]
+    date_column: str
+    value_column: str
+    horizon: int = Field(default=12, ge=1, le=365)
+    freq: Literal["auto", "D", "W", "MS", "QS", "YS"] = "auto"
+    agg: Literal["sum", "mean"] = "sum"
+    folds: int = Field(default=3, ge=1, le=10)
+
+
+@app.post("/forecast")
+def run_forecast(request: ForecastRequest):
+    if not request.data:
+        raise HTTPException(status_code=400, detail="No data provided.")
+    try:
+        return forecasting.forecast(pd.DataFrame(request.data), request.date_column, request.value_column,
+                                    request.horizon, request.freq, request.agg, request.folds)
+    except forecasting.ForecastError as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
 
 @app.post("/stats/compare")

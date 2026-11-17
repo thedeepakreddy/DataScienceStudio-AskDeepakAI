@@ -257,6 +257,15 @@ pull requests of about the size of the recent ones.
 - Sample size and power for two-group, paired, ANOVA, correlation and two-proportion designs.
 - Reference tests (`mlops_service/tests/test_stats_engine.py`): Cohen’s sample-size tables, SciPy, scikit-learn and pingouin’s Welch ANOVA. Python: 60 tests; Vitest: 65 tests.
 
+**Phase 5 status: done.**
+- Every training run is seeded (shown with the results; same settings give identical scores — verified by re-running).
+- Leakage-safe evaluation: test on the most recent rows (cross-validation only trains on the past) or on whole unseen groups (e.g. customers); the split column is never used as a feature. Preprocessing is fitted on training rows only, as before.
+- Leakage warnings when a column contains the target’s name or predicts it almost perfectly (checked on training rows).
+- Hyperparameter tuning: randomized search with cross-validation on the training rows, showing the best settings and every trial.
+- Experiments: every model trained on the dataset with its score, cross-validation, split, seed and data version; re-run any of them exactly, or open the data version it used.
+- Forecasting: naive, seasonal naive, moving average, drift, linear trend, Holt and Holt-Winters, each scored by rolling-origin backtesting; the best forecasts, with 80%/95% ranges from its real backtest errors.
+- Python: 75 tests (including a hand-calculated backtest error and same-seed reproducibility).
+
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the
 foundation is stable, as the plan itself recommends.

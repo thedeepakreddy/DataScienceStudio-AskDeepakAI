@@ -829,6 +829,12 @@ app.post('/api/run-ml-prediction', async (req, res) => {
         models,
         test_size: testSize,
         cv_folds: 5,
+        random_state: Number.isInteger(safeHyperparameters.seed) ? safeHyperparameters.seed : 42,
+        split_strategy: ['random', 'time', 'group'].includes(safeHyperparameters.split_strategy) ? safeHyperparameters.split_strategy : 'random',
+        time_column: typeof safeHyperparameters.time_column === 'string' ? safeHyperparameters.time_column : undefined,
+        group_column: typeof safeHyperparameters.group_column === 'string' ? safeHyperparameters.group_column : undefined,
+        tune: safeHyperparameters.tune === true,
+        tune_iterations: Number.isInteger(safeHyperparameters.tune_iterations) ? safeHyperparameters.tune_iterations : 12,
         hyperparameters: {
           n_estimators: safeHyperparameters.n_estimators,
           max_depth: safeHyperparameters.max_depth,
@@ -839,6 +845,9 @@ app.post('/api/run-ml-prediction', async (req, res) => {
     });
   } catch (err: any) {
     console.error('[AskDeepakAI ML] Real training call failed:', err);
+    if (typeof err.status === 'number' && err.status >= 400 && err.status < 500) {
+      return res.status(400).json({ error: err.message });
+    }
     return res.status(503).json({
       error: err.message || 'The ML compute service is unavailable, so no model was trained.',
       hint: 'Start the Python service: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000'
@@ -870,6 +879,10 @@ app.post('/api/run-ml-prediction', async (req, res) => {
     trainRows: champion.trainRows,
     testRows: champion.testRows,
     trainRatio: trainResult.trainRatio,
+    split: trainResult.split,
+    leakageWarnings: trainResult.leakageWarnings,
+    tuning: trainResult.tuning,
+    seed: trainResult.seed,
   };
 
   const client = getGeminiClient();
@@ -1716,6 +1729,16 @@ app.post('/api/hypothesis-lab/run-test', async (req, res) => {
   } catch (err: any) {
     console.error('[AskDeepakAI] /api/hypothesis-lab/run-test proxy failed:', err);
     return res.status(503).json({ error: err.message || 'ML compute service unavailable.' });
+  }
+});
+
+// Baseline forecasting with backtesting (Model step).
+app.post('/api/forecast', async (req, res) => {
+  try {
+    return res.json(await callMlService('/forecast', { body: req.body }));
+  } catch (err: any) {
+    const status = typeof err.status === 'number' && err.status >= 400 && err.status < 500 ? 400 : 503;
+    return res.status(status).json({ error: err.message || 'ML compute service unavailable.' });
   }
 });
 
