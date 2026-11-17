@@ -1,6 +1,9 @@
 import { CleaningOperation } from '../types';
 
 export function describeCleaningOperation(op: CleaningOperation): string {
+  if (op.type === 'registry') {
+    return String(op.params.summary ?? op.params.label ?? 'Changed the data');
+  }
   if (op.type === 'drop_column') {
     return `Dropped column "${op.column}"`;
   }

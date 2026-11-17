@@ -4,19 +4,29 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Trash2, RotateCcw, CheckCircle, Plus, Minus } from 'lucide-react';
-import { Dataset, CleaningOperation, DatasetColumn } from '../types';
+import { Trash2, RotateCcw, CheckCircle, Plus, Minus, AlertTriangle, X, Undo2 } from 'lucide-react';
+import MoreCleanTools from './MoreCleanTools';
+import { Dataset, CleaningOperation } from '../types';
 import DeepQualityAudit from './DeepQualityAudit';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { describeCleaningOperation } from '../utils/cleaningOperations';
+import {
+  AppliedOperation, DeriveTransform, OperationError, OperationId, OperationParams, OperationResult, applyOperation,
+} from '../operations/registry';
 
 interface DataCleaningProps {
   dataset: Dataset;
-  onUpdateDataset: (updated: Dataset) => void;
+  onUpdateDataset: (updated: Dataset, operation?: AppliedOperation, summary?: string) => void;
   onResetOriginal: () => void;
+  /** The saved dataset this version belongs to (for its quality rules). */
+  datasetId?: string | null;
+  activeVersionId?: string | null;
+  /** Steps back to the previous version, when there is one. */
+  onUndo?: () => void;
+  canUndo?: boolean;
 }
 
-export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal }: DataCleaningProps) {
+export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal, datasetId = null, activeVersionId = null, onUndo, canUndo = false }: DataCleaningProps) {
   const { expertMode, setCleaningSteps } = usePipelineContext();
   const [selectedCol, setSelectedCol] = useState(dataset.columns[0]?.name || '');
   const [imputeStrategy, setImputeStrategy] = useState<'mean' | 'median' | 'zero' | 'mode'>('mean');
@@ -73,206 +83,75 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
     }
   }, [dataset.columns]);
 
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const triggerSuccess = (msg: string) => {
+    setErrorMsg(null);
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
+  // Every change runs through the shared operation registry, so the Clean
+  // step, the assistant and saved history all compute it the same way.
+  const runOperation = <K extends OperationId>(
+    op: K,
+    params: OperationParams[K],
+    record: Omit<CleaningOperation, 'id'>,
+  ): OperationResult | null => {
+    try {
+      const result = applyOperation(dataset, op, params);
+      setOperations(prev => [...prev, { id: crypto.randomUUID(), ...record }]);
+      onUpdateDataset(result.dataset, { op, params } as AppliedOperation, result.summary);
+      triggerSuccess(result.summary);
+      return result;
+    } catch (err) {
+      if (err instanceof OperationError) {
+        setErrorMsg(err.message);
+        return null;
+      }
+      throw err;
+    }
+  };
+
   // 1. DROP COLUMN
   const handleDropColumn = (colName: string) => {
-    const updatedColumns = dataset.columns.filter(c => c.name !== colName);
-    const updatedRows = dataset.rows.map(row => {
-      const copy = { ...row };
-      delete copy[colName];
-      return copy;
-    });
-
-    const newOp: CleaningOperation = {
-      id: crypto.randomUUID(),
-      type: 'drop_column',
-      column: colName,
-      params: {}
-    };
-
-    setOperations([...operations, newOp]);
-    onUpdateDataset({
-      ...dataset,
-      columns: updatedColumns,
-      rows: updatedRows,
-      rowCount: updatedRows.length
-    });
-    triggerSuccess(`Column "${colName}" dropped successfully from active structures.`);
+    runOperation('drop_columns', { columns: [colName] }, { type: 'drop_column', column: colName, params: {} });
   };
 
   // 2. FILL MISSING VALUE
   const handleImputation = () => {
     if (!selectedCol) return;
-    const colMetadata = dataset.columns.find(c => c.name === selectedCol);
-    if (!colMetadata) return;
-
-    let fillValue: any = 0;
-    
-    if (colMetadata.type === 'numeric') {
-      if (imputeStrategy === 'mean') {
-        fillValue = colMetadata.statistics.mean || 0;
-      } else if (imputeStrategy === 'median') {
-        fillValue = colMetadata.statistics.median || 0;
-      } else {
-        fillValue = 0;
-      }
-    } else {
-      fillValue = colMetadata.statistics.mostCommon?.[0]?.value || 'Unknown';
+    const col = dataset.columns.find(c => c.name === selectedCol);
+    // Mean and median only make sense for numbers; text columns use the most common value.
+    const strategy = col && col.type !== 'numeric' && imputeStrategy !== 'mode' ? 'mode' : imputeStrategy;
+    const result = runOperation('fill_missing', { column: selectedCol, strategy }, {
+      type: 'fill_missing', column: selectedCol, params: { strategy },
+    });
+    if (result) {
+      const used = result.dataset.columns.find(c => c.name === selectedCol);
+      setOperations(prev => prev.map((op, i) => i === prev.length - 1 ? { ...op, params: { strategy, missingBefore: col?.missingCount, missingAfter: used?.missingCount } } : op));
     }
-
-    const updatedRows = dataset.rows.map(row => {
-      const val = row[selectedCol];
-      if (val === null || val === undefined || val === '') {
-        return { ...row, [selectedCol]: fillValue };
-      }
-      return row;
-    });
-
-    // Update statistics
-    const updatedColumns = dataset.columns.map(col => {
-      if (col.name === selectedCol) {
-        return {
-          ...col,
-          missingCount: 0
-        };
-      }
-      return col;
-    });
-
-    const newOp: CleaningOperation = {
-      id: crypto.randomUUID(),
-      type: 'fill_missing',
-      column: selectedCol,
-      params: { strategy: imputeStrategy, valueUsed: fillValue }
-    };
-
-    setOperations([...operations, newOp]);
-    onUpdateDataset({
-      ...dataset,
-      columns: updatedColumns,
-      rows: updatedRows
-    });
-    triggerSuccess(`Filled missing values in "${selectedCol}" using strategy "${imputeStrategy}" (${fillValue}).`);
   };
 
   // 3. ADD COLUMN
   const handleAddColumn = () => {
-    const cleanName = newColName.trim();
-    if (!cleanName) {
-      alert("Please enter a valid column name");
-      return;
-    }
-    if (dataset.columns.some(c => c.name.toLowerCase() === cleanName.toLowerCase())) {
-      alert("A column with this name already exists");
-      return;
-    }
-
-    let parsedVal: any = newColDefault;
-    if (newColType === 'numeric') {
-      parsedVal = isNaN(Number(newColDefault)) ? 0 : Number(newColDefault);
-    } else if (newColType === 'boolean') {
-      parsedVal = newColDefault.toLowerCase() === 'true' || newColDefault === '1';
-    }
-
-    const newColMeta: typeof dataset.columns[0] = {
-      name: cleanName,
-      type: newColType,
-      missingCount: 0,
-      distinctCount: 1,
-      statistics: {
-        min: newColType === 'numeric' ? parsedVal : undefined,
-        max: newColType === 'numeric' ? parsedVal : undefined,
-        mean: newColType === 'numeric' ? parsedVal : undefined,
-        median: newColType === 'numeric' ? parsedVal : undefined,
-        mostCommon: [{ value: String(parsedVal), count: dataset.rows.length }]
-      }
-    };
-
-    const updatedRows = dataset.rows.map(row => ({
-      ...row,
-      [cleanName]: parsedVal
-    }));
-
-    const newOp: CleaningOperation = {
-      id: crypto.randomUUID(),
-      type: 'type_convert', // Recycle operation types cleanly
-      column: cleanName,
-      params: { action: 'add_column', type: newColType, defaultValue: parsedVal }
-    };
-
-    setOperations([...operations, newOp]);
-    onUpdateDataset({
-      ...dataset,
-      columns: [...dataset.columns, newColMeta],
-      rows: updatedRows,
+    const name = newColName.trim();
+    const result = runOperation('add_column', { name, type: newColType, value: newColDefault === '' ? null : newColDefault }, {
+      type: 'type_convert', column: name, params: { action: 'add_column', type: newColType, defaultValue: newColDefault },
     });
-
-    setNewColName('');
-    setNewColDefault('');
-    triggerSuccess(`Successfully added dynamic column "${cleanName}" (${newColType}) with initial values "${parsedVal}".`);
+    if (result) {
+      setNewColName('');
+      setNewColDefault('');
+    }
   };
 
   // 4. ADD NEW ROW
   const handleAddNewRow = () => {
-    const newRow: Record<string, any> = {};
-    dataset.columns.forEach(col => {
-      if (col.type === 'numeric') {
-        newRow[col.name] = 0;
-      } else if (col.type === 'boolean') {
-        newRow[col.name] = false;
-      } else {
-        newRow[col.name] = '';
-      }
-    });
-
-    const updatedRows = [...dataset.rows, newRow];
-
-    // Increment distinct / count stats gently
-    const updatedCols = dataset.columns.map(col => ({
-      ...col,
-      missingCount: col.type !== 'numeric' && col.type !== 'boolean' ? col.missingCount + 1 : col.missingCount
-    }));
-
-    const newOp: CleaningOperation = {
-      id: crypto.randomUUID(),
-      type: 'add_row',
-      column: '',
-      params: { rowIndex: updatedRows.length - 1 }
-    };
-
-    setOperations([...operations, newOp]);
-    onUpdateDataset({
-      ...dataset,
-      columns: updatedCols,
-      rows: updatedRows,
-      rowCount: updatedRows.length
-    });
-    triggerSuccess(`Appended a new blank row at the end of the dataset. Total counts: ${updatedRows.length}.`);
+    runOperation('add_row', {}, { type: 'add_row', column: '', params: { rowIndex: dataset.rows.length } });
   };
 
   // 5. DELETE ROW BY INDEX
   const handleDeleteRow = (index: number) => {
-    if (index < 0 || index >= dataset.rows.length) return;
-    const updatedRows = dataset.rows.filter((_, idx) => idx !== index);
-
-    const newOp: CleaningOperation = {
-      id: crypto.randomUUID(),
-      type: 'delete_row',
-      column: '',
-      params: { index }
-    };
-
-    setOperations([...operations, newOp]);
-    onUpdateDataset({
-      ...dataset,
-      rows: updatedRows,
-      rowCount: updatedRows.length
-    });
-    triggerSuccess(`Successfully deleted row index ${index}. Total counts: ${updatedRows.length}.`);
+    runOperation('delete_rows', { indices: [index] }, { type: 'delete_row', column: '', params: { index } });
   };
 
   // 6. GROUP BY AND AGGREGATE
@@ -319,236 +198,48 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
     triggerSuccess(`Computed group aggregation metrics on "${groupByCol}".`);
   };
 
-  // HELPER: Calculate complete statistical metadata for any column array
-  const computeColumnMeta = (colName: string, type: 'numeric' | 'categorical' | 'boolean' | 'datetime', rows: any[]): DatasetColumn => {
-    const vals = rows.map(r => r[colName]);
-    const missingCount = vals.filter(v => v === null || v === undefined || v === '').length;
-    const nonNulls = vals.filter(v => v !== null && v !== undefined && v !== '');
-    const distinctVals = Array.from(new Set(vals));
-    const distinctCount = distinctVals.length;
-    
-    const statistics: any = {};
-
-    if (type === 'numeric') {
-      const numerics = nonNulls.map(Number).filter(v => !isNaN(v));
-      if (numerics.length > 0) {
-        let min = numerics[0];
-        let max = numerics[0];
-        for (let idx = 1; idx < numerics.length; idx++) {
-          if (numerics[idx] < min) min = numerics[idx];
-          if (numerics[idx] > max) max = numerics[idx];
-        }
-        const sum = numerics.reduce((a, b) => a + b, 0);
-        const mean = sum / numerics.length;
-        
-        const sorted = [...numerics].sort((a, b) => a - b);
-        const median = sorted[Math.floor(sorted.length / 2)];
-        
-        const sqDiffSum = numerics.reduce((accum, val) => accum + Math.pow(val - mean, 2), 0);
-        const variance = sqDiffSum / numerics.length;
-        const stdDev = Math.sqrt(variance);
-
-        statistics.min = parseFloat(min.toFixed(4));
-        statistics.max = parseFloat(max.toFixed(4));
-        statistics.mean = parseFloat(mean.toFixed(4));
-        statistics.median = parseFloat(median.toFixed(4));
-        statistics.stdDev = parseFloat(stdDev.toFixed(4));
-      }
-    }
-
-    // Calculate most common
-    const freq: Record<string, number> = {};
-    vals.forEach(v => {
-      const s = String(v);
-      freq[s] = (freq[s] || 0) + 1;
-    });
-    const sortedFreq = Object.entries(freq)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([value, count]) => ({ value, count }));
-    statistics.mostCommon = sortedFreq;
-
-    return {
-      name: colName,
-      type,
-      missingCount,
-      distinctCount,
-      statistics
-    };
+  const FE_REASONS: Record<string, string> = {
+    log: 'A log transform compresses right-skewed data, bringing large values closer together.',
+    sqrt: 'A square root handles right-skewed data less aggressively than log; useful for counts.',
+    square: 'Squaring stretches the spread of values and emphasises large ones.',
+    minmax: 'Min–max scaling maps values onto 0–1 using the column’s real minimum and maximum, without changing the shape.',
+    standard: 'Standardising gives the column a mean of 0 and a standard deviation of 1, so features share a scale.',
+    interaction_mul: `Multiplying ${feSourceColA} by ${feSourceColB} captures their combined effect.`,
+    interaction_div: `Dividing ${feSourceColA} by ${feSourceColB} creates a ratio feature.`,
+    onehot: 'Each category became its own 1/0 column, which models that need numbers can use.',
   };
 
   const handleApplyFeatureEngineering = () => {
     if (!feSourceColA) return;
-    const colA_Meta = dataset.columns.find(c => c.name === feSourceColA);
-    if (!colA_Meta) return;
-
-    let targetColName = feNewColName.trim();
-    
-    // Check if we need numeric source column
-    const isSourceANumeric = colA_Meta.type === 'numeric';
-    if (!isSourceANumeric && ['log', 'sqrt', 'square', 'minmax', 'standard', 'interaction_mul', 'interaction_div'].includes(feTransform)) {
-      alert(`Scaling/Mathematical transforms require a numeric input. Column "${feSourceColA}" is not numeric.`);
-      return;
-    }
-
-    let updatedRows = [...dataset.rows];
-    const createdColsMeta: DatasetColumn[] = [];
-
+    let result: OperationResult | null;
     if (feTransform === 'onehot') {
-      // One-Hot Encoding
-      const uniqueVals = Array.from(new Set(dataset.rows.map(r => String(r[feSourceColA] !== null && r[feSourceColA] !== undefined ? r[feSourceColA] : 'Missing'))))
-        .filter(v => v !== '');
-      
-      if (uniqueVals.length > 25) {
-        if (!confirm(`This column has ${uniqueVals.length} distinct values. One-hot encoding will create ${uniqueVals.length} new binary columns, which might clutter your dataset. Continue?`)) {
-          return;
-        }
+      const before = new Set(dataset.columns.map(c => c.name));
+      result = runOperation('one_hot_encode', { column: feSourceColA, prefix: feNewColName.trim() || undefined }, {
+        type: 'type_convert', column: feSourceColA, params: { action: 'onehot' },
+      });
+      if (result) {
+        const added = result.dataset.columns.map(c => c.name).filter(n => !before.has(n));
+        setOperations(prev => prev.map((op, i) => i === prev.length - 1 ? { ...op, params: { action: 'onehot', newColumns: added } } : op));
       }
-
-      const generatedColNames: string[] = [];
-      uniqueVals.forEach(val => {
-        const cleanValName = val.replace(/[^a-zA-Z0-9]/g, '_');
-        const finalColName = targetColName ? `${targetColName}_${cleanValName}` : `${feSourceColA}_is_${cleanValName}`;
-        
-        // Prevent duplicate names
-        if (dataset.columns.some(c => c.name === finalColName)) {
-          return;
-        }
-
-        generatedColNames.push(finalColName);
-        updatedRows = updatedRows.map(row => {
-          const isMatch = String(row[feSourceColA]) === val;
-          return {
-            ...row,
-            [finalColName]: isMatch ? 1 : 0
-          };
-        });
-      });
-
-      if (generatedColNames.length === 0) {
-        alert("No new categorical columns generated (or they already existed).");
-        return;
+    } else {
+      const transform: DeriveTransform =
+        feTransform === 'interaction_mul' ? 'multiply' : feTransform === 'interaction_div' ? 'divide' : feTransform;
+      const before = new Set(dataset.columns.map(c => c.name));
+      result = runOperation('derive_column', {
+        source: feSourceColA,
+        transform,
+        other: transform === 'multiply' || transform === 'divide' ? feSourceColB : undefined,
+        name: feNewColName.trim() || undefined,
+      }, { type: 'type_convert', column: feSourceColA, params: { action: feTransform } });
+      if (result) {
+        const added = result.dataset.columns.map(c => c.name).find(n => !before.has(n));
+        setOperations(prev => prev.map((op, i) => i === prev.length - 1 ? { ...op, params: { action: feTransform, newColumn: added } } : op));
       }
-
-      generatedColNames.forEach(colName => {
-        const meta = computeColumnMeta(colName, 'numeric', updatedRows);
-        createdColsMeta.push(meta);
-      });
-
-      const newOp: CleaningOperation = {
-        id: crypto.randomUUID(),
-        type: 'type_convert',
-        column: feSourceColA,
-        params: { action: 'onehot', newColumns: generatedColNames }
-      };
-
-      setOperations([...operations, newOp]);
-      onUpdateDataset({
-        ...dataset,
-        columns: [...dataset.columns, ...createdColsMeta],
-        rows: updatedRows
-      });
-
+    }
+    if (result) {
       setFeNewColName('');
-      const msg = `Successfully One-Hot Encoded "${feSourceColA}" into ${generatedColNames.length} binary columns.`;
-      const reason = `Extracted distinct categories into standalone boolean flags. Useful for algorithms that require numeric input and fail on nominal strings (e.g. tree-based models, linear regressions).`;
-      setFeResultDetails({ msg, reason });
-      triggerSuccess(msg);
-      return;
+      setFeResultDetails({ msg: result.summary, reason: FE_REASONS[feTransform] });
     }
-
-    // Mathematical Transforms
-    if (!targetColName) {
-      if (feTransform === 'log') targetColName = `log_${feSourceColA}`;
-      else if (feTransform === 'sqrt') targetColName = `sqrt_${feSourceColA}`;
-      else if (feTransform === 'square') targetColName = `sq_${feSourceColA}`;
-      else if (feTransform === 'minmax') targetColName = `minmax_${feSourceColA}`;
-      else if (feTransform === 'standard') targetColName = `std_${feSourceColA}`;
-      else if (feTransform === 'interaction_mul') targetColName = `${feSourceColA}_x_${feSourceColB}`;
-      else if (feTransform === 'interaction_div') targetColName = `${feSourceColA}_div_${feSourceColB}`;
-    }
-
-    // Check duplicate
-    if (dataset.columns.some(c => c.name === targetColName)) {
-      alert(`A column named "${targetColName}" already exists. Please provide a unique column name.`);
-      return;
-    }
-
-    if (feTransform === 'interaction_mul' || feTransform === 'interaction_div') {
-      const colB_Meta = dataset.columns.find(c => c.name === feSourceColB);
-      if (!colB_Meta || colB_Meta.type !== 'numeric') {
-        alert(`Interaction transforms require a numeric column for the second attribute. Column "${feSourceColB}" is not numeric.`);
-        return;
-      }
-    }
-
-    // Process rows
-    updatedRows = updatedRows.map(row => {
-      const valA = Number(row[feSourceColA]);
-      const validA = !isNaN(valA) && row[feSourceColA] !== null && row[feSourceColA] !== '';
-      const finalA = validA ? valA : 0;
-
-      let result = 0;
-      if (feTransform === 'log') {
-        result = Math.log(Math.max(0, finalA) + 1);
-      } else if (feTransform === 'sqrt') {
-        result = Math.sqrt(Math.max(0, finalA));
-      } else if (feTransform === 'square') {
-        result = Math.pow(finalA, 2);
-      } else if (feTransform === 'minmax') {
-        const min = colA_Meta.statistics.min || 0;
-        const max = colA_Meta.statistics.max || 100;
-        result = max - min !== 0 ? (finalA - min) / (max - min) : 0;
-      } else if (feTransform === 'standard') {
-        const mean = colA_Meta.statistics.mean || 0;
-        const std = colA_Meta.statistics.stdDev || 1;
-        result = std !== 0 ? (finalA - mean) / std : 0;
-      } else if (feTransform === 'interaction_mul') {
-        const valB = Number(row[feSourceColB]);
-        const validB = !isNaN(valB) && row[feSourceColB] !== null && row[feSourceColB] !== '';
-        result = finalA * (validB ? valB : 0);
-      } else if (feTransform === 'interaction_div') {
-        const valB = Number(row[feSourceColB]);
-        const validB = !isNaN(valB) && row[feSourceColB] !== null && row[feSourceColB] !== '';
-        const finalB = validB ? valB : 0;
-        result = finalB !== 0 ? finalA / finalB : 0; // Avoid divide-by-zero
-      }
-
-      return {
-        ...row,
-        [targetColName]: parseFloat(result.toFixed(6))
-      };
-    });
-
-    const meta = computeColumnMeta(targetColName, 'numeric', updatedRows);
-    
-    const newOp: CleaningOperation = {
-      id: crypto.randomUUID(),
-      type: 'type_convert',
-      column: feSourceColA,
-      params: { action: feTransform, newColumn: targetColName }
-    };
-
-    setOperations([...operations, newOp]);
-    onUpdateDataset({
-      ...dataset,
-      columns: [...dataset.columns, meta],
-      rows: updatedRows
-    });
-
-    setFeNewColName('');
-    const msg = `Successfully generated feature column "${targetColName}".`;
-    let reason = "Transformed numeric distribution.";
-    if (feTransform === 'log') reason = "Log transform applies a compressive effect to right-skewed data, bringing outliers closer and normalizing the distribution to improve model stability.";
-    else if (feTransform === 'sqrt') reason = "Square root transform similarly handles right-skewed data but is less aggressive than log, useful for count data.";
-    else if (feTransform === 'square') reason = "Square transform expands left-skewed distributions and amplifies feature variance.";
-    else if (feTransform === 'minmax') reason = "Min-Max normalization scaled the values strictly into a [0, 1] bounds without changing the shape of the distribution, critical for distance-based ML algorithms.";
-    else if (feTransform === 'standard') reason = "Standard Scaler (Z-Score) transformed values to have mean=0 and std_dev=1, bringing features to a comparable numeric scale.";
-    else if (feTransform === 'interaction_mul') reason = `Multiplicative interaction between ${feSourceColA} and ${feSourceColB} created to capture combined non-linear effects between both features.`;
-    else if (feTransform === 'interaction_div') reason = `Division interaction created a proportional ratio feature from ${feSourceColA} and ${feSourceColB}.`;
-    
-    setFeResultDetails({ msg, reason });
-    triggerSuccess(`Successfully generated feature column "${targetColName}"! Recalculated statistical bounds.`);
   };
 
   const resetAll = () => {
@@ -567,6 +258,16 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
 
   return (
     <div className="space-y-12" id="cleaning_module">
+      {errorMsg && (
+        <div role="alert" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-raised shadow-xl px-4 py-2.5 text-sm font-medium text-red animate-toast-in">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          {errorMsg}
+          <button type="button" onClick={() => setErrorMsg(null)} className="ml-1 -mr-1 p-0.5 rounded-full hover:bg-fill" aria-label="Dismiss">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Confirmation — a brief, unobtrusive toast. */}
       {successMsg && (
         <div
@@ -584,9 +285,16 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
             <h2 id="tools-heading" className="section-title">Fix and reshape</h2>
             <p className="mt-1 text-sm text-label-2">Every change applies instantly and shows up in the preview below.</p>
           </div>
-          <button type="button" onClick={resetAll} className="btn btn-secondary" disabled={operations.length === 0}>
-            <RotateCcw className="w-4 h-4" /> Reset to Original
-          </button>
+          <div className="flex gap-2">
+            {onUndo && (
+              <button type="button" onClick={onUndo} className="btn btn-secondary" disabled={!canUndo} title="Go back to the previous version">
+                <Undo2 className="w-4 h-4" /> Undo
+              </button>
+            )}
+            <button type="button" onClick={resetAll} className="btn btn-secondary" disabled={operations.length === 0}>
+              <RotateCcw className="w-4 h-4" /> Reset to Original
+            </button>
+          </div>
         </div>
 
         {operations.length > 0 && (
@@ -932,6 +640,17 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
           )}
         </div>
       </section>
+
+      <MoreCleanTools
+        dataset={dataset}
+        datasetId={datasetId}
+        activeVersionId={activeVersionId}
+        onApply={(result, applied) => {
+          setOperations(prev => [...prev, { id: crypto.randomUUID(), type: 'registry', column: '', params: { summary: result.summary, op: applied?.op ?? 'workflow' } }]);
+          onUpdateDataset(result.dataset, applied, result.summary);
+          triggerSuccess(result.summary);
+        }}
+      />
 
       {/* Preview */}
       <section aria-labelledby="preview-heading">

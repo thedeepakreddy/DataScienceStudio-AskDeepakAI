@@ -11,12 +11,14 @@ import { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
 import { STAGES } from '../stages';
+import { PlanStep, StepOutcome, buildPlan, planNeedsConfirm, verifyStep } from '../agent/tools';
+import { AppliedOperation, OperationError, OperationId, OperationParams, applyOperation } from '../operations/registry';
 import type { PipelineStage } from '../contexts/PipelineContext';
 
 interface AssistiveTouchBotProps {
   activeDataset: Dataset | null;
-  onUpdateDataset: (updated: Dataset) => void;
-  onResetOriginal: () => void;
+  onUpdateDataset: (updated: Dataset, operation?: AppliedOperation, summary?: string) => void;
+  onResetOriginal: () => Dataset | null;
   activeTab: string;
   setActiveTab: (tab: any) => void;
   triggerAIScan: () => Promise<void>;
@@ -26,6 +28,9 @@ interface AssistiveTouchBotProps {
     modelClass: 'classification' | 'regression' | 'timeseries',
     hyperparameters: Record<string, any>
   ) => Promise<any>;
+  /** The saved version before a plan ran, so "Undo All" can return to it. */
+  activeVersionId?: string | null;
+  onRestoreVersion?: (versionId: string) => Promise<void>;
 }
 
 interface ChatMessage {
@@ -34,6 +39,11 @@ interface ChatMessage {
   content: string;
   timestamp: string;
   executedCommands?: string[];
+  /** A proposed set of actions, run only after the user confirms. */
+  plan?: PlanStep[];
+  planState?: 'proposed' | 'running' | 'done' | 'cancelled';
+  outcomes?: StepOutcome[];
+  undoVersionId?: string | null;
 }
 
 // What the assistant is doing right now, shown live in the chat so the user can
@@ -76,8 +86,11 @@ export default function AssistiveTouchBot({
   activeTab,
   setActiveTab,
   triggerAIScan,
-  triggerPrediction
+  triggerPrediction,
+  activeVersionId = null,
+  onRestoreVersion,
 }: AssistiveTouchBotProps) {
+  const stopPlanRef = useRef(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const isChatOpenRef = useRef(false);
   useEffect(() => { isChatOpenRef.current = isChatOpen; }, [isChatOpen]);
@@ -250,9 +263,26 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
   }, [messages, isChatOpen, activity, reveal?.shown]);
 
   // Execute API commands returned from Gemini in real-time
-  const executeCommandsList = async (commands: any[]): Promise<string[]> => {
+  const executeCommandsList = async (commands: any[], start: Dataset | null = activeDataset): Promise<{ logs: string[]; working: Dataset | null }> => {
     const executedLogs: string[] = [];
-    if (!commands || commands.length === 0) return executedLogs;
+    if (!commands || commands.length === 0) return { logs: executedLogs, working: start };
+
+    // Each step builds on the one before (e.g. "drop A, then fill B").
+    let working: Dataset | null = start;
+    const findCol = (name: unknown) =>
+      typeof name === 'string' ? working?.columns.find(c => c.name.toLowerCase() === name.toLowerCase())?.name : undefined;
+    const runOp = <K extends OperationId>(op: K, params: OperationParams[K]) => {
+      if (!working) return;
+      try {
+        const r = applyOperation(working, op, params);
+        working = r.dataset;
+        onUpdateDataset(working, { op, params } as AppliedOperation, r.summary);
+        executedLogs.push(r.summary);
+      } catch (err) {
+        if (!(err instanceof OperationError)) throw err;
+        executedLogs.push(`Couldn’t do that: ${err.message}`);
+      }
+    };
 
     for (const cmd of commands) {
       const { label, orb } = describeAction(cmd);
@@ -271,81 +301,25 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
             break;
 
           case 'RESET_DATASET':
-            onResetOriginal();
+            working = onResetOriginal() ?? working;
             executedLogs.push('Restored the original dataset');
             break;
 
-          case 'DROP_COLUMN':
-            if (activeDataset && cmd.column) {
-              const targetColName = activeDataset.columns.find(
-                c => c.name.toLowerCase() === cmd.column.toLowerCase()
-              )?.name;
-
-              if (targetColName) {
-                const refreshedCols = activeDataset.columns.filter(c => c.name !== targetColName);
-                const refreshedRows = activeDataset.rows.map(row => {
-                  const copy = { ...row };
-                  delete copy[targetColName];
-                  return copy;
-                });
-
-                onUpdateDataset({
-                  ...activeDataset,
-                  columns: refreshedCols,
-                  rows: refreshedRows,
-                  rowCount: refreshedRows.length
-                });
-                executedLogs.push(`Removed column "${targetColName}"`);
-              } else {
-                executedLogs.push(`Column "${cmd.column}" not found`);
-              }
-            }
+          case 'DROP_COLUMN': {
+            const col = findCol(cmd.column);
+            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found`); break; }
+            runOp('drop_columns', { columns: [col] });
             break;
+          }
 
-          case 'FILL_MISSING':
-            if (activeDataset && cmd.column) {
-              const targetCol = activeDataset.columns.find(
-                c => c.name.toLowerCase() === cmd.column.toLowerCase()
-              );
-
-              if (targetCol) {
-                const strategy = cmd.strategy || 'mean';
-                let fillVal: any = 0;
-
-                if (targetCol.type === 'numeric') {
-                  if (strategy === 'mean') fillVal = targetCol.statistics.mean || 0;
-                  else if (strategy === 'median') fillVal = targetCol.statistics.median || 0;
-                  else fillVal = 0;
-                } else {
-                  fillVal = targetCol.statistics.mostCommon?.[0]?.value || 'Unknown';
-                }
-
-                const cleanedRows = activeDataset.rows.map(row => {
-                  const val = row[targetCol.name];
-                  if (val === null || val === undefined || val === '') {
-                    return { ...row, [targetCol.name]: fillVal };
-                  }
-                  return row;
-                });
-
-                const updatedCols = activeDataset.columns.map(col => {
-                  if (col.name === targetCol.name) {
-                    return { ...col, missingCount: 0 };
-                  }
-                  return col;
-                });
-
-                onUpdateDataset({
-                  ...activeDataset,
-                  columns: updatedCols,
-                  rows: cleanedRows
-                });
-                executedLogs.push(`Imputed missing values in "${targetCol.name}" using strategy "${strategy}" (${fillVal})`);
-              } else {
-                executedLogs.push(`Column "${cmd.column}" not found to perform imputation`);
-              }
-            }
+          case 'FILL_MISSING': {
+            const col = findCol(cmd.column);
+            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found to fill`); break; }
+            const isNumeric = working.columns.find(c => c.name === col)?.type === 'numeric';
+            const requested = ['mean', 'median', 'mode', 'zero'].includes(cmd.strategy) ? cmd.strategy : 'mean';
+            runOp('fill_missing', { column: col, strategy: isNumeric ? requested : 'mode' });
             break;
+          }
 
           case 'RUN_EDA_SCAN':
             // Wait for the analysis, so the chat shows it running until it is done.
@@ -372,128 +346,36 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
             }
             break;
 
-          case 'FILTER_ROWS':
-            if (activeDataset && cmd.column && cmd.operator) {
-              const targetColName = activeDataset.columns.find(
-                c => c.name.toLowerCase() === cmd.column.toLowerCase()
-              )?.name;
-
-              if (targetColName) {
-                const operator = cmd.operator;
-                const filterVal = cmd.value;
-
-                const filteredRows = activeDataset.rows.filter(row => {
-                  const val = row[targetColName];
-                  if (val === null || val === undefined) return false;
-
-                  if (operator === '==') return String(val).toLowerCase() === String(filterVal).toLowerCase();
-                  if (operator === '!=') return String(val).toLowerCase() !== String(filterVal).toLowerCase();
-                  if (operator === '>') return Number(val) > Number(filterVal);
-                  if (operator === '<') return Number(val) < Number(filterVal);
-                  return true;
-                });
-
-                onUpdateDataset({
-                  ...activeDataset,
-                  rows: filteredRows,
-                  rowCount: filteredRows.length
-                });
-
-                executedLogs.push(`Filtered dataset: Kept rows where "${targetColName}" ${operator} "${filterVal}" (${filteredRows.length} left)`);
-              }
-            }
+          case 'FILTER_ROWS': {
+            const col = findCol(cmd.column);
+            const operator = ({ '==': 'equals', '!=': 'not_equals', '>': 'greater_than', '<': 'less_than' } as const)[cmd.operator as '==' | '!=' | '>' | '<'];
+            if (!working || !col) { executedLogs.push(`Column "${cmd.column}" not found to filter`); break; }
+            if (!operator) { executedLogs.push(`Invalid filter "${cmd.operator}"`); break; }
+            runOp('filter_rows', { column: col, operator, value: cmd.value });
             break;
+          }
 
           case 'ADD_COLUMN':
-            if (activeDataset && cmd.column) {
-              const newColName = cmd.column;
-              const newColType = cmd.columnType || 'categorical';
-              const defaultVal = cmd.value !== undefined ? cmd.value : '';
-
-              if (!activeDataset.columns.some(c => c.name.toLowerCase() === newColName.toLowerCase())) {
-                const newColMeta = {
-                  name: newColName,
-                  type: newColType as any,
-                  missingCount: 0,
-                  distinctCount: 1,
-                  statistics: {
-                    min: newColType === 'numeric' ? Number(defaultVal) || 0 : undefined,
-                    max: newColType === 'numeric' ? Number(defaultVal) || 0 : undefined,
-                    mean: newColType === 'numeric' ? Number(defaultVal) || 0 : undefined,
-                    median: newColType === 'numeric' ? Number(defaultVal) || 0 : undefined,
-                    mostCommon: [{ value: String(defaultVal), count: activeDataset.rows.length }]
-                  }
-                };
-
-                const updatedRows = activeDataset.rows.map(row => ({
-                  ...row,
-                  [newColName]: defaultVal
-                }));
-
-                onUpdateDataset({
-                  ...activeDataset,
-                  columns: [...activeDataset.columns, newColMeta],
-                  rows: updatedRows
-                });
-                executedLogs.push(`Added column "${newColName}" of type "${newColType}" filled with "${defaultVal}"`);
-              } else {
-                executedLogs.push(`Column "${newColName}" already exists`);
-              }
-            }
+            if (!working || !cmd.column) break;
+            runOp('add_column', {
+              name: cmd.column,
+              type: ['numeric', 'boolean', 'categorical'].includes(cmd.columnType) ? cmd.columnType : 'categorical',
+              value: cmd.value ?? null,
+            });
             break;
 
           case 'ADD_ROW':
-            if (activeDataset) {
-              const newRow: Record<string, any> = {};
-              activeDataset.columns.forEach(col => {
-                if (col.type === 'numeric') {
-                  newRow[col.name] = 0;
-                } else if (col.type === 'boolean') {
-                  newRow[col.name] = false;
-                } else {
-                  newRow[col.name] = '';
-                }
-              });
-
-              // Optional support for custom values filled by AI
-              if (cmd.values && typeof cmd.values === 'object') {
-                Object.keys(cmd.values).forEach(k => {
-                  const matchCol = activeDataset.columns.find(col => col.name.toLowerCase() === k.toLowerCase());
-                  if (matchCol) {
-                    newRow[matchCol.name] = cmd.values[k];
-                  }
-                });
-              }
-
-              const updatedRows = [...activeDataset.rows, newRow];
-              onUpdateDataset({
-                ...activeDataset,
-                rows: updatedRows,
-                rowCount: updatedRows.length
-              });
-              executedLogs.push(`Added an empty row`);
-            }
+            if (!working) break;
+            runOp('add_row', { values: cmd.values && typeof cmd.values === 'object' ? cmd.values : undefined });
             break;
 
           case 'DELETE_ROW':
-            if (activeDataset && cmd.index !== undefined) {
-              const idxToDelete = Number(cmd.index);
-              if (idxToDelete >= 0 && idxToDelete < activeDataset.rows.length) {
-                const refreshedRows = activeDataset.rows.filter((_, idx) => idx !== idxToDelete);
-                onUpdateDataset({
-                  ...activeDataset,
-                  rows: refreshedRows,
-                  rowCount: refreshedRows.length
-                });
-                executedLogs.push(`Deleted row ${idxToDelete}`);
-              } else {
-                executedLogs.push(`Invalid row index ${idxToDelete} specified`);
-              }
-            }
+            if (!working || cmd.index === undefined) break;
+            runOp('delete_rows', { indices: [Number(cmd.index)] });
             break;
 
           case 'EXECUTE_DATASET_JS':
-            if (activeDataset && cmd.jsCode) {
+            if (working && cmd.jsCode) {
               try {
                 // Run this LLM/user-generated code inside an isolated,
                 // opaque-origin sandboxed iframe rather than this page's own
@@ -501,13 +383,10 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                 // injection payload that tricks the chat model into emitting
                 // jsCode here, so it must never get direct access to this
                 // page's cookies, localStorage, or DOM.
-                const updated = await runSandboxedDatasetJs(cmd.jsCode, activeDataset);
+                const updated = await runSandboxedDatasetJs(cmd.jsCode, working);
                 if (updated && Array.isArray(updated.rows)) {
-                  onUpdateDataset({
-                    ...activeDataset,
-                    ...updated,
-                    rowCount: updated.rows.length
-                  });
+                  working = { ...working, ...updated, rowCount: updated.rows.length };
+                  onUpdateDataset(working);
                   let logMsg = `SQL Action Applied`;
                   if (cmd.sqlQuery) logMsg += ` [Query: "${cmd.sqlQuery}"]`;
                   if (cmd.explanation) logMsg += `: ${cmd.explanation}`;
@@ -536,7 +415,44 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
       }));
     }
 
-    return executedLogs;
+    return { logs: executedLogs, working };
+  };
+
+  const updateMessage = (id: string, patch: Partial<ChatMessage>) =>
+    setMessages(prev => prev.map(m => (m.id === id ? { ...m, ...patch } : m)));
+
+  // Runs a confirmed plan one step at a time, checking each step's effect on
+  // the data, and finishes with a report of what really happened.
+  const runPlan = async (msg: ChatMessage) => {
+    if (!msg.plan || isGenerating) return;
+    stopPlanRef.current = false;
+    setIsGenerating(true);
+    updateMessage(msg.id, { planState: 'running', outcomes: [], undoVersionId: activeVersionId });
+    setActivity({ phase: 'acting', steps: [] });
+    let working: Dataset | null = activeDataset;
+    const outcomes: StepOutcome[] = [];
+    for (const step of msg.plan) {
+      if (stopPlanRef.current) {
+        outcomes.push({ stepId: step.id, label: step.label, status: 'skipped', detail: 'Stopped before this step.' });
+      } else if (step.problem) {
+        outcomes.push({ stepId: step.id, label: step.label, status: 'skipped', detail: step.problem });
+      } else {
+        const before = working;
+        const { logs, working: after } = await executeCommandsList([step.command], working);
+        working = step.command.type === 'RESET_DATASET' ? after : after ?? working;
+        const failed = logs.some(l => FAILED_ACTION.test(l));
+        const check = verifyStep(step, before, after, { tab: failed ? undefined : step.command.tab, mlOk: !failed });
+        outcomes.push({
+          stepId: step.id, label: step.label,
+          status: failed || !check.ok ? 'failed' : 'done',
+          detail: failed ? logs.join(' ') : check.detail,
+        });
+      }
+      updateMessage(msg.id, { outcomes: [...outcomes] });
+    }
+    updateMessage(msg.id, { planState: 'done', outcomes });
+    setActivity(null);
+    setIsGenerating(false);
   };
 
   const handleSendMessage = async (customText?: string) => {
@@ -615,15 +531,19 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
         data = getClientSideChatFallback(textToSend, activeDataset, activeTab);
       }
       
-      // Execute any commands returned by the model
-      const executedLogs = await executeCommandsList(data.commands || []);
+      // Actions that change data (or train) become a plan the user confirms;
+      // moving between steps happens straight away.
+      const plan = buildPlan(data.commands || [], activeDataset);
+      const needsConfirm = planNeedsConfirm(plan);
+      const executedLogs = needsConfirm ? [] : (await executeCommandsList(plan.map(p => p.command))).logs;
 
       const botMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: data.message || `Processed your instruction successfully.`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        executedCommands: executedLogs
+        executedCommands: executedLogs,
+        ...(needsConfirm ? { plan, planState: 'proposed' as const } : {}),
       };
 
       // Write the reply out on screen (skipped for reduced motion).
@@ -907,6 +827,20 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                                 </div>
                               ))}
                             </div>
+                          )}
+
+                          {m.plan && (
+                            <PlanCard
+                              message={m}
+                              busy={isGenerating}
+                              onRun={() => runPlan(m)}
+                              onCancel={() => updateMessage(m.id, { planState: 'cancelled' })}
+                              onStop={() => { stopPlanRef.current = true; }}
+                              onUndo={onRestoreVersion && m.undoVersionId ? async () => {
+                                await onRestoreVersion(m.undoVersionId!);
+                                updateMessage(m.id, { undoVersionId: null });
+                              } : undefined}
+                            />
                           )}
                         </div>
                         <span className="text-[11px] text-label-3 tabular-nums block px-1 leading-none">
@@ -1258,7 +1192,7 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
     }
 
     if (isQueryProcessed) {
-      reply = `I have decoded your action request! Running dataset operations pipeline.\n- **Transformed query**: \`${sqlQuery}\`\n- **Database Action**: Executes dynamic row-set corrections seamlessly.`;
+      reply = `Here’s the plan for your query (\`${sqlQuery}\`). Check it below and press **Run Plan** to apply it.`;
       commands.push({
         type: 'EXECUTE_DATASET_JS',
         jsCode,
@@ -1274,7 +1208,7 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
     // Find which column to drop
     const foundCol = colNames.find((c: string) => msgLower.includes(c.toLowerCase()));
     if (foundCol) {
-      reply = `I have successfully analyzed your command to drop column. Dropping **"${foundCol}"** and updating active pipelines.`;
+      reply = `I’ll remove the column **"${foundCol}"**. Press **Run Plan** to do it.`;
       commands.push({ type: 'DROP_COLUMN', column: foundCol });
       commands.push({ type: 'SELECT_TAB', tab: 'clean' });
     } else {
@@ -1288,7 +1222,7 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
     else if (msgLower.includes('mode') || msgLower.includes('common')) strategy = 'mode';
 
     if (foundCol) {
-      reply = `I am executing an data imputation task on column **"${foundCol}"** using the **"${strategy}"** strategy to clean the dataset.`;
+      reply = `I’ll fill the missing values in **"${foundCol}"** using the **${strategy}**. Press **Run Plan** to do it.`;
       commands.push({ type: 'FILL_MISSING', column: foundCol, strategy });
       commands.push({ type: 'SELECT_TAB', tab: 'clean' });
     } else {
@@ -1298,7 +1232,7 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
     reply = "Opening the **Statistics** step, where you can test a hypothesis on your data or check an A/B test result.";
     commands.push({ type: 'SELECT_TAB', tab: 'stats' });
   } else if (msgLower.includes('eda') || msgLower.includes('scan') || msgLower.includes('analyze') || msgLower.includes('exploratory')) {
-    reply = "Starting Exploratory Data Scan and Statistical Analysis on active datasets using our intelligent analytics engine!";
+    reply = "I’ll open **Explore** and analyze the dataset. Press **Run Plan** to start.";
     commands.push({ type: 'SELECT_TAB', tab: 'eda' });
     commands.push({ type: 'RUN_EDA_SCAN' });
   } else if (msgLower.includes('model') || msgLower.includes('predict') || msgLower.includes('ml') || msgLower.includes('train')) {
@@ -1307,17 +1241,17 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
     const features = colNames.filter((c: string) => c !== targetCol).slice(0, 4);
     const mType = msgLower.includes('class') || targetCol.toLowerCase().includes('churn') ? 'classification' : 'regression';
     
-    reply = `I've configured and triggered an automated Machine Learning pipeline for you!\n- **Stage**: ML Modeling\n- **Target Column**: \`${targetCol}\`\n- **Features**: ${JSON.stringify(features)}\n- **Model Type**: \`${mType}\`\n\nTraining starting now...`;
+    reply = `Here’s a training plan:\n- **Predict**: \`${targetCol}\`\n- **Using**: ${features.join(', ')}\n- **Type**: ${mType}\n\nPress **Run Plan** to train it.`;
     commands.push({ type: 'SELECT_TAB', tab: 'ml' });
     commands.push({ type: 'RUN_ML', targetColumn: targetCol, featureColumns: features, modelType: mType });
   } else if (msgLower.includes('dashboard') || msgLower.includes('chart') || msgLower.includes('metric') || msgLower.includes('slicer')) {
-    reply = "Right away! Moving you to the **Stakeholder Dashboard** stage where you can filter columns and monitor business outcomes.";
+    reply = "Opening the **Dashboard** step.";
     commands.push({ type: 'SELECT_TAB', tab: 'dashboard' });
   } else if (msgLower.includes('report') || msgLower.includes('brief') || msgLower.includes('pdf') || msgLower.includes('hub')) {
-    reply = "Transitioning to **Strategic Reports Hub** stage. You can compile, view, and export executive analysis briefs here.";
+    reply = "Opening the **Report** step.";
     commands.push({ type: 'SELECT_TAB', tab: 'reports' });
   } else if (msgLower.includes('ingest') || msgLower.includes('upload') || msgLower.includes('csv')) {
-    reply = "Opening **Data Ingestion** panel so you can upload or template a dataset.";
+    reply = "Opening the **Import** step.";
     commands.push({ type: 'SELECT_TAB', tab: 'ingest' });
   } else if (msgLower.includes('add column') || msgLower.includes('create column')) {
     let label = 'NewDimension';
@@ -1326,17 +1260,17 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
       const potentialName = parts[1].trim().split(' ')[0].replace(/[^a-zA-Z0-9_]/g, '');
       if (potentialName) label = potentialName;
     }
-    reply = `I am executing a pipeline task to add a new column named **"${label}"** with default values. Checking structures...`;
+    reply = `I’ll add a column named **"${label}"**. Press **Run Plan** to do it.`;
     commands.push({ type: 'ADD_COLUMN', column: label, columnType: 'categorical', value: 'DefaultVal' });
     commands.push({ type: 'SELECT_TAB', tab: 'clean' });
   } else if (msgLower.includes('add row') || msgLower.includes('insert row')) {
-    reply = `Instructing the pipeline studio to append a new default row with placeholder entries!`;
+    reply = `I’ll add an empty row. Press **Run Plan** to do it.`;
     commands.push({ type: 'ADD_ROW' });
     commands.push({ type: 'SELECT_TAB', tab: 'clean' });
   } else if (msgLower.includes('delete row') || msgLower.includes('remove row')) {
     const match = userMsg.match(/\d+/);
     const index = match ? parseInt(match[0]) : 0;
-    reply = `Applying dataset correction: Deleting active row at index **#${index}**.`;
+    reply = `I’ll delete row **${Number(index) + 1}**. Press **Run Plan** to do it.`;
     commands.push({ type: 'DELETE_ROW', index });
     commands.push({ type: 'SELECT_TAB', tab: 'clean' });
   } else if (msgLower.includes('group by') || msgLower.includes('groupby')) {
@@ -1348,7 +1282,7 @@ function getClientSideChatFallback(userMsg: string, ds: any, activeTab: string) 
       reply = `I can group your columns for aggregate summaries, but please specify one from: ${colNamesList || 'N/A'}`;
     }
   } else if (msgLower.includes('reset') || msgLower.includes('restore') || msgLower.includes('original')) {
-    reply = "I've reset the active worksheet back to its original raw state. All values restored successfully!";
+    reply = "I’ll restore the data to how it was imported. Press **Run Plan** to do it.";
     commands.push({ type: 'RESET_DATASET' });
     commands.push({ type: 'SELECT_TAB', tab: 'clean' });
   } else if (msgLower.includes('hello') || msgLower.includes('hi') || msgLower.includes('who are you') || msgLower.includes('creater') || msgLower.includes('deepak')) {
@@ -1370,4 +1304,62 @@ As your AI code copilot, I can read and write the active dataset! I can add/dele
   }
 
   return { message: reply, commands };
+}
+
+/** A proposed plan: what will happen, then live progress and a checked report. */
+function PlanCard({ message, busy, onRun, onCancel, onStop, onUndo }: {
+  message: ChatMessage; busy: boolean; onRun: () => void; onCancel: () => void; onStop: () => void; onUndo?: () => void;
+}) {
+  const plan = message.plan ?? [];
+  const outcomes = message.outcomes ?? [];
+  const state = message.planState;
+  const runnable = plan.some(s => !s.problem);
+  const done = outcomes.filter(o => o.status === 'done').length;
+  const failed = outcomes.filter(o => o.status === 'failed').length;
+  const skipped = outcomes.filter(o => o.status === 'skipped').length;
+  return (
+    <div className="mt-2 pt-2 border-t border-separator text-[12px] space-y-1.5">
+      <span className="block font-medium text-label-2">
+        {state === 'proposed' ? 'Plan — nothing has changed yet' : state === 'cancelled' ? 'Plan cancelled — nothing changed' : state === 'running' ? 'Running the plan' : 'Completion report'}
+      </span>
+      <ol className="space-y-1">
+        {plan.map((step, i) => {
+          const o = outcomes.find(x => x.stepId === step.id);
+          return (
+            <li key={step.id} className="flex items-start gap-1.5 text-label">
+              <span className="w-4 shrink-0 text-center">
+                {o ? (o.status === 'done' ? <Check className="w-3 h-3 text-green inline" /> : o.status === 'failed' ? <AlertTriangle className="w-3 h-3 text-red inline" /> : <span className="text-label-3">–</span>)
+                  : state === 'running' && outcomes.length === i ? <Orb state="working" size={20} label="Running this step" /> : <span className="text-label-3 tabular-nums">{i + 1}</span>}
+              </span>
+              <span className="min-w-0">
+                {step.label}
+                {(o?.detail || (!o && step.problem)) && (
+                  <span className={`block text-[11px] ${o?.status === 'failed' || (!o && step.problem) ? 'text-orange' : 'text-label-2'}`}>{o?.detail ?? step.problem}</span>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      {state === 'proposed' && (
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={onRun} disabled={busy || !runnable} className="btn btn-sm btn-primary">Run Plan</button>
+          <button type="button" onClick={onCancel} disabled={busy} className="btn btn-sm btn-secondary">Cancel</button>
+        </div>
+      )}
+      {state === 'running' && (
+        <button type="button" onClick={onStop} className="btn btn-sm btn-secondary">Stop After This Step</button>
+      )}
+      {state === 'done' && (
+        <div className="pt-1 space-y-1.5">
+          <p className="text-label">
+            {done} of {plan.length} step{plan.length === 1 ? '' : 's'} done and checked{failed ? `, ${failed} failed` : ''}{skipped ? `, ${skipped} skipped` : ''}.
+          </p>
+          {onUndo && done > 0 && (
+            <button type="button" onClick={onUndo} className="btn btn-sm btn-secondary">Undo All</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

@@ -4,6 +4,7 @@
  */
 
 import { aiKeyHeaders } from './aiKey';
+import { finishJob, labelForUrl, startJob } from './jobs';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -43,6 +44,26 @@ const announceSettled = () => window.dispatchEvent(new Event(API_SETTLED_EVENT))
  * keep using `res.ok`, `res.json()` and `res.text()` exactly as before.
  */
 export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  // Every call shows up in the jobs panel, which can stop waiting for it.
+  const controller = new AbortController();
+  init.signal?.addEventListener('abort', () => controller.abort(), { once: true });
+  const jobId = startJob(labelForUrl(url), controller);
+  try {
+    const res = await runApiFetch(url, { ...init, signal: controller.signal });
+    if (res.ok) {
+      finishJob(jobId, 'succeeded');
+    } else {
+      const body = await res.clone().json().catch(() => null);
+      finishJob(jobId, 'failed', body?.error || `HTTP ${res.status}`);
+    }
+    return res;
+  } catch (err: any) {
+    finishJob(jobId, err?.name === 'AbortError' ? 'stopped' : 'failed', err?.message);
+    throw err;
+  }
+}
+
+async function runApiFetch(url: string, init: RequestInit): Promise<Response> {
   const signal = init.signal;
   const start = await fetch(url, {
     ...init,

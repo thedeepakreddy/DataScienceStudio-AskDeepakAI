@@ -47,6 +47,9 @@ jobs:
       - name: Typecheck
         run: npm run lint
 
+      - name: Unit tests
+        run: npm test
+
       - name: ESLint (informational only)
         run: npm run lint:eslint
         continue-on-error: true

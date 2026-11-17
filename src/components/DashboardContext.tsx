@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode, useMemo } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
+import type { KpiDefinition } from '../utils/kpiFormula';
 
 interface DashboardContextType {
   filteredData: any[];
@@ -20,6 +21,11 @@ interface DashboardContextType {
   setConfig: (config: any) => void;
   activeComponents: any[];
   setActiveComponents: (comps: any[]) => void;
+  /** Custom KPIs defined with formulas. */
+  kpis: KpiDefinition[];
+  setKpis: (kpis: KpiDefinition[]) => void;
+  /** Click-to-filter from a chart: adds or removes one value of a column. */
+  toggleCategoryFilter: (column: string, value: string) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -33,6 +39,16 @@ export const DashboardProvider = ({ children, initialData }: { children: ReactNo
   const [numericSlicers, setNumericSlicers] = useState<Record<string, { min: number; max: number }>>({});
   const [config, setConfig] = useState<any>(null);
   const [activeComponents, setActiveComponents] = useState<any[]>([]);
+  const [kpis, setKpis] = useState<KpiDefinition[]>([]);
+  const toggleCategoryFilter = (column: string, value: string) => {
+    setCategoryFilters(prev => {
+      const current = prev[column] ?? [];
+      const next = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
+      const copy = { ...prev };
+      if (next.length) copy[column] = next; else delete copy[column];
+      return copy;
+    });
+  };
 
   // We compute filtered data based on states here, but let's just make it available
   // The actual filtering logic will be handled by a useMemo or effect when filters change.
@@ -47,7 +63,9 @@ export const DashboardProvider = ({ children, initialData }: { children: ReactNo
         categoryFilters, setCategoryFilters,
         numericSlicers, setNumericSlicers,
         config, setConfig,
-        activeComponents, setActiveComponents
+        activeComponents, setActiveComponents,
+        kpis, setKpis,
+        toggleCategoryFilter,
       }}
     >
       {children}

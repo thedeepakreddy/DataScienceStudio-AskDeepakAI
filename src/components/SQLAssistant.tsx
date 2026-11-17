@@ -1,103 +1,108 @@
-import React, { useState, useEffect } from 'react';
-import { Database, Search, Code, CheckCircle, Copy, AlertCircle, Table as TableIcon } from 'lucide-react';
-import alasql from 'alasql';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useEffect, useState } from 'react';
+import { AlertCircle, Copy, CheckCircle, Database, Play, Sparkles, Table as TableIcon } from 'lucide-react';
 import { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
+import { SqlError, SqlResult, runReadOnlySql } from '../utils/safeSql';
+import { datasetFromRecords } from '../utils/csvParser';
+import { listRuns } from '../utils/workspaceStore';
+import { useLogRun } from '../contexts/WorkspaceContext';
 import Orb from './Orb';
 
 interface SQLAssistantProps {
-  dataset?: Dataset;
+  dataset: Dataset;
+  /** Makes a query result the working data (saved as a new version). */
+  onUseResult?: (dataset: Dataset, summary: string) => void;
 }
 
-export default function SQLAssistant({ dataset }: SQLAssistantProps) {
-  const [schema, setSchema] = useState('');
+/**
+ * Read-only SQL over the active dataset, run in the browser. Write SQL, or ask
+ * in plain English and have AI write it; either way the same safety checks
+ * apply before anything runs.
+ */
+export default function SQLAssistant({ dataset, onUseResult }: SQLAssistantProps) {
+  const logRun = useLogRun();
+  const [sql, setSql] = useState('SELECT *\nFROM dataset\nLIMIT 20');
   const [question, setQuestion] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ sql: string; explanation: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [sqlResults, setSqlResults] = useState<any[] | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [result, setResult] = useState<SqlResult | null>(null);
+  const [ranSql, setRanSql] = useState('');
   const [sqlError, setSqlError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [recent, setRecent] = useState<string[]>([]);
 
-  // Auto-fill schema from dataset if available
-  useEffect(() => {
-    if (dataset && dataset.columns.length > 0) {
-      const headerString = dataset.columns.map(c => `${c.name} (${c.type})`).join(', ');
-      setSchema(`Table: dataset\nColumns: ${headerString}`);
-    }
-  }, [dataset]);
+  const refreshRecent = () => {
+    listRuns(200)
+      .then(runs => {
+        const seen = new Set<string>();
+        setRecent(runs
+          .filter(r => r.kind === 'sql-query' && r.status === 'succeeded')
+          .map(r => String((r.params as { sql?: string })?.sql ?? ''))
+          .filter(q => q && !seen.has(q) && seen.add(q))
+          .slice(0, 8));
+      })
+      .catch(() => {});
+  };
+  useEffect(refreshRecent, []);
 
-  const generateSQL = async () => {
-    if (!schema || !question) {
-      setError('Please provide both a schema and a question.');
-      return;
-    }
-    setError(null);
-    setLoading(true);
-    setResult(null);
-    setSqlResults(null);
+  const run = (query = sql) => {
     setSqlError(null);
-
     try {
+      const r = runReadOnlySql(query, dataset.rows);
+      setResult(r);
+      setRanSql(query);
+      logRun({
+        kind: 'sql-query',
+        title: query.replace(/\s+/g, ' ').slice(0, 80),
+        summary: `${r.total.toLocaleString()} row${r.total === 1 ? '' : 's'}`,
+        status: 'succeeded',
+        params: { sql: query },
+      });
+      setTimeout(refreshRecent, 100);
+    } catch (err) {
+      setResult(null);
+      const message = err instanceof SqlError ? err.message : String((err as Error)?.message || err);
+      setSqlError(message);
+    }
+  };
+
+  const askAi = async () => {
+    if (!question.trim()) return;
+    setAiError(null);
+    setAiLoading(true);
+    try {
+      const schema = `Table: dataset\nColumns: ${dataset.columns.map(c => `${c.name} (${c.type})`).join(', ')}`;
       const response = await apiFetch('/api/sql-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schema, question }),
       });
-      const data = await response.json();
-      if (response.ok) {
-        setResult(data);
-        if (dataset && data.sql) {
-          executeSQL(data.sql);
-        }
-      } else {
-        setError(data.error || 'Failed to generate SQL.');
-      }
-    } catch (err: any) {
-      setError('Network error analyzing SQL request.');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.sql) throw new Error(data.error || 'AI couldn’t write a query for that.');
+      setSql(data.sql);
+      setExplanation(data.explanation || null);
+      run(data.sql);
+    } catch (err) {
+      setAiError((err as Error).message || 'AI couldn’t write a query for that.');
     } finally {
-      setLoading(false);
+      setAiLoading(false);
     }
   };
 
-  const executeSQL = (sqlString: string) => {
-    if (!dataset) return;
-    try {
-      // Create a clean temporary SQL query by replacing table references with ?
-      // alasql lets you pass data as an array parameter
-      
-      // We will create a local table in alasql and query it
-      alasql('DROP TABLE IF EXISTS dataset');
-      alasql('CREATE TABLE dataset');
-      
-      // Determine what table name the LLM might have used.
-      // Easiest is just to execute it by passing the dataset directly if it's a simple SELECT
-      // Often, alasql is run like: alasql('SELECT * FROM ?', [dataset.data])
-      // We'll replace the table name with ? 
-      // Or we can populate a table:
-      
-      alasql.tables.dataset.data = dataset.rows;
-      
-      // The LLM will probably write SELECT ... FROM dataset ...
-      const res = alasql(sqlString);
-      if (Array.isArray(res)) {
-         setSqlResults(res.slice(0, 50)); // Limit to 50 rows
-      } else {
-         setSqlResults([{ result: res }]);
-      }
-    } catch (err: any) {
-      console.warn("Alasql execution failed", err);
-      setSqlError(err.message || 'Could not execute the generated SQL locally.');
-    }
+  const useResult = () => {
+    if (!result || !onUseResult || result.truncated) return;
+    const records = result.rows.map(r => ({ ...r }));
+    const next = datasetFromRecords(result.columns, records, `${dataset.filename} (query)`);
+    onUseResult(next, `Kept the result of a SQL query (${next.rows.length.toLocaleString()} rows)`);
   };
 
-  const copyToClipboard = () => {
-    if (result?.sql) {
-      navigator.clipboard.writeText(result.sql);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  const fmt = (v: unknown) => (v === null || v === undefined ? null : typeof v === 'object' ? JSON.stringify(v) : String(v));
 
   return (
     <div className="bg-surface rounded-2xl border border-separator p-6 sm:p-8 shadow-sm relative overflow-hidden mt-8">
@@ -106,135 +111,132 @@ export default function SQLAssistant({ dataset }: SQLAssistantProps) {
           <Database className="w-5 h-5 text-blue" />
         </div>
         <div>
-          <h2 className="text-xl font-semibold text-label tracking-tight">SQL assistant</h2>
-          <p className="text-xs text-label-2 mt-1">Translate plain English to optimized SQL queries for your schemas.</p>
+          <h2 className="text-xl font-semibold text-label tracking-tight">SQL</h2>
+          <p className="text-xs text-label-2 mt-1">
+            Query your data with SQL; the table is called <code className="font-code">dataset</code>. Queries are read-only and run in your browser.
+          </p>
         </div>
       </div>
 
       <div className="space-y-5">
-        {!dataset && (
-          <div>
-            <label className="block text-xs font-medium text-label mb-2">1. Paste Schema or CSV Headers</label>
-            <textarea
-              value={schema}
-              onChange={(e) => setSchema(e.target.value)}
-              className="w-full h-24 bg-well border border-separator rounded-xl p-3 text-sm font-code text-label placeholder:text-label-3 focus:outline-none focus:border-blue/50 transition-colors resize-none tabular-nums"
-              placeholder="E.g. Table: dataset&#10;Columns: id INT, name VARCHAR..."
+        <div>
+          <label htmlFor="sql-question" className="field-label">Ask in plain English (optional)</label>
+          <div className="flex gap-2">
+            <input
+              id="sql-question"
+              type="text"
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && askAi()}
+              className="input flex-1"
+              placeholder="e.g. Average monthly charges by contract type"
             />
+            <button type="button" onClick={askAi} disabled={aiLoading || !question.trim()} aria-busy={aiLoading} className="btn btn-secondary shrink-0">
+              {aiLoading ? <><Orb state="composing" label="Writing SQL" /> Writing…</> : <><Sparkles className="w-4 h-4" /> Write SQL</>}
+            </button>
+          </div>
+          {aiError && <p role="alert" className="mt-1.5 text-xs text-red">{aiError}</p>}
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between">
+            <label htmlFor="sql-editor" className="field-label">Query</label>
+            <button
+              type="button"
+              onClick={() => { navigator.clipboard.writeText(sql); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+              className="btn btn-plain btn-sm -mr-2"
+            >
+              {copied ? <CheckCircle className="w-3.5 h-3.5 text-green" /> : <Copy className="w-3.5 h-3.5" />} {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <textarea
+            id="sql-editor"
+            value={sql}
+            onChange={e => setSql(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); } }}
+            spellCheck={false}
+            rows={6}
+            className="w-full bg-well border border-separator rounded-xl p-3 text-sm font-code text-label focus:outline-none focus:border-blue/50 resize-y"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => run()} className="btn btn-primary"><Play className="w-4 h-4" /> Run</button>
+            <span className="text-xs text-label-3">⌘/Ctrl + Enter</span>
+          </div>
+          {explanation && (
+            <p className="mt-3 text-sm text-label-2 leading-relaxed"><span className="font-medium text-label">AI’s explanation: </span>{explanation}</p>
+          )}
+        </div>
+
+        {recent.length > 0 && (
+          <div>
+            <p className="field-label">Recent queries</p>
+            <div className="flex flex-wrap gap-2">
+              {recent.map(q => (
+                <button key={q} type="button" onClick={() => setSql(q)} className="tag max-w-[320px] hover:bg-fill-strong" title={q}>
+                  <span className="truncate font-code">{q.replace(/\s+/g, ' ')}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        <div>
-           <label className="block text-xs font-medium text-label mb-2">
-             {dataset ? 'Ask Your Question in English' : '2. Ask Your Question in English'}
-           </label>
-           <div className="relative">
-             <Search className="w-4 h-4 text-label-3 absolute left-3 top-3.5" />
-             <input
-                type="text"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && generateSQL()}
-                className="w-full bg-well border border-separator rounded-xl py-3 pl-10 pr-4 text-sm text-label placeholder:text-label-3 focus:outline-none focus:border-blue/50 transition-colors"
-                placeholder="E.g. Show me the top 10 customers by revenue last month..."
-             />
-           </div>
-        </div>
-
-        <button
-          onClick={generateSQL}
-          disabled={loading}
-          className="w-full bg-blue hover:bg-blue disabled:bg-fill disabled:text-label-3 text-white font-semibold text-sm py-3 px-6 rounded-xl transition-all duration-300"
-        >
-          {loading ? (
-             <span className="flex items-center justify-center gap-2"><Orb state="composing" label="Writing SQL" /> Writing SQL…</span>
-          ) : (
-             'Generate SQL'
-          )}
-        </button>
-
-        {error && (
-           <div className="p-4 bg-red/10 border border-red/20 text-red rounded-xl text-xs flex items-start gap-3">
-             <AlertCircle className="w-4 h-4 text-red shrink-0 mt-0.5" />
-             <p>{error}</p>
-           </div>
+        {sqlError && (
+          <div role="alert" className="p-3 bg-red/10 text-red rounded-xl text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <p className="whitespace-pre-line font-code">{sqlError}</p>
+          </div>
         )}
 
         {result && (
-          <div className="mt-6 border-t border-separator pt-6 animate-fade-in grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div className="space-y-4">
-               <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-label flex items-center gap-2">
-                    <Code className="w-4 h-4 text-blue" /> Generated SQL
-                  </h3>
-                  <button
-                    onClick={copyToClipboard}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-fill hover:bg-fill-strong rounded-lg text-xs font-semibold text-label transition-colors"
-                  >
-                    {copied ? <CheckCircle className="w-3.5 h-3.5 text-green" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copied ? 'Copied' : 'Copy SQL'}
-                  </button>
-               </div>
-               <pre className="bg-well border border-separator p-4 rounded-xl overflow-x-auto text-sm text-label tabular-nums leading-relaxed" style={{ WebkitOverflowScrolling: 'touch' }}>
-                 <code>{result.sql}</code>
-               </pre>
-               
-               <div className="bg-blue/10 border border-blue/20 rounded-xl p-4 mt-4">
-                  <h4 className="text-xs font-medium text-blue mb-2">Explanation</h4>
-                  <p className="text-sm text-label leading-relaxed whitespace-pre-line text-left">
-                    {result.explanation}
-                  </p>
-               </div>
-             </div>
-             
-             {/* SQL Output Results Pane */}
-             <div className="bg-well border border-separator rounded-xl flex flex-col overflow-hidden">
-                <div className="bg-surface border-b border-separator px-4 py-3 flex items-center gap-2">
-                  <TableIcon className="w-4 h-4 text-blue" />
-                  <h3 className="text-sm font-semibold text-label">Query Results {sqlResults && `(${sqlResults.length} rows)`}</h3>
-                </div>
-                <div className="p-4 flex-1 overflow-auto">
-                   {sqlError ? (
-                     <div className="p-3 bg-orange/10 border border-orange/20 text-orange rounded-lg text-xs flex items-start gap-2">
-                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-orange" />
-                       <p>Could not execute this query locally: {sqlError}</p>
-                     </div>
-                   ) : sqlResults && sqlResults.length > 0 ? (
-                     <div className="overflow-x-auto overflow-y-auto max-h-[300px]">
-                       <table className="w-full text-left border-collapse text-xs">
-                         <thead className="sticky top-0 bg-surface outline outline-1 outline-separator">
-                           <tr>
-                             {Object.keys(sqlResults[0]).map(key => (
-                               <th key={key} className="py-2 px-3 font-semibold text-label border-b border-separator-strong whitespace-nowrap">
-                                 {key}
-                               </th>
-                             ))}
-                           </tr>
-                         </thead>
-                         <tbody className="divide-y divide-separator">
-                           {sqlResults.map((row, idx) => (
-                             <tr key={idx} className="hover:bg-fill transition-colors">
-                               {Object.keys(sqlResults[0]).map(key => (
-                                 <td key={key} className="py-2 px-3 text-label-2 whitespace-nowrap">
-                                   {row[key] !== null && row[key] !== undefined ? String(row[key]) : <span className="text-label-3 italic">null</span>}
-                                 </td>
-                               ))}
-                             </tr>
-                           ))}
-                         </tbody>
-                       </table>
-                     </div>
-                   ) : sqlResults && sqlResults.length === 0 ? (
-                     <div className="flex h-full items-center justify-center text-sm text-label-3">
-                       Query returned 0 rows.
-                     </div>
-                   ) : (
-                     <div className="flex h-full items-center justify-center text-sm text-label-3">
-                       Executing query...
-                     </div>
-                   )}
-                </div>
-             </div>
+          <div className="bg-well border border-separator rounded-xl overflow-hidden animate-fade-in">
+            <div className="bg-surface border-b border-separator px-4 py-3 flex flex-wrap items-center gap-3">
+              <TableIcon className="w-4 h-4 text-blue" />
+              <h3 className="text-sm font-semibold text-label flex-1">
+                {result.truncated
+                  ? `First ${result.rows.length.toLocaleString()} of ${result.total.toLocaleString()} rows`
+                  : `${result.total.toLocaleString()} row${result.total === 1 ? '' : 's'}`}
+              </h3>
+              {onUseResult && result.rows.length > 0 && ranSql === sql && (
+                <button
+                  type="button"
+                  onClick={useResult}
+                  disabled={result.truncated}
+                  className="btn btn-sm btn-secondary"
+                  title={result.truncated ? 'Add a LIMIT or filter so the result fits, then try again' : 'Make this result the working data'}
+                >
+                  Use as Data
+                </button>
+              )}
+            </div>
+            {result.rows.length === 0 ? (
+              <p className="p-6 text-center text-sm text-label-3">The query returned no rows.</p>
+            ) : (
+              <div className="overflow-auto max-h-[360px]">
+                <table className="w-full text-left border-collapse text-xs tabular-nums">
+                  <thead className="sticky top-0 bg-surface">
+                    <tr>
+                      {result.columns.map(k => (
+                        <th key={k} className="py-2 px-3 font-semibold text-label border-b border-separator whitespace-nowrap">{k}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-separator">
+                    {result.rows.map((row, i) => (
+                      <tr key={i}>
+                        {result.columns.map(k => {
+                          const v = fmt(row[k]);
+                          return (
+                            <td key={k} className="py-1.5 px-3 text-label-2 whitespace-nowrap max-w-[240px] truncate">
+                              {v === null ? <span className="text-label-3">—</span> : v}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -24,7 +24,7 @@ export const STAGES: Record<PipelineStage, StageMeta> = {
   ingest: {
     label: 'Import',
     title: 'Import your data',
-    description: 'Upload a CSV or start with a sample. Add a goal and the studio will tailor every step to it.',
+    description: 'Upload a CSV, Excel, JSON or Parquet file, or start with a sample. Add a goal and the studio will tailor every step to it.',
     icon: FolderOpen,
     hint: 'Choose a dataset to get started.',
   },

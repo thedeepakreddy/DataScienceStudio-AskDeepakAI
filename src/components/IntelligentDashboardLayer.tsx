@@ -17,6 +17,7 @@ import SlicersPanel from './SlicersPanel';
 import { isIdentifierColumn } from '../utils/csvParser';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
+import DashboardToolbar from './DashboardToolbar';
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -46,7 +47,7 @@ const PROBLEM_TYPES = [
   'Customer Segmentation', 'Demand Forecasting'
 ];
 
-export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
+export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId = null }: any) {
   const { expertMode } = usePipelineContext();
   const { 
     filteredData, setFilteredData, 
@@ -62,6 +63,8 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [copiedInsights, setCopiedInsights] = useState(false);
   const [insightsAreAi, setInsightsAreAi] = useState(true);
+  // How many rows the insights were written for, so stale AI text is flagged.
+  const [insightsRowCount, setInsightsRowCount] = useState<number | null>(null);
   const [customProblem, setCustomProblem] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -108,9 +111,13 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
     }
   };
 
-  useEffect(() => {
-    if (!config) runAutoConfig();
-  }, []);
+  // A saved dashboard for this dataset is reopened; otherwise AI suggests one.
+  const initialLoadDone = React.useRef(false);
+  const handleInitialLoad = (openedSaved: boolean) => {
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+    if (!openedSaved && !config) runAutoConfig();
+  };
 
   // Update filtered data based on filters & slicers
   useEffect(() => {
@@ -224,6 +231,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
       if (data && Array.isArray(data.insights) && data.insights.length > 0) {
         setInsightBannerData(data.insights);
         setInsightsAreAi(true);
+        setInsightsRowCount(filteredData.length);
       } else {
         // No AI narrative available (no API key, or the call returned nothing): describe the real numbers instead.
         setInsightBannerData(buildLocalInsights(filteredData, summary.metrics || []));
@@ -244,18 +252,32 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
     }
   }, [config]);
 
+  // Built-in insights are recomputed from the rows on screen, so they follow the filters.
+  const localMetrics = (config?.topKPIs ?? []).map((kpi: string) => {
+    const vals = filteredData.map((d: any) => Number(d[kpi])).filter((n: number) => !isNaN(n));
+    return { name: kpi, average: vals.length ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : 0, count: vals.length };
+  });
+  const shownInsights: string[] | null = insightBannerData && !insightsAreAi
+    ? buildLocalInsights(filteredData, localMetrics)
+    : insightBannerData;
+
+  const toolbar = <DashboardToolbar dataset={dataset} datasetId={datasetId} onInitialLoad={handleInitialLoad} />;
+
   if (loadingConfig) {
     return (
+      <div className="flex flex-col mb-4">{toolbar}
       <div className="flex flex-col items-center justify-center p-12 bg-surface border border-separator rounded-xl">
         <Orb state="solving" size={64} label="Building your dashboard" className="mb-4" />
         <h3 className="text-sm font-semibold text-label">Building your dashboard</h3>
         <p className="text-xs text-label-3 mt-2">AI is analyzing {dataset.columns.length} features to recommend components...</p>
+      </div>
       </div>
     );
   }
 
   if (configError && !config) {
     return (
+      <div className="flex flex-col mb-4">{toolbar}
       <div className="flex flex-col items-center justify-center p-12 bg-surface border border-red/20 rounded-xl text-center">
         <h3 className="text-sm font-semibold text-red">The dashboard couldn’t be configured</h3>
         <p className="text-xs text-label-2 mt-2 max-w-md">{configError}</p>
@@ -266,22 +288,23 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
           Retry
         </button>
       </div>
+      </div>
     );
   }
 
   const gridClass = layout === '2-col' ? 'grid-cols-1 lg:grid-cols-2' : layout === '3-col' ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1';
 
   return (
-    <div className="flex flex-col mb-4 animate-fade-in relative">
+ <div className="flex flex-col mb-4 animate-fade-in relative">{toolbar}
       
       {/* Insight Banner */}
-      {insightBannerData && (
+      {shownInsights && (
         <div className="card p-5 sm:p-6 mb-6 relative group">
           <div className="absolute top-3 right-3 flex gap-1">
             <button onClick={getInsights} className="btn btn-icon w-8 h-8" title="Refresh insights" aria-label="Refresh insights">
               {loadingInsights ? <Orb state="composing" label="Writing insights" /> : <RefreshCw className="w-4 h-4" />}
             </button>
-            <button onClick={() => { navigator.clipboard.writeText(insightBannerData.join('\n')); setCopiedInsights(true); setTimeout(()=>setCopiedInsights(false), 2000); }} className="bg-fill hover:bg-fill-strong p-1.5 rounded text-blue" title="Copy">
+            <button onClick={() => { navigator.clipboard.writeText(shownInsights.join('\n')); setCopiedInsights(true); setTimeout(()=>setCopiedInsights(false), 2000); }} className="bg-fill hover:bg-fill-strong p-1.5 rounded text-blue" title="Copy">
               {copiedInsights ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </button>
           </div>
@@ -291,8 +314,13 @@ export default function IntelligentDashboardLayer({ dataset, mlResult }: any) {
             </div>
             <div>
               <h3 className="card-title mb-2">{insightsAreAi ? 'AI insights' : 'Key insights'}</h3>
+              {insightsAreAi && insightsRowCount !== null && insightsRowCount !== filteredData.length && (
+                <p className="-mt-1 mb-2 text-xs text-orange">
+                  Written for {insightsRowCount.toLocaleString()} rows; the filters now show {filteredData.length.toLocaleString()}. Refresh to update.
+                </p>
+              )}
               <ul className="space-y-2">
-                {insightBannerData.map((item, i) => (
+                {shownInsights.map((item, i) => (
                   <li key={i} className="text-sm text-label flex items-start gap-2">
                     <span className="text-label-3">•</span> {item}
                   </li>

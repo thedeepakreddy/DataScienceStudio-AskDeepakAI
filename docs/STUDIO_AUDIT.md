@@ -62,7 +62,7 @@ server database without changing the UI.
 
 | Runs in the browser (fast, small, deterministic) | Runs on the backend (Python ML service) |
 |---|---|
-| CSV parsing, schema/type detection | Excel, JSON, Parquet parsing |
+| CSV, Excel (.xlsx), JSON and Parquet parsing, schema/type detection | — |
 | Counts, missing values, duplicates, basic profile | Deep EDA (distributions, skew, IQR outliers) on full data |
 | Cleaning transforms: fill, drop, filter, add/remove columns, rename | Statistical tests, effect sizes, confidence intervals |
 | Group-by aggregations, KPI formulas, chart data | Regression, model training, cross-validation, tuning |
@@ -227,12 +227,67 @@ pull requests of about the size of the recent ones.
 | 7. Report | History browser, report from saved results with provenance, notebook export, reproducibility package, workflows | Saved workflow reruns into a provenance-backed report | 3 PRs |
 | 8. Agentic assistant | Typed tool registry over the same operations, plan/confirm/run/verify loop, completion report, cancel, AI-off parity | Multi-step chat task end to end with a truthful report | 3 PRs |
 
-**Phase 1 progress.** Done: IndexedDB store for dataset versions (with parent
-links), run history with the version each run used, session restore on reload,
-History sheet (switch versions, clear saved work), the Statistics stage, and
-Vitest with tests for the store, version labels and normal-distribution maths.
-Still to do in Phase 1: workspace export/import, saving trained-model files,
-an operation registry, and a job centre for long-running work.
+**Phase 1 status: done.**
+- IndexedDB store: dataset versions with parent links and the operation that made each one, run history with the version each run used, session restore on reload.
+- History sheet: switch versions, export/import the whole workspace as one file, clear saved work.
+- Trained-model files are copied into the browser after training (last 10 kept), so they can still be downloaded after the ML service restarts.
+- Operation registry (`src/operations/registry.ts`): every data change (remove/rename columns, fill missing, add column/row, delete/filter rows, remove duplicates, calculated columns, one-hot) is one pure, tested function used by both the Clean step and the assistant. Fixed on the way: median fill used the wrong middle value, min–max scaling assumed a max of 100, and uncomputable values became 0 instead of empty.
+- Jobs panel: every long request is listed with its elapsed time and can be stopped.
+- Vitest: 28 tests.
+
+**Phase 2 status: done.**
+- Import reads CSV/TSV (comma, semicolon or tab detected), Excel .xlsx (with a sheet picker), JSON / JSON Lines (nested objects flattened) and Parquet, all in the browser; up to 100 MB / 200,000 rows, with a note when rows are dropped.
+- Clean → More tools, each with a preview (summary, before/after size, first rows) before applying: tidy text, change type (understands "$1,200", "(300)", "1.234,5"), replace values, filter rows, remove duplicates, join or append a second file, group-and-summarise, pivot.
+- Quality rules (not empty, unique, range, allowed values, pattern), saved per dataset, re-checked after every change, with "remove the rows that break it".
+- Undo steps back to the previous version; versions are labelled with the operation's own description.
+- Vitest: 44 tests.
+
+**Phase 3 status: done.**
+- SQL editor in Explore (Expert): write SQL or have AI write it; every query passes a read-only check (one SELECT over `dataset`; no INTO, file/URL functions, writes, `->`, backticks or parameters) and runs in a fresh in-browser database. Shows the first 1,000 rows with the true total, keeps recent queries in History, and can make a result the working data (as a new version). Previously AI-written SQL ran unchecked.
+- Dashboard: click a bar or pie slice to filter every chart; filters in effect are shown as removable chips with the row count.
+- KPI formulas (e.g. `SUM(revenue) / COUNT()`), parsed by a small dedicated parser (no code execution), computed on the filtered rows.
+- Save, reopen, update and delete named dashboards per dataset (charts, layout, filters, KPIs); the latest one reopens automatically instead of asking AI again.
+- Fixed: pie chart dropped every category after the 8th, so its percentages were wrong (now an "Other" slice); built-in insights now follow the filters, and AI insights say when they were written for a different number of rows.
+- Vitest: 61 tests.
+
+**Phase 4 status: done.**
+- Statistics → Compare & relate: the test is chosen from the column types (Welch’s t-test, Welch’s ANOVA with Tukey HSD post-hoc, Pearson correlation, paired t-test, chi-squared), each with an effect size (Hedges’ g, η²/ω², r, dz, Cramér’s V), a confidence interval, assumption checks (Shapiro–Wilk, Levene, expected counts) and the matching non-parametric test (Mann–Whitney, Kruskal–Wallis, Spearman, Wilcoxon, Fisher’s exact), recommended when an assumption fails. One-sided tests and 0.01/0.05/0.10 levels.
+- Multiple-test correction (Holm, Bonferroni, Benjamini–Hochberg) across the tests run in a visit.
+- Regression: linear (OLS) and logistic (maximum likelihood) with coefficients, CIs, p-values, odds ratios, R² / pseudo-R², model tests and collinearity detection.
+- Sample size and power for two-group, paired, ANOVA, correlation and two-proportion designs.
+- Reference tests (`mlops_service/tests/test_stats_engine.py`): Cohen’s sample-size tables, SciPy, scikit-learn and pingouin’s Welch ANOVA. Python: 60 tests; Vitest: 65 tests.
+
+**Phase 5 status: done.**
+- Every training run is seeded (shown with the results; same settings give identical scores — verified by re-running).
+- Leakage-safe evaluation: test on the most recent rows (cross-validation only trains on the past) or on whole unseen groups (e.g. customers); the split column is never used as a feature. Preprocessing is fitted on training rows only, as before.
+- Leakage warnings when a column contains the target’s name or predicts it almost perfectly (checked on training rows).
+- Hyperparameter tuning: randomized search with cross-validation on the training rows, showing the best settings and every trial.
+- Experiments: every model trained on the dataset with its score, cross-validation, split, seed and data version; re-run any of them exactly, or open the data version it used.
+- Forecasting: naive, seasonal naive, moving average, drift, linear trend, Holt and Holt-Winters, each scored by rolling-origin backtesting; the best forecasts, with 80%/95% ranges from its real backtest errors.
+- Python: 75 tests (including a hand-calculated backtest error and same-seed reproducibility).
+
+**Phase 6 status: done.**
+- Model → Deploy & monitor replaces the old “Model monitoring” panel (which trained a separate model and compared the two halves of the data).
+- Registry (in the browser): register the trained model with a name and intended use; versions v1, v2…; one active model; “Make Active” is an instant rollback; delete.
+- Validation gate before registering: must beat the majority-class / average baseline, show no leakage, and not rely on an ID column (failures block); cross-validation stability, test/CV agreement and test size give warnings recorded in the model card.
+- Predictions: a form built from the training data’s columns with warnings for out-of-range or unseen values; whole-file predictions with CSV download.
+- If the ML service has restarted, a registered model is rebuilt from its recipe (same data version, columns, settings and seed) — verified to reproduce the same test score — instead of uploading model files to the server.
+- Monitoring: new data vs the training data per feature (PSI with training-data bins, KS or chi-squared test, values outside the training range, unseen categories), plus accuracy / R² on new rows when they include the outcome.
+- Model card (Markdown): intended use, data version, evaluation, metrics, top features, validation checks, limitations.
+- Python: 80 tests; Vitest: 69 tests.
+
+**Phase 7 status: done.**
+- Report → “Provenance and saved analyses”: the chain of data versions from import to now, and every saved test, regression, forecast and A/B test on this data with its real numbers; ticked ones go into the PDF (new “Saved analyses” and “Provenance” sections, including the model’s seed, split and tuning).
+- Reproducibility package (.zip): current and original data as CSV, lineage with each version’s operation, the repeatable workflow, saved analyses with full results, a Jupyter notebook, the PDF, and the active model’s card. A test runs the generated notebook and checks it reproduces the service’s exact accuracy and p-value.
+- Workflows (Clean → More tools → Workflows): save the repeatable steps behind a version and run them on a new file with a preview; join/append steps reload their second table from its saved version; steps that can’t be repeated are listed.
+- CI now runs the frontend unit tests (`npm test`). Vitest: 78 tests.
+
+**Phase 8 status: done.**
+- Typed tool list for the assistant (`src/agent/tools.ts`): every action the planner proposes is checked against the data before running (unknown columns, rows that don’t exist, a column removed by an earlier step).
+- Plan → confirm → run → verify: actions that change data or train a model appear as a plan (“nothing has changed yet”) with Run Plan / Cancel; moving between steps happens at once. Each step’s effect is then checked from the data (e.g. no missing values left, every kept row matches the filter).
+- Completion report in the chat: each step done/failed/skipped with its check, a summary, and Undo All (back to the version before the plan). Stop After This Step cancels the rest.
+- Same behaviour with or without AI: Gemini and the built-in rules produce the same commands, so the same plan, checks and report. Built-in replies now describe what will happen instead of claiming it already did.
+- Vitest: 80 tests; Python: 80 tests.
 
 The plan's advanced items (MANOVA, causal inference, Bayesian analysis, UMAP,
 deep learning, canary deployment, scheduled connectors) are deferred until the

@@ -44,10 +44,15 @@ import { STAGES, STAGE_ORDER } from './stages';
 import { apiFetch, API_SETTLED_EVENT } from './utils/api';
 import StatisticsStage from './components/StatisticsStage';
 import HistorySheet from './components/HistorySheet';
+import JobsButton from './components/JobsButton';
+import ExperimentsPanel from './components/ExperimentsPanel';
+import ForecastPanel from './components/ForecastPanel';
+import DeployPanel from './components/DeployPanel';
 import { WorkspaceContext, RunInput } from './contexts/WorkspaceContext';
 import { describeChange } from './utils/describeChange';
+import type { AppliedOperation } from './operations/registry';
 import {
-  DatasetVersion, clearWorkspace, getVersion, loadSession, recordRun, saveSession, saveVersion,
+  DatasetVersion, clearWorkspace, exportWorkspace, getVersion, importWorkspace, loadSession, recordRun, saveModelFile, saveSession, saveVersion,
 } from './utils/workspaceStore';
 
 type Theme = 'light' | 'dark';
@@ -207,6 +212,7 @@ export default function App() {
   const [datasetId, setDatasetId] = useState<string | null>(null);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const [originalVersionId, setOriginalVersionId] = useState<string | null>(null);
+  const [activeParentId, setActiveParentId] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [restoredFrom, setRestoredFrom] = useState<string | null>(null);
@@ -222,9 +228,10 @@ export default function App() {
     setStorageError(`Your work couldn’t be saved in this browser: ${err?.message || err}. It still works, but won’t survive a reload.`);
   };
 
-  const applyVersionIds = (version: { id: string; datasetId: string } | null, original?: string | null) => {
+  const applyVersionIds = (version: { id: string; datasetId: string; parentId?: string | null } | null, original?: string | null) => {
     activeVersionRef.current = version?.id ?? null;
     setActiveVersionId(version?.id ?? null);
+    setActiveParentId(version?.parentId ?? null);
     setDatasetId(version?.datasetId ?? null);
     if (original !== undefined) {
       originalVersionRef.current = original;
@@ -233,18 +240,38 @@ export default function App() {
   };
 
   // Saves run one after another so each new version links to the one before.
-  const persistVersion = (dataset: Dataset, label: string, isImport: boolean) => {
+  const persistVersion = (dataset: Dataset, label: string, isImport: boolean, operation?: AppliedOperation) => {
     saveQueue.current = saveQueue.current
       .then(async () => {
         const v = await saveVersion(dataset, {
           parentId: isImport ? null : activeVersionRef.current,
           label,
+          operation,
           keep: originalVersionRef.current ? [originalVersionRef.current] : [],
         });
         applyVersionIds(v, isImport ? v.id : undefined);
         setStorageError(null);
       })
       .catch(storageFailed);
+  };
+
+  // Copies the trained model file into the browser, so it can still be
+  // downloaded after the ML service restarts. Runs in the background.
+  const keepModelFile = (result: MLResult, target: string) => {
+    const versionId = activeVersionRef.current;
+    fetch(`/api/ml/download/${encodeURIComponent(result.modelId!)}`)
+      .then(async res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await saveModelFile({
+          modelId: result.modelId!,
+          filename: `${target}_${(result.modelAlgorithm || 'model').replace(/\s+/g, '')}.joblib`,
+          bytes: await res.arrayBuffer(),
+          versionId,
+          target,
+          algorithm: result.modelAlgorithm,
+        });
+      })
+      .catch(err => console.warn('Could not keep a copy of the model file', err));
   };
 
   const logRun = useCallback((run: RunInput) => {
@@ -263,18 +290,21 @@ export default function App() {
     persistVersion(dataset, 'Imported', true);
   };
 
-  const handleUpdateDataset = (updated: Dataset) => {
-    const label = describeChange(activeDatasetRef.current, updated);
+  const handleUpdateDataset = (updated: Dataset, operation?: AppliedOperation, summary?: string) => {
+    const changed = describeChange(activeDatasetRef.current, updated);
+    // The operation's own description is clearer than a diff when there is one.
+    const label = changed === 'No changes' ? changed : summary?.replace(/\.$/, '') || changed;
     activeDatasetRef.current = updated;
     setActiveDataset(updated);
     // Reset AI analysis since data changed
     setAiAnalysis(null);
     setMlResult(null);
-    if (label !== 'No changes') persistVersion(updated, label, false);
+    if (label !== 'No changes') persistVersion(updated, label, false, operation);
   };
 
-  const handleResetOriginal = () => {
-    if (originalDataset) {
+  const handleResetOriginal = (): Dataset | null => {
+    if (!originalDataset) return null;
+    {
       activeDatasetRef.current = originalDataset;
       setActiveDataset(originalDataset);
       setAiAnalysis(null);
@@ -282,8 +312,10 @@ export default function App() {
       saveQueue.current = saveQueue.current.then(() => {
         activeVersionRef.current = originalVersionRef.current;
         setActiveVersionId(originalVersionRef.current);
+        setActiveParentId(null);
       });
     }
+    return originalDataset;
   };
 
   const handleUseVersion = (version: DatasetVersion) => {
@@ -293,6 +325,22 @@ export default function App() {
     setMlResult(null);
     applyVersionIds(version);
     setHistoryOpen(false);
+  };
+
+  // Undo = go back to the version this one was made from.
+  const handleUndo = async () => {
+    try {
+      await saveQueue.current;
+      const current = activeVersionRef.current ? await getVersion(activeVersionRef.current) : undefined;
+      const parent = current?.parentId ? await getVersion(current.parentId) : undefined;
+      if (!parent) {
+        setStorageError('The previous version is no longer saved, so this change can’t be undone.');
+        return;
+      }
+      handleUseVersion(parent);
+    } catch (err) {
+      storageFailed(err);
+    }
   };
 
   const handleClearSavedWork = async () => {
@@ -312,28 +360,34 @@ export default function App() {
     }
   };
 
+  // Loads the saved session (on start-up, and after importing a workspace).
+  const restoreSaved = async (isCancelled: () => boolean = () => false): Promise<boolean> => {
+    const session = await loadSession();
+    if (!session?.activeVersionId) return false;
+    const active = await getVersion(session.activeVersionId);
+    if (!active || isCancelled()) return false;
+    const original = session.originalVersionId ? await getVersion(session.originalVersionId) : undefined;
+    if (isCancelled()) return false;
+    activeDatasetRef.current = active.dataset;
+    setActiveDataset(active.dataset);
+    setOriginalDataset(original?.dataset ?? active.dataset);
+    applyVersionIds(active, original?.id ?? active.id);
+    setMlResult((session.mlResult as MLResult) ?? null);
+    setAiAnalysis(session.aiAnalysis ?? null);
+    if (session.aiAnalysis) setHasRunEda(true);
+    const tab = STAGE_ORDER.includes(session.activeTab as PipelineStage) ? (session.activeTab as PipelineStage) : 'ingest';
+    setVisited(new Set(STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(tab) + 1)));
+    setActiveTabState(tab);
+    setRestoredFrom(active.filename);
+    return true;
+  };
+
   // Restore the last session once, on load.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const session = await loadSession();
-        if (!session?.activeVersionId) return;
-        const active = await getVersion(session.activeVersionId);
-        if (!active || cancelled) return;
-        const original = session.originalVersionId ? await getVersion(session.originalVersionId) : undefined;
-        if (cancelled) return;
-        activeDatasetRef.current = active.dataset;
-        setActiveDataset(active.dataset);
-        setOriginalDataset(original?.dataset ?? active.dataset);
-        applyVersionIds(active, original?.id ?? active.id);
-        setMlResult((session.mlResult as MLResult) ?? null);
-        setAiAnalysis(session.aiAnalysis ?? null);
-        if (session.aiAnalysis) setHasRunEda(true);
-        const tab = STAGE_ORDER.includes(session.activeTab as PipelineStage) ? (session.activeTab as PipelineStage) : 'ingest';
-        setVisited(new Set(STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(tab) + 1)));
-        setActiveTabState(tab);
-        setRestoredFrom(active.filename);
+        await restoreSaved(() => cancelled);
       } catch (err) {
         if (!cancelled) storageFailed(err);
       } finally {
@@ -344,6 +398,35 @@ export default function App() {
     // Runs once on mount by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleExportWorkspace = async () => {
+    await saveQueue.current;
+    const text = await exportWorkspace();
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `data-science-studio-workspace-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportWorkspace = async (file: File) => {
+    await saveQueue.current;
+    const counts = await importWorkspace(await file.text());
+    const restored = await restoreSaved();
+    if (!restored) {
+      applyVersionIds(null, null);
+      activeDatasetRef.current = null;
+      setOriginalDataset(null);
+      setActiveDataset(null);
+      setMlResult(null);
+      setAiAnalysis(null);
+      setActiveTab('ingest');
+    }
+    return counts;
+  };
 
   // Keep the session saved as you work (after the restore attempt).
   useEffect(() => {
@@ -451,6 +534,7 @@ export default function App() {
       }
 
       setMlResult(parsed);
+      if (parsed.modelId) keepModelFile(parsed, targetCol);
       const m = parsed.metrics || {};
       const isClf = parsed.modelType === 'classification';
       const score = isClf ? m.accuracy : m.r2Score;
@@ -462,7 +546,11 @@ export default function App() {
           : 'Trained',
         status: 'succeeded',
         params: { target: targetCol, features, modelType: modelClass, hyperparameters },
-        result: { modelId: parsed.modelId, metrics: parsed.metrics, featureImportance: parsed.featureImportance },
+        result: {
+          modelId: parsed.modelId, algorithm: parsed.modelAlgorithm, metrics: parsed.metrics, cv: parsed.cv,
+          split: parsed.split, tuning: parsed.tuning, leakageWarnings: parsed.leakageWarnings,
+          featureImportance: (parsed.featureImportance || []).slice(0, 10),
+        },
       });
       return parsed;
     } catch (err: any) {
@@ -547,6 +635,8 @@ export default function App() {
             </div>
 
             <MLServiceWakeButton />
+
+            <JobsButton />
 
             <button
               type="button"
@@ -774,6 +864,10 @@ export default function App() {
                 dataset={activeDataset}
                 onUpdateDataset={handleUpdateDataset}
                 onResetOriginal={handleResetOriginal}
+                datasetId={datasetId}
+                activeVersionId={activeVersionId}
+                onUndo={handleUndo}
+                canUndo={!!activeParentId}
               />
             )}
 
@@ -783,6 +877,7 @@ export default function App() {
                 aiAnalysis={aiAnalysis}
                 loadingAI={loadingAI}
                 onTriggerAI={triggerAIScan}
+                onUseQueryResult={(ds, summary) => handleUpdateDataset(ds, undefined, summary)}
               />
             )}
 
@@ -800,6 +895,20 @@ export default function App() {
                 mlResult={mlResult}
                 loadingML={loadingML}
               />
+            )}
+
+            {activeTab === 'ml' && activeDataset && (
+              <div className="mt-10 space-y-8">
+                <ExperimentsPanel
+                  datasetId={datasetId}
+                  activeVersionId={activeVersionId}
+                  refreshKey={mlResult}
+                  onRerun={p => { triggerPrediction(p.target, p.features, p.modelType, p.hyperparameters).catch(() => {}); }}
+                  onOpenVersion={handleUseVersion}
+                />
+                <DeployPanel dataset={activeDataset} datasetId={datasetId} activeVersionId={activeVersionId} mlResult={mlResult} />
+                <ForecastPanel dataset={activeDataset} />
+              </div>
             )}
 
             {activeTab === 'dashboard' && activeDataset && loadingML && (
@@ -820,6 +929,7 @@ export default function App() {
                 strategicSlicer={aiAnalysis?.strategicSlicer}
                 mlResult={mlResult}
                 aiAnalysis={aiAnalysis}
+                datasetId={datasetId}
               />
             )}
 
@@ -828,6 +938,8 @@ export default function App() {
                 dataset={activeDataset}
                 mlResult={mlResult}
                 aiAnalysis={aiAnalysis}
+                datasetId={datasetId}
+                activeVersionId={activeVersionId}
               />
             )}
 
@@ -866,6 +978,12 @@ export default function App() {
         setActiveTab={setActiveTab}
         triggerAIScan={triggerAIScan}
         triggerPrediction={triggerPrediction}
+        activeVersionId={activeVersionId}
+        onRestoreVersion={async id => {
+          await saveQueue.current;
+          const v = await getVersion(id);
+          if (v) handleUseVersion(v);
+        }}
       />
 
       <AnimatePresence>
@@ -876,6 +994,8 @@ export default function App() {
             activeVersionId={activeVersionId}
             onUseVersion={handleUseVersion}
             onClear={handleClearSavedWork}
+            onExport={handleExportWorkspace}
+            onImport={handleImportWorkspace}
             storageError={storageError}
           />
         )}
