@@ -8,6 +8,7 @@ import type { AppliedOperation } from '../operations/registry';
 import type { QualityRule } from '../operations/qualityRules';
 import type { KpiDefinition } from './kpiFormula';
 import type { RegisteredModel } from './modelRegistry';
+import type { SwarmRun } from '../swarm/runtime';
 
 // The studio's saved work, kept in this browser's IndexedDB. The servers are
 // stateless (free hosting loses its disk on restart), so the browser is where
@@ -15,7 +16,7 @@ import type { RegisteredModel } from './modelRegistry';
 // every analysis run is recorded against the version it ran on.
 
 const DB_NAME = 'askdeepak-studio';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 /** Versions kept per dataset; the oldest unpinned ones are pruned past this. */
 export const MAX_VERSIONS_PER_DATASET = 25;
 
@@ -99,6 +100,13 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('rules')) {
         db.createObjectStore('rules');
+      }
+      if (!db.objectStoreNames.contains('swarmRuns')) {
+        const s = db.createObjectStore('swarmRuns', { keyPath: 'id' });
+        s.createIndex('updatedAt', 'updatedAt');
+      }
+      if (!db.objectStoreNames.contains('swarmCache')) {
+        db.createObjectStore('swarmCache');
       }
       if (!db.objectStoreNames.contains('workflows')) {
         db.createObjectStore('workflows', { keyPath: 'id' });
@@ -308,6 +316,34 @@ export async function deleteDashboard(id: string): Promise<void> {
   await done(tx);
 }
 
+// --- Agent swarm runs and plan cache ---------------------------------------------
+
+export async function saveSwarmRun(run: SwarmRun): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('swarmRuns', 'readwrite');
+  tx.objectStore('swarmRuns').put(run);
+  await done(tx);
+}
+
+/** Most recent runs first. */
+export async function listSwarmRuns(limit = 20): Promise<SwarmRun[]> {
+  const db = await openDb();
+  const all = await promisify(db.transaction('swarmRuns').objectStore('swarmRuns').getAll()) as SwarmRun[];
+  return all.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
+}
+
+export async function getCachedPlan(key: string): Promise<unknown | undefined> {
+  const db = await openDb();
+  return promisify(db.transaction('swarmCache').objectStore('swarmCache').get(key));
+}
+
+export async function setCachedPlan(key: string, value: unknown): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('swarmCache', 'readwrite');
+  tx.objectStore('swarmCache').put(value, key);
+  await done(tx);
+}
+
 // --- Workflows (saved sequences of operations) ----------------------------------
 
 export interface SavedWorkflow {
@@ -388,7 +424,9 @@ export async function loadSession(): Promise<WorkspaceSession | undefined> {
 /** Deletes every saved version, run, model file and the session. */
 export async function clearWorkspace(): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards', 'registry', 'workflows'], 'readwrite');
+  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards', 'registry', 'workflows', 'swarmRuns', 'swarmCache'], 'readwrite');
+  tx.objectStore('swarmRuns').clear();
+  tx.objectStore('swarmCache').clear();
   tx.objectStore('workflows').clear();
   tx.objectStore('registry').clear();
   tx.objectStore('dashboards').clear();

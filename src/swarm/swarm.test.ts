@@ -1,0 +1,171 @@
+import { describe, expect, it, vi } from 'vitest';
+import { parseCSV } from '../utils/csvParser';
+import type { Dataset, MLResult } from '../types';
+import { mentionedColumns, rulePlan, validatePlan, TaskSpec } from './plan';
+import { RuntimePort, SwarmRun, SwarmRuntime, newRun } from './runtime';
+
+const csv = `id,MonthlyCharges,Contract,const,Churn
+1,50,Monthly,x,Yes
+2,,Yearly,x,No
+3,70,Monthly,x,Yes
+3,70,Monthly,x,Yes
+4,20,Yearly,x,No`;
+
+function fakePort(start: Dataset, over: Partial<RuntimePort> = {}) {
+  let ds = start;
+  let version = 0;
+  const applied: { parent: number; capability: string }[] = [];
+  const port: RuntimePort & { commits: string[]; steps: string[] } = {
+    commits: [], steps: [],
+    getDataset: () => ds,
+    commitDataset: (next, _op, summary) => { ds = next; version++; port.commits.push(summary); },
+    openStep: s => { port.steps.push(s); },
+    train: vi.fn(async () => ({ modelAlgorithm: 'RF', metrics: { accuracy: 0.9 }, cv: { mean: 0.88, std: 0.02 }, modelId: 'm1', leakageWarnings: [] } as unknown as MLResult)),
+    getModel: () => null,
+    api: vi.fn(async () => ({ test: 'Welch’s t-test', pValue: 0.01, significant: true, rowsUsed: 4, assumptions: [] })),
+    settle: async () => `v${version}`,
+    findAppliedVersion: async () => { void applied; return null; },
+    ...over,
+  };
+  return port;
+}
+
+async function runToEnd(rt: SwarmRuntime) {
+  for (let i = 0; i < 200 && !['completed', 'partial', 'failed', 'cancelled'].includes(rt.run.status); i++) await new Promise(r => setTimeout(r, 5));
+  return rt.run;
+}
+
+const make = (tasks: TaskSpec[], port: RuntimePort) => {
+  const saved: SwarmRun[] = [];
+  const rt = new SwarmRuntime(newRun({ request: 'x', reply: '', plannedBy: 'rules', tasks, datasetId: 'd', startVersionId: 'v0' }), port, async r => { saved.push(r); }, () => {});
+  return { rt, saved };
+};
+
+describe('rule planner', () => {
+  const ds = parseCSV(csv, 'c.csv');
+
+  it('finds mentioned columns, longest names first', () => {
+    expect(mentionedColumns('does monthly charges relate to churn?', ds)).toEqual(['MonthlyCharges', 'Churn']);
+  });
+
+  it('plans a full analysis with dependencies and no AI', () => {
+    const p = rulePlan('Do a full analysis and write a report', ds);
+    expect(p.tasks.map(t => t.capability)).toEqual(['quality.check', 'explore.profile', 'stats.compare', 'models.train', 'report.build']);
+    const report = p.tasks.find(t => t.capability === 'report.build')!;
+    expect(report.dependsOn).toEqual(['t1', 't3', 't4']);
+    expect(validatePlan(p.tasks, ds)).toEqual([]);
+  });
+
+  it('plans a test between two named columns', () => {
+    const p = rulePlan('test if Contract is related to churn', ds);
+    expect(p.tasks).toHaveLength(1);
+    expect(p.tasks[0]).toMatchObject({ capability: 'stats.compare', params: { columnA: 'Contract', columnB: 'Churn' }, role: 'statistician' });
+  });
+
+  it('trains on the column named after “predict”', () => {
+    const p = rulePlan('test if Contract relates to churn and train a model to predict churn', ds);
+    expect(p.tasks.find(t => t.capability === 'models.train')!.params).toEqual({ target: 'Churn' });
+  });
+
+  it('returns nothing for requests it doesn’t understand', () => {
+    expect(rulePlan('write me a poem', ds).tasks).toEqual([]);
+  });
+});
+
+describe('plan validation', () => {
+  const ds = parseCSV(csv, 'c.csv');
+  it('rejects unknown capabilities, bad inputs, missing dependencies and loops', () => {
+    const problems = validatePlan([
+      { id: 'a', capability: 'shell.exec', params: {}, role: 'orchestrator', dependsOn: [], why: '' },
+      { id: 'b', capability: 'stats.compare', params: { columnA: 'nope', columnB: 'Churn' }, role: 'statistician', dependsOn: ['zzz'], why: '' },
+      { id: 'c', capability: 'explore.profile', params: {}, role: 'data_scientist', dependsOn: ['d'], why: '' },
+      { id: 'd', capability: 'explore.profile', params: {}, role: 'data_scientist', dependsOn: ['c'], why: '' },
+    ], ds).map(p => p.message);
+    expect(problems).toEqual(expect.arrayContaining([
+      'Unknown capability “shell.exec”.',
+      'There is no column called “nope”.',
+      'Depends on a task that doesn’t exist (“zzz”).',
+      'The plan has a dependency loop.',
+    ]));
+  });
+});
+
+describe('swarm runtime', () => {
+  it('runs a cleaning plan: quality check adds fixes, which need approval, then the model trains on clean data', async () => {
+    const port = fakePort(parseCSV(csv, 'c.csv'));
+    const plan = rulePlan('clean the data and train a model to predict Churn', port.getDataset());
+    const { rt } = make(plan.tasks, port);
+    rt.start();
+    expect(rt.run.status).toBe('running'); // check + train are autonomous
+    for (let i = 0; i < 50 && !rt.run.tasks.some(t => t.status === 'awaiting_approval'); i++) await new Promise(r => setTimeout(r, 5));
+    const fixes = rt.run.tasks.filter(t => t.dynamic);
+    expect(fixes.map(f => f.capability)).toEqual(['data.remove_duplicates', 'data.drop_columns', 'data.fill_missing']);
+    expect(rt.run.tasks.find(t => t.capability === 'models.train')!.status).toBe('pending'); // waits for the fixes
+    rt.approveBatch();
+    const run = await runToEnd(rt);
+    expect(run.status).toBe('completed');
+    expect(port.commits).toEqual(['Removed 1 duplicate row.', 'Removed “const”.', expect.stringContaining('Filled 1 missing value in “MonthlyCharges”')]);
+    expect(port.train).toHaveBeenCalledTimes(1);
+    expect(run.report!.headline).toBe('Done: all 5 tasks completed and self-checked.');
+    expect(run.report!.limitations[0]).toContain('self-checks');
+    expect(run.telemetry.aiCalls).toBe(0);
+    expect(run.messages.some(m => m.type === 'handoff' && m.to === 'ml_engineer')).toBe(true);
+  });
+
+  it('retries a temporary failure, then succeeds', async () => {
+    let calls = 0;
+    const port = fakePort(parseCSV(csv, 'c.csv'), { api: vi.fn(async () => { if (++calls === 1) throw new Error('HTTP 503'); return { test: 'x', pValue: 0.5, significant: false, rowsUsed: 4, assumptions: [] }; }) });
+    const { rt } = make([{ id: 't1', capability: 'stats.compare', params: { columnA: 'MonthlyCharges', columnB: 'Churn' }, role: 'statistician', dependsOn: [], why: '' }], port);
+    rt.start();
+    const run = await new Promise<SwarmRun>(res => { const iv = setInterval(() => { if (rt.run.status === 'completed') { clearInterval(iv); res(rt.run); } }, 20); });
+    expect(run.telemetry.retries).toBe(1);
+    expect(calls).toBe(2);
+  });
+
+  it('blocks dependents of a failed task and reports a partial result', async () => {
+    const port = fakePort(parseCSV(csv, 'c.csv'), { api: vi.fn(async () => { throw new Error('There is no column called “x”.'); }) });
+    const { rt } = make([
+      { id: 't1', capability: 'stats.compare', params: { columnA: 'MonthlyCharges', columnB: 'Churn' }, role: 'statistician', dependsOn: [], why: '' },
+      { id: 't2', capability: 'report.build', params: {}, role: 'research_analyst', dependsOn: ['t1'], why: '' },
+      { id: 't3', capability: 'explore.profile', params: {}, role: 'data_scientist', dependsOn: [], why: '' },
+    ], port);
+    rt.start();
+    const run = await runToEnd(rt);
+    expect(run.status).toBe('partial');
+    expect(run.tasks.find(t => t.id === 't2')!.status).toBe('blocked');
+    expect(run.report!.problems.map(p => p.status)).toEqual(['failed', 'blocked']);
+  });
+
+  it('pauses before new work and cancels the rest', async () => {
+    const port = fakePort(parseCSV(csv, 'c.csv'));
+    const { rt } = make([
+      { id: 't1', capability: 'explore.profile', params: {}, role: 'data_scientist', dependsOn: [], why: '' },
+      { id: 't2', capability: 'report.build', params: {}, role: 'research_analyst', dependsOn: ['t1'], why: '' },
+    ], port);
+    rt.pause(); // not running yet: no-op
+    rt.start();
+    rt.pause();
+    await new Promise(r => setTimeout(r, 30));
+    expect(rt.run.status).toBe('paused');
+    expect(rt.run.tasks.find(t => t.id === 't2')!.status).toBe('pending');
+    rt.cancel();
+    expect(rt.run.status).toBe('cancelled');
+    expect(rt.run.tasks.find(t => t.id === 't2')!.status).toBe('cancelled');
+  });
+
+  it('recovers after a reload without repeating an applied change', async () => {
+    const port = fakePort(parseCSV(csv, 'c.csv'), { findAppliedVersion: async (parent, cap) => (parent === 'v7' && cap === 'data.remove_duplicates' ? 'v8' : null) });
+    const run = newRun({ request: 'x', reply: '', plannedBy: 'rules', datasetId: 'd', startVersionId: 'v7', tasks: [
+      { id: 't1', capability: 'data.remove_duplicates', params: {}, role: 'data_engineer', dependsOn: [], why: '' },
+      { id: 't2', capability: 'explore.profile', params: {}, role: 'data_scientist', dependsOn: [], why: '' },
+    ] });
+    run.status = 'running';
+    run.tasks = run.tasks.map(t => ({ ...t, status: 'running', approved: true, inputVersionId: 'v7' }));
+    const rt = new SwarmRuntime(run, port, async () => {}, () => {});
+    await rt.recover();
+    expect(rt.run.tasks[0]).toMatchObject({ status: 'completed', outputVersionId: 'v8' });
+    expect(rt.run.tasks[1].status).toBe('pending');
+    expect(port.commits).toEqual([]);
+    expect(rt.run.messages.filter(m => m.type === 'recovery')).toHaveLength(2);
+  });
+});

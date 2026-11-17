@@ -1740,6 +1740,79 @@ app.post('/api/hypothesis-lab/run-test', async (req, res) => {
   }
 });
 
+// Agent swarm: plans a request into tasks when the browser's built-in rules
+// can't. One AI call; the browser validates the plan against its catalog
+// before anything runs, and only the studio's own operations execute it.
+app.post('/api/swarm/plan', async (req, res) => {
+  const { request, catalog, dataset } = req.body || {};
+  if (typeof request !== 'string' || !request.trim() || typeof catalog !== 'string') {
+    return res.status(400).json({ error: 'A request and the capability catalog are required.' });
+  }
+  if (!aiKeyAvailable()) {
+    return res.status(503).json({ error: 'AI planning is unavailable (no Gemini key). Try a simpler request the built-in planner understands.', reason: 'ai_unavailable' });
+  }
+  const columns = Array.isArray(dataset?.columns) ? dataset.columns.slice(0, 200) : [];
+  const systemInstruction = `You are the Orchestrator of a data science agent team inside "Data Science Studio". Turn the user's request into a small task plan.
+Rules:
+- Use ONLY these capabilities (id, studio, usual specialist, params):
+${catalog}
+- Specialist roles: data_engineer, data_scientist, statistician, ml_engineer, bi_analyst, research_analyst, data_quality, verifier.
+- Use exact column names from the dataset. Never invent columns or results.
+- dependsOn lists task ids that must finish first. Data changes run in order; analyses that need clean data depend on the cleaning tasks.
+- Keep the plan as small as the request needs (at most 12 tasks). If the request is outside data science work in this studio, return no tasks and say so in reply.
+- params must be a JSON object string matching the capability's params.
+- reply: one or two plain sentences describing what the team will do (not claiming it is done).`;
+  const prompt = `Dataset: ${String(dataset?.filename ?? 'unknown')} with ${Number(dataset?.rows ?? 0)} rows.
+Columns: ${columns.map((c: any) => `${c.name} (${c.type}${c.missing ? `, ${c.missing} missing` : ''})`).join(', ')}
+Request: ${request.slice(0, 2000)}`;
+  try {
+    const aiResponse: any = await generateContentWithRetry(getGeminiClient(), {
+      contents: prompt,
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          required: ['reply', 'tasks'],
+          properties: {
+            reply: { type: Type.STRING },
+            tasks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                required: ['id', 'capability', 'params', 'role', 'dependsOn', 'why'],
+                properties: {
+                  id: { type: Type.STRING },
+                  capability: { type: Type.STRING },
+                  params: { type: Type.STRING, description: 'JSON object string' },
+                  role: { type: Type.STRING },
+                  dependsOn: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  why: { type: Type.STRING },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const parsed = JSON.parse(aiResponse?.text || '{}');
+    const tasks = (Array.isArray(parsed.tasks) ? parsed.tasks : []).map((t: any) => {
+      let params: unknown;
+      try { params = JSON.parse(t.params || '{}'); } catch { params = {}; }
+      return { ...t, params };
+    });
+    const usage = aiResponse?.usageMetadata || {};
+    return res.json({
+      reply: typeof parsed.reply === 'string' ? parsed.reply : '',
+      tasks,
+      usage: { inputTokens: usage.promptTokenCount ?? 0, outputTokens: usage.candidatesTokenCount ?? 0 },
+    });
+  } catch (err: any) {
+    console.error('[AskDeepakAI] /api/swarm/plan failed:', err);
+    return res.status(503).json({ error: 'AI planning failed: ' + (err?.message || 'unknown error'), reason: 'ai_failed' });
+  }
+});
+
 // Data drift between a model's training data and new data.
 app.post('/api/monitor/drift', async (req, res) => {
   try {

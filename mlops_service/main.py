@@ -180,8 +180,11 @@ class AgentVifRequest(BaseModel):
 # --------------------------------------------------------------------------
 
 def build_preprocessor(X: pd.DataFrame, scale_numeric: bool) -> ColumnTransformer:
-    numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = [c for c in X.columns if c not in numeric_cols]
+    # True/false columns are one-hot encoded directly: SimpleImputer rejects
+    # the bool dtype, and a bool column has no missing values to fill.
+    bool_cols = X.select_dtypes(include=["bool"]).columns.tolist()
+    numeric_cols = [c for c in X.select_dtypes(include=[np.number]).columns.tolist() if c not in bool_cols]
+    categorical_cols = [c for c in X.columns if c not in numeric_cols and c not in bool_cols]
 
     numeric_steps = [("imputer", SimpleImputer(strategy="median"))]
     if scale_numeric:
@@ -198,6 +201,8 @@ def build_preprocessor(X: pd.DataFrame, scale_numeric: bool) -> ColumnTransforme
         transformers.append(("num", numeric_pipeline, numeric_cols))
     if categorical_cols:
         transformers.append(("cat", categorical_pipeline, categorical_cols))
+    if bool_cols:
+        transformers.append(("bool", OneHotEncoder(handle_unknown="ignore"), bool_cols))
 
     return ColumnTransformer(transformers=transformers, remainder="drop")
 

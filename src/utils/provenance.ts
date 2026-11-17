@@ -172,12 +172,14 @@ data = df[df[TARGET].notna()]
 X, y = data[FEATURES], data[TARGET]
 ${splitCode}
 
-num = X_train.select_dtypes(include=[np.number]).columns.tolist()
-cat = [c for c in X_train.columns if c not in num]
+bools = X_train.select_dtypes(include=["bool"]).columns.tolist()
+num = [c for c in X_train.select_dtypes(include=[np.number]).columns.tolist() if c not in bools]
+cat = [c for c in X_train.columns if c not in num and c not in bools]
 num_steps = [("imputer", SimpleImputer(strategy="median"))]${ESTIMATORS[m.modelKey]?.scale ? '\nnum_steps.append(("scaler", StandardScaler()))' : ''}
 pre = ColumnTransformer([t for t in [
     ("num", Pipeline(num_steps), num) if num else None,
     ("cat", Pipeline([("imputer", SimpleImputer(strategy="most_frequent")), ("onehot", OneHotEncoder(handle_unknown="ignore"))]), cat) if cat else None,
+    ("bool", OneHotEncoder(handle_unknown="ignore"), bools) if bools else None,
 ] if t], remainder="drop")
 ${m.modelKey === 'xgboost' ? 'from xgboost import XGBClassifier, XGBRegressor\n' : ''}model = Pipeline([("preprocess", pre), ("model", ${estimatorCode(m)})])
 ${m.modelKey === 'xgboost' && isClf ? 'from sklearn.preprocessing import LabelEncoder\nenc = LabelEncoder().fit(y_train)\nmodel.fit(X_train, enc.transform(y_train))\npred = enc.inverse_transform(model.predict(X_test))' : 'model.fit(X_train, y_train)\npred = model.predict(X_test)'}

@@ -81,3 +81,11 @@ def test_train_shap_importance_present_for_champion(client, classification_rows)
     assert shap_importance is not None and len(shap_importance) > 0
     for item in shap_importance:
         assert "feature" in item and "score" in item and item["score"] >= 0
+
+
+def test_true_false_feature_columns_train(client, classification_rows):
+    """A bool feature (e.g. a yes/no flag) must not break preprocessing."""
+    rows = [{**r, "is_senior": r["tenure"] > 40} for r in classification_rows]
+    resp = client.post("/train", json={"data": rows, "target": "ContractType", "models": ["random_forest", "linear"]})
+    assert resp.status_code == 200, resp.text
+    assert "is_senior" in resp.json()["features"]
