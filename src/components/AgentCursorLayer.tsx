@@ -34,10 +34,10 @@ interface Pointer {
   snap?: number;
 }
 
-interface Box { pointerId: string; agent: InteractionEvent['agent']; target: string; rect: DOMRect; label: string; key: string }
+interface Box { pointerId: string; agent: InteractionEvent['agent']; target: string; rect: DOMRect; label: string; key: string; closing?: boolean }
 interface Ripple { id: string; x: number; y: number; color: string }
 /** A small selection box round the exact control an agent is using right now. */
-interface Mark { pointerId: string; agent: InteractionEvent['agent']; target: string; rect: DOMRect; verb: string; key: string }
+interface Mark { pointerId: string; agent: InteractionEvent['agent']; target: string; rect: DOMRect; verb: string; key: string; closing?: boolean }
 /** One box for the partner cursor to drag open. */
 interface Job { key: string; eventId: string; target: string; kind: 'mark' | 'box' }
 interface Opener { id: string; agent: InteractionEvent['agent']; job?: Job }
@@ -49,7 +49,7 @@ const VERB: Partial<Record<InteractionEvent['action'], string>> = {
 };
 
 /** Longest move of the working cursor into an opened box. */
-const WORKER_MS = 380;
+const WORKER_MS = 520;
 const PAD = { mark: 4, box: 6 } as const;
 
 const centre = (el: HTMLElement) => {
@@ -72,8 +72,8 @@ function readBox(job: Job) {
 }
 
 /** A selection box. Closed until the partner cursor drags it open (or a safety timer opens it). */
-function Frame({ id, rect, pad, color, rounded, tint, register, children }: {
-  id: string; rect: DOMRect; pad: number; color: string; rounded: string; tint: number;
+function Frame({ id, rect, pad, color, rounded, tint, register, closing = false, children }: {
+  id: string; rect: DOMRect; pad: number; color: string; rounded: string; tint: number; closing?: boolean;
   register: (id: string, h: FrameHandle | null) => void; children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -93,10 +93,10 @@ function Frame({ id, rect, pad, color, rounded, tint, register, children }: {
         left: rect.left - pad, top: rect.top - pad,
         // While closed the partner cursor sets the size frame by frame.
         width: open ? rect.width + pad * 2 : 0, height: open ? rect.height + pad * 2 : 0,
-        opacity: open ? 1 : 0,
+        opacity: open && !closing ? 1 : 0,
         borderColor: color, background: `color-mix(in srgb, ${color} ${tint}%, transparent)`,
         // Position tracks scrolling exactly; only a change of size eases.
-        transition: open ? 'width 240ms ease-out, height 240ms ease-out' : 'none',
+        transition: open ? 'width 240ms ease-out, height 240ms ease-out, opacity 260ms ease' : 'none',
       }}
     >
       <div style={{ opacity: open ? 1 : 0, transition: 'opacity 180ms ease' }}>{children}</div>
@@ -153,7 +153,7 @@ function PartnerPointer({ id, agent, job, live, frames, onSetOff, onOpened }: {
       // flight and the drag follow the live corners and land exactly on them.
       let live = first;
       const now = () => (live = readBox(job) ?? live);
-      await m.moveTo({ x: first.l, y: first.t }, { maxDuration: 230, follow: () => { const b = now(); return { x: b.l, y: b.t }; } });
+      await m.moveTo({ x: first.l, y: first.t }, { maxDuration: 340, follow: () => { const b = now(); return { x: b.l, y: b.t }; } });
       if (!alive()) return;
       const box = now();
       const f0 = frames.current.get(job.key)?.el;
@@ -164,7 +164,7 @@ function PartnerPointer({ id, agent, job, live, frames, onSetOff, onOpened }: {
       // The working cursor sets off as the drag starts and arrives as the box finishes opening.
       onSetOff(id, job);
       await m.moveTo({ x: box.r, y: box.b }, {
-        duration: Math.round(Math.min(320, 130 + Math.hypot(w, h) * 0.25)),
+        duration: Math.round(Math.min(440, 180 + Math.hypot(w, h) * 0.3)),
         arc: 0.035, overshoot: false, tremor: false,
         follow: () => { const b = now(); return { x: b.r, y: b.b }; },
         onFrame: (p: Point) => {
@@ -243,6 +243,19 @@ export default function AgentCursorLayer() {
     if (after > 0) setTimeout(p.resolve, after); else p.resolve();
   }, []);
 
+  /** The partner lets go: the control's box fades out a moment after the worker's last action there. */
+  const letGo = useCallback((pointerId: string, after: number) => {
+    const key = markKeys.current.get(pointerId)?.key;
+    if (!key) return;
+    clearTimeout(markTimers.current.get(pointerId));
+    markTimers.current.set(pointerId, setTimeout(() => {
+      if (markKeys.current.get(pointerId)?.key !== key) return;
+      markKeys.current.delete(pointerId);
+      setMarks(prev => (prev[pointerId]?.key === key ? { ...prev, [pointerId]: { ...prev[pointerId], closing: true } } : prev));
+      setTimeout(() => setMarks(prev => { if (prev[pointerId]?.key !== key) return prev; const n = { ...prev }; delete n[pointerId]; return n; }), 280);
+    }, after));
+  }, []);
+
   /** Sends the working cursor into the box round `target`. */
   const sendWorker = useCallback((pointerId: string, target: string) => {
     const el = findTarget(target);
@@ -287,19 +300,17 @@ export default function AgentCursorLayer() {
       pending.current.set(e.id, { pointerId, promise, resolve });
     };
 
-    // Every action gets a box round the control it touches (it closes a moment after the last action).
+    // Every action gets a box round the control it touches. The partner holds it open until
+    // the worker's work there is finished: it lets go when the agent moves on to another
+    // control, starts waiting for a result, or the task ends.
     const verb = VERB[e.action];
     if (verb && el && e.target) {
       const known = markKeys.current.get(pointerId);
       const fresh = known?.target !== e.target;
       const key = fresh ? e.id : known!.key;
+      clearTimeout(markTimers.current.get(pointerId));
       markKeys.current.set(pointerId, { target: e.target, key });
       setMarks(prev => ({ ...prev, [pointerId]: { pointerId, agent: e.agent, target: e.target!, rect: el.getBoundingClientRect(), verb, key } }));
-      clearTimeout(markTimers.current.get(pointerId));
-      markTimers.current.set(pointerId, setTimeout(() => {
-        markKeys.current.delete(pointerId);
-        setMarks(prev => { const n = { ...prev }; delete n[pointerId]; return n; });
-      }, e.action === 'move' ? 2600 : 1100));
       if (e.action === 'move' && fresh) { job = { key, eventId: e.id, target: e.target, kind: 'mark' }; wait(); }
     }
     if (e.action === 'claim' && el && e.target) {
@@ -330,6 +341,7 @@ export default function AgentCursorLayer() {
       setRipples(prev => [...prev, r]);
       setTimeout(() => setRipples(prev => prev.filter(x => x.id !== r.id)), 650);
     }
+    if (e.action === 'release' || e.action === 'wait' || e.action === 'done' || e.action === 'error') letGo(pointerId, e.action === 'release' || e.action === 'wait' ? 250 : 700);
     // Both cursors leave shortly after the task finishes or fails.
     if (e.action === 'done' || e.action === 'error') {
       for (const [id, p] of pending.current) if (p.pointerId === pointerId) settle(id);
@@ -339,8 +351,9 @@ export default function AgentCursorLayer() {
         setOpeners(prev => { const n = { ...prev }; delete n[pointerId]; return n; });
         setBoxes(prev => { const n = { ...prev }; delete n[pointerId]; return n; });
       }, e.action === 'error' ? 2500 : 1400));
+      setTimeout(() => setBoxes(prev => (prev[pointerId] ? { ...prev, [pointerId]: { ...prev[pointerId], closing: true } } : prev)), e.action === 'error' ? 2200 : 1100);
     }
-  }), [settle]);
+  }), [settle, letGo]);
 
   // Keep pointers and boxes on their targets while the page scrolls or resizes.
   useEffect(() => {
@@ -391,7 +404,7 @@ export default function AgentCursorLayer() {
     <div className="fixed inset-0 pointer-events-none z-[9990]" aria-live="polite" data-swarm-ui>
       {(Object.values(boxes) as Box[]).map(b => (
         <React.Fragment key={b.key}>
-        <Frame id={b.key} rect={b.rect} pad={PAD.box} color={AGENTS[b.agent].color} rounded="rounded-2xl" tint={7} register={register}>
+        <Frame id={b.key} rect={b.rect} pad={PAD.box} color={AGENTS[b.agent].color} rounded="rounded-2xl" tint={7} register={register} closing={b.closing}>
           <span className="absolute -top-3 left-3 px-2 py-0.5 rounded-full text-[11px] font-semibold text-white whitespace-nowrap" style={{ background: AGENTS[b.agent].color }}>
             {AGENTS[b.agent].name}
           </span>
@@ -403,7 +416,7 @@ export default function AgentCursorLayer() {
         const color = AGENTS[m.agent].color;
         return (
           <React.Fragment key={m.key}>
-          <Frame id={m.key} rect={m.rect} pad={PAD.mark} color={color} rounded="rounded-lg" tint={10} register={register}>
+          <Frame id={m.key} rect={m.rect} pad={PAD.mark} color={color} rounded="rounded-lg" tint={10} register={register} closing={m.closing}>
             <span className="absolute -top-2.5 right-2 px-1.5 rounded-full text-[10px] font-semibold text-white leading-4" style={{ background: color }}>{m.verb}</span>
           </Frame>
           </React.Fragment>

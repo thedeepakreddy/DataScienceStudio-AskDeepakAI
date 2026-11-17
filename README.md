@@ -92,7 +92,7 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
    - Fixes the Data Quality Agent finds while working are added as new tasks, and they wait for approval too.
 3. **Watch them work on your page.**
    - Each agent's cursor moves like a hand: curved paths, natural acceleration, a slight overshoot.
-   - Every agent works as a pair of cursors. Its partner drags a selection box open, corner to corner, round the area and round each control; then the worker moves into the open box and does the real click, choice or typing there.
+   - Every agent works as a pair of cursors. Its partner drags a selection box open, corner to corner, round the area and round each control; then the worker moves into the open box and does the real click, choice or typing there, while the partner holds the box open until that work is finished.
    - Only one agent holds the page at a time. A tap or key press of your own pauses the team ("Agents paused — you're in control"), and you can Resume or Stop.
 4. **Checked, not trusted.** Every task self-checks its own result (for example, no missing values left, or every kept row matches the filter). Risky results then get an **independent review** using a different method:
    - a permutation test for statistical tests,
@@ -122,7 +122,7 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
 
 The **SQL** and **Code** tabs in the chat run a read-only query (results shown as a table) or your own JavaScript transform in a sandbox (always with its own approval). The **Agents** panel in the toolbar shows the details: task map, each task's check, messages between agents, incidents, telemetry and recent runs.
 
-**Welcome.** Each time the studio opens, the team introduces itself in about seven seconds:
+**Welcome.** Each time the studio opens, the team introduces itself in about fourteen seconds:
 1. Cursors stream in from every edge.
 2. The Orchestrator types *Welcome to*, while three agents drag selection boxes that reveal **Data Science *Studio***.
 3. Nine agents each build a card for one thing the team can do.

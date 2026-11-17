@@ -110,8 +110,9 @@ export class Driver {
     return interactions.emit({ runId: this.ctx.runId, taskId: this.ctx.taskId, agent: this.ctx.agent, pointerId: this.ctx.taskId, action, label, ...extra });
   }
 
-  // Long enough for the pointer to finish its curved, human-paced move.
-  private get pace() { return this.ctx.pace ?? 640; }
+  // Long enough for the pointer to finish its curved, human-paced move, and
+  // unhurried enough for a person to follow each step.
+  private get pace() { return this.ctx.pace ?? 900; }
 
   /** Waits for the pointer's travel and for the page to finish drawing the step. */
   private async hold(ev: InteractionEvent) {
@@ -185,6 +186,7 @@ export class Driver {
     if (!(el instanceof HTMLInputElement)) throw new UiError(`“${target}” isn’t a checkbox.`);
     if (el.checked !== checked) el.click();
     this.emit('check', label, { target, value: String(checked), outcome: el.checked === checked ? 'ok' : 'failed' });
+    await sleep(this.pace / 3, this.ctx.signal);
   }
 
   async click(target: string, label: string) {

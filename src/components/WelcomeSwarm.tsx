@@ -11,7 +11,7 @@ import { CursorGlyph } from './AgentCursor';
 import Orb from './Orb';
 import { Box, scatterCards, seeded } from './welcomeLayout';
 
-// The agent team's welcome, each time the studio opens (about seven seconds).
+// The agent team's welcome, each time the studio opens (about fourteen seconds).
 //
 // 1. The swarm streams in from every edge on curved, hand-like paths,
 //    leaving fading trails.
@@ -50,7 +50,7 @@ const ROLE_ORDER: AgentRole[] = [
   ...(Object.keys(AGENTS) as AgentRole[]).filter(r => r !== 'orchestrator' && !CARDS.some(c => c.role === r)),
 ];
 const TEAM_SIZE = Object.keys(AGENTS).length;
-const TOTAL_MS = 7500;
+const TOTAL_MS = 14500;
 
 type Size = 'desktop' | 'tablet' | 'phone';
 const sizeOf = (w: number): Size => (w >= 1024 ? 'desktop' : w >= 640 ? 'tablet' : 'phone');
@@ -195,7 +195,7 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
       words.current.forEach(wd => { if (wd) { wd.style.opacity = '1'; wd.style.clipPath = 'none'; } });
       if (eyebrow.current) eyebrow.current.textContent = 'Welcome to';
       requestAnimationFrame(() => pointToAsk());
-      const t = setTimeout(close, 6500);
+      const t = setTimeout(close, 13500);
       return () => clearTimeout(t);
     }
 
@@ -229,11 +229,11 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
     const drag = async (i: number, rect: DOMRect, box: HTMLDivElement | null, onProgress?: (x: number) => void) => {
       const pad = 6;
       const sx = rect.left - pad, sy = rect.top - pad;
-      await go(i, { x: sx, y: sy }, { maxDuration: 480, arc: 0.22 });
+      await go(i, { x: sx, y: sy }, { maxDuration: 720, arc: 0.22 });
       if (!alive) return;
       if (box) { box.style.display = 'block'; box.style.opacity = '1'; }
       await go(i, { x: rect.right + pad, y: rect.bottom + pad }, {
-        duration: 420 + Math.min(200, rect.width * 0.3), arc: 0.05, overshoot: false,
+        duration: 680 + Math.min(320, rect.width * 0.45), arc: 0.05, overshoot: false,
         onFrame: p => {
           if (box) {
             box.style.left = `${Math.min(sx, p.x)}px`;
@@ -306,23 +306,23 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
       m.forEach((_, i) => {
         const a = (i / n) * Math.PI * 2;
         const r = 0.42 + ((i * 37) % 10) / 30;
-        go(i, { x: c.left + c.width / 2 + Math.cos(a) * c.width * r, y: c.top + c.height * 0.32 + Math.sin(a) * c.height * r * 0.7 }, { duration: 800 + (i % 4) * 80, delay: i * 25, arc: 0.3 });
+        go(i, { x: c.left + c.width / 2 + Math.cos(a) * c.width * r, y: c.top + c.height * 0.32 + Math.sin(a) * c.height * r * 0.7 }, { duration: 1300 + (i % 4) * 110, delay: i * 40, arc: 0.3 });
       });
-      await wait(750);
+      await wait(1600);
 
       // 2. "Welcome to", typed by the Orchestrator…
       const eb = eyebrow.current?.getBoundingClientRect();
       const text = 'Welcome to';
       if (eb) {
-        await go(TYPIST, { x: eb.left - 4, y: eb.bottom - 2 }, { maxDuration: 380 });
-        go(TYPIST, { x: eb.left + eb.width * 0.95, y: eb.bottom }, { duration: text.length * 42, arc: 0.02, overshoot: false, tremor: false });
+        await go(TYPIST, { x: eb.left - 4, y: eb.bottom - 2 }, { maxDuration: 560 });
+        go(TYPIST, { x: eb.left + eb.width * 0.95, y: eb.bottom }, { duration: text.length * 85, arc: 0.02, overshoot: false, tremor: false });
       }
       (async () => {
         for (let k = 1; k <= text.length && alive; k++) {
           if (eyebrow.current) eyebrow.current.textContent = text.slice(0, k);
-          await wait(42);
+          await wait(85);
         }
-        await wait(500);
+        await wait(900);
         if (caret.current) caret.current.style.display = 'none';
       })();
 
@@ -339,26 +339,26 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
             const right = Math.max(0, Math.min(100, ((r.right - x) / r.width) * 100));
             el.style.clipPath = `inset(-20% ${right}% -20% 0)`;
           }).then(() => { el.style.clipPath = 'none'; });
-        }, 120 + k * 280);
+        }, 200 + k * 560);
       });
-      await wait(1350);
+      await wait(3000);
       if (!alive) return;
       setPhase('sub');
       for (let i = TYPIST + 1; i < n; i++) roam(i);
 
       // 3. Nine agents drag out the cards.
-      const builds = CARDS.map((_, k) => wait(k * 110).then(async () => {
+      const builds = CARDS.map((_, k) => wait(k * 300).then(async () => {
         const el = cards.current[k];
         const r = el?.getBoundingClientRect();
         if (!el || !r || !alive) return;
         await drag(k, r, cardBoxes.current[k]);
         el.dataset.landed = '1';
         // Step back a little from the finished card.
-        go(k, { x: r.right + 10 + Math.random() * 14, y: r.bottom + 6 + Math.random() * 12 }, { maxDuration: 420, overshoot: false });
+        go(k, { x: r.right + 10 + Math.random() * 14, y: r.bottom + 6 + Math.random() * 12 }, { maxDuration: 600, overshoot: false });
       }));
       await Promise.all(builds);
       // Let the finished set be seen before moving on.
-      await wait(700);
+      await wait(2100);
       if (!alive) return;
 
       // 4. Point to Ask AI, then fly into it. If the closing words would sit
@@ -402,15 +402,15 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
       m.forEach((_, i) => {
         const a = facing + (i / Math.max(1, n - 1) - 0.5) * 2.2;
         const rad = ring.width * 0.75 + 16 + (i % 3) * 18;
-        go(i, { x: Math.min(w - 24, Math.max(8, cx + Math.cos(a) * rad)), y: Math.min(h - 24, Math.max(8, cy + Math.sin(a) * rad)) }, { delay: 150 + i * 14, maxDuration: 700, arc: 0.28 });
+        go(i, { x: Math.min(w - 24, Math.max(8, cx + Math.cos(a) * rad)), y: Math.min(h - 24, Math.max(8, cy + Math.sin(a) * rad)) }, { delay: 250 + i * 26, maxDuration: 1000, arc: 0.28 });
       });
-      await wait(150 + n * 14 + 700);
+      await wait(250 + n * 26 + 1000);
       m.forEach((_, i) => {
         const el = cursorEls.current[i];
-        go(i, { x: cx - 3, y: cy - 3 }, { duration: 340, delay: i * 10, overshoot: false });
-        if (el) { el.style.transition = `opacity 240ms ease ${i * 10 + 160}ms`; el.style.opacity = '0'; }
+        go(i, { x: cx - 3, y: cy - 3 }, { duration: 480, delay: i * 16, overshoot: false });
+        if (el) { el.style.transition = `opacity 300ms ease ${i * 16 + 240}ms`; el.style.opacity = '0'; }
       });
-      await wait(340 + n * 10 + 240);
+      await wait(480 + n * 16 + 300);
       if (alive) close();
     };
     run();

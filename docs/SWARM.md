@@ -46,7 +46,9 @@ same agent:
 - the **partner** (a lighter twin with a small name tag) flies to the spot,
   presses at the top-left corner and drags a selection box open to the
   bottom-right, round the area being worked on and round every control the
-  agent reaches, chooses, types into or clicks; it then holds the corner;
+  agent reaches, chooses, types into or clicks; it then holds the box open
+  until the worker has finished there, and lets go only when the agent moves
+  on to another control, starts waiting for a result, or finishes;
 - the **worker** sets off as the drag starts, arrives as the box finishes
   opening, and does the real action inside it (labelled with the action),
   with a ripple on clicks.
@@ -54,7 +56,8 @@ same agent:
 The agent waits for this before acting (`interactions.addGate`), so what you
 see is the order things really happen; the wait is capped at 2 s so drawing
 can never stall an agent. The flight and the drag follow the live corners
-while the page is still scrolling, so runs take about as long as before.
+while the page is still scrolling, so the drawing adds no waiting of its own. Each step is paced
+(900 ms per move) so a person can follow the agents as they work.
 Results
 come from the studio’s own logged runs and data versions, never from the
 animation. One agent holds the page at a time and releases it while it waits
@@ -81,7 +84,7 @@ anything past the limits (1 repair per task, 3 per run) are escalated to the
 user. No AI calls.
 
 **Welcome swarm** (`src/components/WelcomeSwarm.tsx`). Every time the studio
-opens, after the loading screen, about seven seconds:
+opens, after the loading screen, about fourteen seconds:
 1. The swarm streams in from every edge on curved paths, with short fading trails.
 2. The Orchestrator types "Welcome to", while three agents drag selection
    boxes over "Data", "Science" and "Studio", revealing each word.
