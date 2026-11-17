@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   Github,
   History,
+  Users,
   Linkedin,
   Mail,
   MapPin,
@@ -48,11 +49,14 @@ import JobsButton from './components/JobsButton';
 import ExperimentsPanel from './components/ExperimentsPanel';
 import ForecastPanel from './components/ForecastPanel';
 import DeployPanel from './components/DeployPanel';
+import SwarmPanel from './components/SwarmPanel';
+import { useSwarm } from './swarm/useSwarm';
+import type { RuntimePort } from './swarm/runtime';
 import { WorkspaceContext, RunInput } from './contexts/WorkspaceContext';
 import { describeChange } from './utils/describeChange';
 import type { AppliedOperation } from './operations/registry';
 import {
-  DatasetVersion, clearWorkspace, exportWorkspace, getVersion, importWorkspace, loadSession, recordRun, saveModelFile, saveSession, saveVersion,
+  DatasetVersion, clearWorkspace, exportWorkspace, getVersion, importWorkspace, listVersions, loadSession, recordRun, saveModelFile, saveSession, saveVersion,
 } from './utils/workspaceStore';
 
 type Theme = 'light' | 'dark';
@@ -572,6 +576,33 @@ export default function App() {
 
   const workspaceValue = React.useMemo(() => ({ logRun }), [logRun]);
 
+  // ---- Agent swarm --------------------------------------------------------
+  // The studio lends the agents the same functions its own buttons use.
+  const [swarmOpen, setSwarmOpen] = useState(false);
+  const mlResultRef = useRef<MLResult | null>(null);
+  useEffect(() => { mlResultRef.current = mlResult; }, [mlResult]);
+  const swarmPort: RuntimePort = {
+    getDataset: () => activeDatasetRef.current,
+    commitDataset: (ds, op, summary) => handleUpdateDataset(ds, op, summary),
+    openStep: step => setActiveTab(step),
+    train: (target, features, modelType, hyperparameters) => triggerPrediction(target, features, modelType, hyperparameters),
+    getModel: () => mlResultRef.current,
+    api: async (url, body, signal) => {
+      const res = await apiFetch(url, { method: 'POST', body: JSON.stringify(body), signal });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json) throw new Error(`${json?.error || 'Request failed'}${res.status >= 500 ? ` (HTTP ${res.status})` : ''}`);
+      return json;
+    },
+    settle: async () => { await saveQueue.current; return activeVersionRef.current; },
+    findAppliedVersion: async (parentId, capability, params) => {
+      if (!capability.startsWith('data.') || !datasetId) return null;
+      const op = capability.slice(5);
+      const versions = await listVersions(datasetId);
+      return versions.find(v => v.parentId === parentId && v.operation?.op === op && JSON.stringify(v.operation.params) === JSON.stringify(params))?.id ?? null;
+    },
+  };
+  const swarm = useSwarm(swarmPort, { datasetId, activeVersionId }, activeDataset);
+
   // A stage counts as complete once its key action has been done. Completion
   // drives the checkmarks and the emphasis of "Continue" — it never locks a step.
   const stageComplete: Record<PipelineStage, boolean> = {
@@ -637,6 +668,19 @@ export default function App() {
             <MLServiceWakeButton />
 
             <JobsButton />
+
+            <button
+              type="button"
+              onClick={() => setSwarmOpen(true)}
+              className="btn btn-icon relative"
+              aria-label="Agents"
+              title="Agents"
+            >
+              {swarm.run && ['running', 'cancelling'].includes(swarm.run.status)
+                ? <Orb state="working" label="Agents working" />
+                : <Users className="w-[18px] h-[18px]" />}
+              {swarm.run?.status === 'awaiting_approval' && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-orange ring-2 ring-canvas" aria-hidden="true" />}
+            </button>
 
             <button
               type="button"
@@ -985,6 +1029,27 @@ export default function App() {
           if (v) handleUseVersion(v);
         }}
       />
+
+      <AnimatePresence>
+        {swarmOpen && (
+          <SwarmPanel
+            onClose={() => setSwarmOpen(false)}
+            hasDataset={!!activeDataset}
+            run={swarm.run}
+            planning={swarm.planning}
+            lastPlan={swarm.lastPlan}
+            onPlan={swarm.plan}
+            onApproveAndRun={swarm.approveAndRun}
+            onApproveTask={swarm.approveTask}
+            onPause={swarm.pause}
+            onResume={swarm.resume}
+            onCancel={swarm.cancel}
+            onCancelTask={swarm.cancelTask}
+            onDiscard={swarm.discard}
+            onUndoAll={async id => { await saveQueue.current; const v = await getVersion(id); if (v) handleUseVersion(v); }}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {historyOpen && (
