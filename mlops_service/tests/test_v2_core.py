@@ -4,9 +4,9 @@ import time
 
 import pandas as pd
 import pytest
+from conftest import upload_rows
 from pydantic import BaseModel
 
-from conftest import upload_rows
 from engine.registry import REGISTRY, capability
 
 

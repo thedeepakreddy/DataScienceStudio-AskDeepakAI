@@ -2,9 +2,8 @@
 and against data with known true effects."""
 import numpy as np
 import pytest
-from scipy import stats
-
 from conftest import run, upload_rows
+from scipy import stats
 
 
 @pytest.fixture(scope="module")

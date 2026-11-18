@@ -1,7 +1,6 @@
 """Engine v2, phase 4: AutoML v2, batch prediction, explanations, fairness, feature selection."""
 import numpy as np
 import pytest
-
 from conftest import run, upload_rows
 
 

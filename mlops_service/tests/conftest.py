@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("ENGINE_SCHEDULER", "0")  # tests drive schedules through /v2/schedules/tick
 
 import main as ml_service_main  # noqa: E402
 
@@ -28,6 +29,18 @@ def upload_rows(client, rows, name="test"):
     r = client.post("/v2/datasets", json={"name": name, "rows": rows})
     assert r.status_code == 200, r.text
     return r.json()["id"]
+
+
+def wait_job(client, job_id, timeout=120):
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        job = client.get(f"/v2/jobs/{job_id}").json()
+        if job["status"] in ("done", "failed", "cancelled"):
+            return job
+        time.sleep(0.2)
+    raise AssertionError(f"job {job_id} did not finish")
 
 
 def run(client, cap, dataset_id=None, mode="sync", **params):

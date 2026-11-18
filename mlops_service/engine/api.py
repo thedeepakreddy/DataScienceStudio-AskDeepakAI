@@ -7,6 +7,8 @@ import logging
 import os
 import pkgutil
 import tempfile
+import threading
+import time
 from typing import Any, Literal
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
@@ -21,6 +23,7 @@ from .jobs import Jobs
 from .models import ModelStore
 from .registry import REGISTRY, Context, cache_key, execute, get, parse_params
 from .storage import make_storage
+from .tracking import AuditLog, Runs
 
 log = logging.getLogger("engine")
 
@@ -31,6 +34,11 @@ class EngineState:
         self.datasets = Datasets(self.storage)
         self.jobs = Jobs(self.storage)
         self.models = ModelStore(self.storage)
+        self.runs = Runs(self.storage)
+        self.audit = AuditLog(self.storage)
+        from .mlops_api import Schedules
+
+        self.schedules = Schedules(self.storage)
 
 
 state = EngineState()
@@ -68,6 +76,27 @@ class TokenMiddleware(BaseHTTPMiddleware):
             if not hmac.compare_digest(sent.encode(), token.encode()):
                 return JSONResponse({"detail": "Missing or wrong engine token.", "code": "unauthorized"}, status_code=401)
         return await call_next(request)
+
+
+class AuditMiddleware(BaseHTTPMiddleware):
+    """Records who called what, when, how it went and how long it took (never bodies or tokens)."""
+
+    async def dispatch(self, request: Request, call_next):
+        started = time.perf_counter()
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            if request.url.path.startswith("/v2") and request.method != "OPTIONS" and request.url.path != "/v2/audit":
+                try:
+                    state.audit.record({"method": request.method, "path": request.url.path, "status": status,
+                                        "ms": round((time.perf_counter() - started) * 1000, 1),
+                                        "actor": request.headers.get("x-engine-user") or None,
+                                        "client": request.client.host if request.client else None})
+                except Exception:  # noqa: BLE001 - auditing must never break a request
+                    log.exception("audit write failed")
 
 
 def engine_error_response(_: Request, err: EngineError) -> JSONResponse:
@@ -163,6 +192,8 @@ class RunBody(BaseModel):
     seed: int = Field(42, ge=0, le=2**31 - 1)
     mode: Literal["auto", "sync", "job"] = "auto"
     use_cache: bool = True
+    experiment: str | None = Field(None, max_length=120, description="Group this run with others for comparison.")
+    tags: list[str] = Field(default_factory=list, max_length=20)
 
 
 @router.post("/run/{name}")
@@ -174,22 +205,37 @@ def run(name: str, body: RunBody) -> dict[str, Any]:
         raise EngineError(f"{cap.title} needs a dataset: send dataset_id.")
     key = cache_key(cap, dataset, params, body.seed)
     use_cache = body.use_cache and cap.cacheable
+    run_record = state.runs.start(cap.name, dataset, params.model_dump(), body.seed, body.experiment, body.tags)
     if use_cache:
         hit = state.jobs.cached(key)
         if hit is not None:
-            return {"status": "done", "cached": True, "result": hit}
+            state.runs.finish(run_record, hit, cached=True)
+            return {"status": "done", "cached": True, "result": hit, "runId": run_record["id"]}
     as_job = body.mode == "job" or (body.mode == "auto" and cap.heavy)
+    runs = state.runs
 
     def work(progress=None, cancelled=None) -> dict[str, Any]:
         ctx = Context(state.datasets, dataset, body.seed, progress, cancelled, models=state.models)
-        return execute(cap, ctx, params)
+        try:
+            result = execute(cap, ctx, params)
+        except EngineError as err:
+            runs.finish(run_record, error=err.message)
+            raise
+        except Exception as err:
+            runs.finish(run_record, error=f"Unexpected error: {err}")
+            raise
+        runs.finish(run_record, result, job_id=run_record.get("jobId"))
+        return result
 
     if as_job:
-        return {"status": "queued", "job": state.jobs.submit(cap.name, cap.title, work, key if cap.cacheable else None)}
+        job = state.jobs.submit(cap.name, cap.title, work, key if cap.cacheable else None)
+        run_record["jobId"] = job["id"]
+        state.runs.save(run_record)
+        return {"status": "queued", "job": job, "runId": run_record["id"]}
     result = work()
     if cap.cacheable:
         state.jobs.remember(key, result)
-    return {"status": "done", "cached": False, "result": result}
+    return {"status": "done", "cached": False, "result": result, "runId": run_record["id"]}
 
 
 # ---- jobs ----
@@ -213,10 +259,20 @@ def cancel_job(job_id: str) -> dict[str, Any]:
     return state.jobs.cancel(job_id)
 
 
+_scheduler_stop = threading.Event()
+
+
 def mount(app) -> None:
-    """Adds the v2 API, the token check and error handling to the FastAPI app."""
+    """Adds the v2 API, the token check, auditing, error handling and the scheduler to the FastAPI app."""
+    from .mlops_api import router as mlops_router
+    from .mlops_api import scheduler_loop
+
     load_capabilities()
     app.add_middleware(TokenMiddleware)
+    app.add_middleware(AuditMiddleware)  # outermost, so rejected requests are recorded too
     app.add_exception_handler(EngineError, engine_error_response)
     app.include_router(router)
+    app.include_router(mlops_router)
+    if os.environ.get("ENGINE_SCHEDULER", "1") != "0":
+        threading.Thread(target=scheduler_loop, args=(_scheduler_stop,), name="engine-scheduler", daemon=True).start()
 

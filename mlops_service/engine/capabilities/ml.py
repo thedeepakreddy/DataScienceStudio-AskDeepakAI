@@ -318,7 +318,8 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
             "scoring": scoring, "cvMean": champ["cvMean"], "testMetrics": test, "conformal": conformal,
             "threshold": out.get("bestF1Threshold") if binary else None, "trainedOn": {"dataset": ctx.dataset_id, "fingerprint": ctx.dataset["fingerprint"],
             "rows": len(X), "refitOnAllRows": p.refit_full}, "seed": ctx.seed, "paramsFingerprint": fingerprint(p.model_dump()),
-            "reference": _reference_profile(X, used, types)}
+            "reference": _reference_profile(X, used, types), "predictionReference": _prediction_reference(task, pred, proba, classes, positive),
+            "fairness": [{"feature": f["feature"], "summary": f["summary"]} for f in out.get("fairness", [])], "description": None}
     record = ctx.models.save(final, meta)
     out["model"] = {"id": record["id"], "name": record.get("name"), "version": record.get("version")}
     out["seconds"] = round(time.monotonic() - started, 1)
@@ -330,14 +331,28 @@ def _reference_profile(X: pd.DataFrame, used: list[str], types: dict) -> dict:
     prof = {}
     for c in used:
         s = X[c]
+        missing = float(s.isna().mean())
         if types.get(c) in NUMERIC:
             v = pd.to_numeric(s, errors="coerce").dropna()
             if len(v):
-                prof[c] = {"kind": "numeric", "quantiles": np.quantile(v, np.linspace(0, 1, 11)).tolist(), "mean": float(v.mean()), "sd": float(v.std())}
+                prof[c] = {"kind": "numeric", "quantiles": np.quantile(v, np.linspace(0, 1, 11)).tolist(), "mean": float(v.mean()), "sd": float(v.std()),
+                           "missing": missing}
         else:
-            vc = s.astype(str).value_counts(normalize=True).head(50)
-            prof[c] = {"kind": "categorical", "shares": vc.to_dict()}
+            vc = s.dropna().astype(str).value_counts(normalize=True).head(50)
+            prof[c] = {"kind": "categorical", "shares": vc.to_dict(), "missing": missing}
     return prof
+
+
+def _prediction_reference(task, pred, proba, classes, positive) -> dict:
+    """The champion's prediction distribution on held-out rows, for prediction-drift checks."""
+    if task == "regression":
+        v = np.asarray(pred, float)
+        return {"kind": "numeric", "quantiles": np.quantile(v, np.linspace(0, 1, 11)).tolist(), "mean": float(v.mean()), "sd": float(v.std())}
+    out = {"kind": "categorical", "shares": pd.Series(np.asarray(pred).astype(str)).value_counts(normalize=True).to_dict()}
+    if proba is not None and classes and len(classes) == 2:
+        k = classes.index(positive) if positive in classes else 1
+        out["positiveProbability"] = {"kind": "numeric", "quantiles": np.quantile(proba[:, k], np.linspace(0, 1, 11)).tolist()}
+    return out
 
 
 def _fairness(task, frame, y_true, y_pred, proba, classes, positive, sensitive) -> list[dict]:

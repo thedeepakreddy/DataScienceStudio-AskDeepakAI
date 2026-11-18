@@ -50,6 +50,11 @@ def library_versions() -> dict[str, str]:
     return out
 
 
+def stamp() -> str:
+    """A sortable UTC timestamp to the microsecond, for ids listed newest-first."""
+    return datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
+
+
 def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
