@@ -7,6 +7,10 @@ team can all discover it (`GET /v2/capabilities`).
 """
 from __future__ import annotations
 
+import functools
+import hashlib
+import os
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -146,8 +150,25 @@ def parse_params(cap: Capability, params: dict[str, Any] | None) -> BaseModel:
         raise EngineError(f"Invalid parameters for {cap.name}: {problems}") from err
 
 
+@functools.cache
+def code_fingerprint(module_name: str) -> str:
+    """A hash of the engine's own code: the capability's module plus the shared engine modules, so a
+    result cached before an engine update is never served after it."""
+    from . import ENGINE_VERSION
+
+    parts = [ENGINE_VERSION]
+    for name in (module_name, "engine.ml_core", "engine.text_models", "engine.core", "engine.capabilities._util"):
+        mod = sys.modules.get(name)
+        path = getattr(mod, "__file__", None)
+        if path and os.path.exists(path):
+            with open(path, "rb") as f:
+                parts.append(hashlib.sha256(f.read()).hexdigest())
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+
+
 def cache_key(cap: Capability, dataset: dict[str, Any] | None, params: BaseModel, seed: int) -> str:
-    return fingerprint({"cap": cap.name, "ds": dataset["fingerprint"] if dataset else None, "p": params.model_dump(), "seed": seed})
+    return fingerprint({"cap": cap.name, "ds": dataset["fingerprint"] if dataset else None, "p": params.model_dump(), "seed": seed,
+                        "code": code_fingerprint(cap.fn.__module__)})
 
 
 def execute(cap: Capability, ctx: Context, params: BaseModel) -> dict[str, Any]:

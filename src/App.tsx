@@ -585,7 +585,7 @@ export default function App() {
         params: { target: targetCol, features, modelType: modelClass, hyperparameters },
         error: err.message || String(err),
       });
-      setErrorLine('Model training failed: ' + (err.message || 'The ML engine may be offline.'));
+      setErrorLine('Model training failed: ' + (err.message || 'The engine may be offline.'));
       throw err;
     } finally {
       setLoadingML(false);

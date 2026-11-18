@@ -37,7 +37,7 @@ const JOB_LABELS: [RegExp, string][] = [
   [/^\/api\/hypothesis-lab\/interpret\b/, 'Explaining a test result'],
   [/^\/api\/ab-test-interpreter\b/, 'Writing an A/B test memo'],
   [/^\/api\/drift-metrics\b/, 'Drift check'],
-  [/^\/api\/ml-service\/wake\b/, 'Waking the ML engine'],
+  [/^\/api\/ml-service\/wake\b/, 'Waking the engine'],
   [/^\/api\/(swarm\/plan|agent\/run)\b/, 'Assistant'],
   [/^\/api\/model-explainer\b/, 'Explaining the model'],
   [/^\/api\/sql-assistant\b/, 'Writing SQL'],

@@ -122,3 +122,16 @@ def test_capabilities_listing(client):
     assert "test.echo" in names
     echo = next(c for c in caps if c["name"] == "test.echo")
     assert "column" in echo["params"]["properties"]
+
+
+def test_cache_key_changes_when_engine_code_changes(monkeypatch):
+    from engine import registry
+
+    cap = registry.get("data.profile")
+    params = registry.parse_params(cap, {})
+    before = registry.cache_key(cap, {"fingerprint": "abc"}, params, 42)
+    assert registry.cache_key(cap, {"fingerprint": "abc"}, params, 42) == before
+    registry.code_fingerprint.cache_clear()
+    monkeypatch.setattr("engine.ENGINE_VERSION", "9.9.9")
+    assert registry.cache_key(cap, {"fingerprint": "abc"}, params, 42) != before
+    registry.code_fingerprint.cache_clear()

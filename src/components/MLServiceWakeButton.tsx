@@ -137,7 +137,7 @@ export default function MLServiceWakeButton() {
       if (err?.name === 'AbortError') return; // user toggled off mid-flight
       if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
       setState('error');
-      setDetail(err?.message || 'Could not reach the ML service.');
+      setDetail(err?.message || 'Could not reach the engine.');
       // Say what went wrong and what to do about it, where it can be seen -
       // not only in a hover tooltip - and keep watching for the engine.
       setHelpOpen(true);
@@ -152,9 +152,9 @@ export default function MLServiceWakeButton() {
   };
 
   const view = {
-    idle:   { Icon: Power,         label: 'Wake ML Engine',      cls: 'bg-fill hover:bg-fill-strong text-label' },
+    idle:   { Icon: Power,         label: 'Wake Engine',      cls: 'bg-fill hover:bg-fill-strong text-label' },
     waking: { Icon: null,          label: `Waking… ${elapsed}s`, cls: 'bg-orange/12 text-orange' },
-    online: { Icon: CheckCircle2,  label: 'ML Engine On',        cls: 'bg-green/12 text-green' },
+    online: { Icon: CheckCircle2,  label: 'Engine On',        cls: 'bg-green/12 text-green' },
     error:  { Icon: AlertTriangle, label: 'Wake Failed',         cls: 'bg-red/12 text-red' },
   }[state];
 
@@ -174,12 +174,12 @@ export default function MLServiceWakeButton() {
             ? 'Show how to fix this'
             : detail ||
               (state === 'idle'
-                ? 'Start the ML engine in the background before training. Free hosting puts it to sleep when idle.'
-                : 'Click to stop keeping the ML engine warm.')
+                ? 'Start the engine in the background before you run analyses. It sleeps when idle to stay free.'
+                : 'Click to stop keeping the engine warm.')
         }
         className={`btn btn-sm ${view.cls}`}
       >
-        {Icon ? <Icon className="w-3.5 h-3.5 shrink-0" /> : <Orb state="connecting" label="Waking the ML engine" />}
+        {Icon ? <Icon className="w-3.5 h-3.5 shrink-0" /> : <Orb state="connecting" label="Waking the engine" />}
         <span className="hidden md:inline">{view.label}</span>
         {state !== 'error' && <span className="sr-only" aria-live="polite">{detail}</span>}
       </button>
@@ -197,7 +197,7 @@ export default function MLServiceWakeButton() {
             </span>
             <div className="flex-1 min-w-0">
               <h3 id="ml-wake-help-title" className="text-sm font-semibold text-label">
-                The ML engine didn’t wake up
+                The engine didn’t wake up
               </h3>
               <p id="ml-wake-help-body" className="mt-1 text-xs text-label-2 leading-relaxed">
                 {openUrl ? (
@@ -226,7 +226,7 @@ export default function MLServiceWakeButton() {
           <div className="mt-3 flex flex-wrap gap-2">
             {openUrl && (
               <a href={openUrl} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-primary flex-1">
-                Open ML Engine <ExternalLink className="w-3.5 h-3.5" />
+                Open Engine <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
             <button type="button" onClick={powerOn} className="btn btn-sm btn-secondary flex-1">

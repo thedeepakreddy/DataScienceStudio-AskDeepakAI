@@ -308,7 +308,8 @@ async function generateContentWithRetry(_client: GoogleGenAI, params: {
 //   2. Otherwise a Python service running on this machine, if one answers.
 //   3. Otherwise the hosted free-tier deployment below.
 const ML_SERVICE_LOCAL_URL = 'http://127.0.0.1:8000';
-const ML_SERVICE_PUBLIC_URL = 'https://askdeepakai-datascientist-mlservice.onrender.com';
+// The engine on Google Cloud Run (it also serves every v1 endpoint the old Render ML service had).
+const ML_SERVICE_PUBLIC_URL = 'https://askdeepakai-engine-novnmz6s3a-uc.a.run.app';
 const ML_SERVICE_CONFIGURED_URL = (process.env.ML_SERVICE_URL || '').replace(/\/+$/, '') || null;
 
 // Shared secret for the engine (Cloud Run): when ENGINE_TOKEN is set here and on the

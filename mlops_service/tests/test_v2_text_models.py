@@ -120,6 +120,12 @@ def test_semantic_topics_recover_themes(client):
 
     labelled = pd.DataFrame(client.get(f"/v2/datasets/{r['dataset']['id']}/preview", params={"limit": 1000}).json()["rows"])
     assert adjusted_rand_score(labelled["truth"], labelled["topic"]) > 0.8
+    # Each topic's keywords must be distinctive, not the same words for every topic.
+    first_words = [tuple(t["keywords"][:3]) for t in r["topics"]]
+    assert len(set(first_words)) == 3, first_words
+    joined = " | ".join(" ".join(t["keywords"]) for t in r["topics"])
+    assert any(w in joined for w in ("delivery", "arrived", "parcel", "shipping", "courier")) and any(w in joined for w in ("battery", "charge", "charging"))
+    assert all(len(set(t["typical"])) == len(t["typical"]) for t in r["topics"])
     found = run(client, "text.semantic_topics", ds, column="t", min_topic_size=20)
     assert 2 <= len(found["topics"]) <= 5 and found["outlierShare"] < 0.4
 
