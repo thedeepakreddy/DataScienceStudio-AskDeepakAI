@@ -56,6 +56,7 @@ class AutoMLParams(BaseModel):
     time_column: str | None = None
     group_column: str | None = None
     test_size: float = Field(0.2, gt=0.05, lt=0.5)
+    validation_size: float = Field(0.0, ge=0, lt=0.4, description="Share of all rows held out as a validation set (0 = none; cross-validation on the training rows still chooses the model).")
     balanced: Literal["auto", "on", "off"] = "auto"
     calibrate: Literal["none", "sigmoid", "isotonic"] = "none"
     ensemble: bool = True
@@ -149,8 +150,22 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
         tr, te = next(GroupShuffleSplit(1, test_size=p.test_size, random_state=ctx.seed).split(X, y, groups))
     else:
         tr, te = train_test_split(np.arange(len(X)), test_size=p.test_size, random_state=ctx.seed, stratify=y if task == "classification" else None)
+    va = np.array([], dtype=int)
+    if p.validation_size > 0:
+        need(p.validation_size + p.test_size < 0.7, "Validation and test together must leave at least 30% of rows for training.")
+        share = p.validation_size / (1 - p.test_size)
+        if split == "time":  # the latest training rows, just before the test period
+            cut = int(len(tr) * (1 - share))
+            tr, va = tr[:cut], tr[cut:]
+        elif split == "group":
+            a, b = next(GroupShuffleSplit(1, test_size=share, random_state=ctx.seed + 1).split(tr, groups=groups.iloc[tr]))
+            tr, va = tr[a], tr[b]
+        else:
+            tr, va = train_test_split(tr, test_size=share, random_state=ctx.seed + 1, stratify=y.iloc[tr] if task == "classification" else None)
     Xtr, Xte, ytr, yte = X.iloc[tr], X.iloc[te], y.iloc[tr], y.iloc[te]
+    Xva, yva = X.iloc[va], y.iloc[va]
     need(len(Xtr) >= 20 and len(Xte) >= 5, "Too few rows to split into training and test sets.")
+    need(p.validation_size == 0 or len(Xva) >= 5, "Too few rows for a validation set; lower the validation share.")
     cv = _make_cv(split, task, p.cv_folds, p.cv_repeats, ctx.seed, groups.iloc[tr] if groups is not None else None)
     gtr = groups.iloc[tr] if groups is not None else None
     scoring = mc.scorer_name(task, binary, p.metric)
@@ -261,6 +276,11 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
     model.fit(Xtr, ytr)
     if task == "classification" and p.calibrate != "none":
         model = CalibratedClassifierCV(model, method=p.calibrate, cv=3).fit(Xtr, ytr)
+    validation = None
+    if len(Xva):
+        vp = model.predict(Xva)
+        vpr = model.predict_proba(Xva) if task == "classification" and hasattr(model, "predict_proba") else None
+        validation = mc.metrics(task, yva, vp, vpr, classes, positive)
     pred = model.predict(Xte)
     proba = model.predict_proba(Xte) if task == "classification" and hasattr(model, "predict_proba") else None
     test = mc.metrics(task, yte, pred, proba, classes, positive)
@@ -268,11 +288,11 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
     baseline_test = mc.metrics(task, yte, base_fit.predict(np.zeros((len(yte), 1))), base_fit.predict_proba(np.zeros((len(yte), 1))) if task == "classification" else None, classes, positive)
     out: dict[str, Any] = {
         "task": task, "target": p.target, "classes": classes, "positiveClass": positive, "scoring": scoring, "split": split,
-        "rows": {"train": len(Xtr), "test": len(Xte)}, "features": {"used": used, **{k: v for k, v in roles.items() if v}},
+        "rows": {"train": len(Xtr), "validation": len(Xva), "test": len(Xte)}, "features": {"used": used, **{k: v for k, v in roles.items() if v}},
         "leaderboard": ranked + [b for b in board if "error" in b], "baseline": {"cvMean": float(base_scores.mean()), "test": baseline_test},
         "champion": {"family": champ["family"], "label": champ["label"], "params": champ["params"], "cvMean": champ["cvMean"], "cvCi": champ["cvCi"],
                      "calibrated": p.calibrate if task == "classification" else None},
-        "comparison": comparison, "test": test, "nestedCv": nested,
+        "comparison": comparison, "validation": validation, "test": test, "nestedCv": nested,
     }
     # ---- curves ----
     if task == "classification":
@@ -390,6 +410,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
             "scoring": scoring, "cvMean": champ["cvMean"], "testMetrics": test, "conformal": conformal,
             "threshold": ((out.get("costThreshold") or {}).get("threshold") or out.get("bestF1Threshold")) if binary else None, "trainedOn": {"dataset": ctx.dataset_id, "fingerprint": ctx.dataset["fingerprint"],
             "rows": len(X), "refitOnAllRows": p.refit_full}, "seed": ctx.seed, "paramsFingerprint": fingerprint(p.model_dump()),
+            "trainParams": p.model_dump(),
             "reference": _reference_profile(X, used, types), "predictionReference": _prediction_reference(task, pred, proba, classes, positive),
             "fairness": [{"feature": f["feature"], "summary": f["summary"]} for f in out.get("fairness", [])], "description": None}
     record = ctx.models.save(final, meta)

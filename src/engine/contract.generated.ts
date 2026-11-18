@@ -2,7 +2,7 @@
 // change the engine, then run `python mlops_service/scripts/gen_contract.py`.
 /* eslint-disable */
 
-export const CONTRACT_HASH = "0caca355a20af1d7";
+export const CONTRACT_HASH = "62e1a732347dbf1e";
 
 export const ENGINE_VERSION = "2.0.0";
 
@@ -16,6 +16,7 @@ export type CapabilityName =
   | "causal.rdd"
   | "causal.synthetic_control"
   | "causal.uplift"
+  | "connect.api"
   | "connect.bigquery"
   | "connect.gcs"
   | "connect.sql"
@@ -38,6 +39,7 @@ export type CapabilityName =
   | "ml.feature_selection"
   | "ml.predict"
   | "mlops.monitor"
+  | "mlops.retrain_if_drift"
   | "opt.linear_program"
   | "opt.monte_carlo"
   | "opt.scenarios"
@@ -211,6 +213,38 @@ export interface CausalUpliftParams {
   test_size?: number;
 }
 
+/** Parameters of `connect.api` — Import from an API. */
+export interface ConnectApiParams {
+  /** The API address that returns JSON (https://…). (maxLength 2000) */
+  url: string;
+  /** How the key is sent. Default: "none". */
+  auth?: "none" | "bearer" | "header" | "query" | "basic";
+  /** The key or token (never stored). Default: null. */
+  api_key?: string | null;
+  /** Header or query parameter name for the key (X-API-Key / api_key when empty). Default: null. */
+  key_name?: string | null;
+  /** For basic sign-in. Default: null. */
+  username?: string | null;
+  /** For basic sign-in (never stored). Default: null. */
+  password?: string | null;
+  /** Where the list of records is, e.g. data.items (found automatically when empty). Default: null. */
+  records_path?: string | null;
+  /** Default: "none". */
+  pagination?: "none" | "page" | "offset" | "next_link" | "cursor";
+  /** page / offset / cursor parameter name (page, offset, cursor when empty). Default: null. */
+  page_param?: string | null;
+  /** Rows asked for per page (offset paging). Default: 100. (minimum 1, maximum 10000) */
+  page_size?: number;
+  /** Page-size parameter name (limit when empty). Default: null. */
+  size_param?: string | null;
+  /** Where the next link or cursor is in the response, e.g. next or meta.next_cursor. Default: null. */
+  next_path?: string | null;
+  /** Default: 50. (minimum 1, maximum 1000) */
+  max_pages?: number;
+  /** Default: null. */
+  name?: string | null;
+}
+
 /** Parameters of `connect.bigquery` — Import from BigQuery. */
 export interface ConnectBigqueryParams {
   /** A BigQuery Standard SQL SELECT. Summarise in BigQuery to bring back only what's needed. (maxLength 100000) */
@@ -325,7 +359,7 @@ export interface DataProfileParams {
 }
 
 export interface DataRecipeStep {
-  op: "select" | "drop" | "rename" | "filter" | "cast" | "fill_missing" | "drop_missing" | "dedupe" | "sort" | "limit" | "sample" | "derive" | "bin" | "date_parts" | "text_clean" | "replace" | "split" | "one_hot" | "scale" | "log" | "clip" | "group" | "pivot" | "unpivot" | "window" | "join" | "union" | "sql";
+  op: "select" | "drop" | "rename" | "filter" | "cast" | "fill_missing" | "drop_missing" | "dedupe" | "sort" | "limit" | "sample" | "derive" | "bin" | "date_parts" | "text_clean" | "replace" | "split" | "one_hot" | "label_encode" | "scale" | "log" | "clip" | "group" | "pivot" | "unpivot" | "window" | "join" | "union" | "sql";
   /** Default: null. */
   columns?: Array<string> | null;
   /** Default: null. */
@@ -572,6 +606,8 @@ export interface MlAutomlParams {
   group_column?: string | null;
   /** Default: 0.2. (exclusiveMinimum 0.05, exclusiveMaximum 0.5) */
   test_size?: number;
+  /** Share of all rows held out as a validation set (0 = none; cross-validation on the training rows still chooses the model). Default: 0.0. (minimum 0, exclusiveMaximum 0.4) */
+  validation_size?: number;
   /** Default: "auto". */
   balanced?: "auto" | "on" | "off";
   /** Default: "none". */
@@ -671,6 +707,28 @@ export interface MlopsMonitorParams {
   min_rows?: number;
   /** Keep the report in the model's monitoring history. Default: true. */
   save?: boolean;
+}
+
+/** Parameters of `mlops.retrain_if_drift` — Retrain when drift is found. */
+export interface MlopsRetrainIfDriftParams {
+  /** The model to watch: id, or name@production / name@latest. */
+  model: string;
+  /** Outcome column in the new data (the model's own target when empty). Default: null. */
+  target?: string | null;
+  /** Retrain when drift or decay reaches this level (always = retrain on every run). Default: "alert". */
+  retrain_when?: "warning" | "alert" | "always";
+  /** Default: 0.1. (exclusiveMinimum 0) */
+  psi_warning?: number;
+  /** Default: 0.25. (exclusiveMinimum 0) */
+  psi_alert?: number;
+  /** Default: 0.1. (exclusiveMinimum 0, exclusiveMaximum 1) */
+  max_performance_drop?: number;
+  /** Tuning time for the retrain. Default: 120. (minimum 5, maximum 3600) */
+  time_budget_s?: number;
+  /** What happens to the new version: nothing, staging, or production when it beats the current model on the new data. Default: "staging". */
+  promote?: "none" | "staging" | "production_if_better";
+  /** Default: 100. (minimum 10, maximum 100000) */
+  min_rows?: number;
 }
 
 /** Parameters of `opt.linear_program` — Optimise (linear / integer programming). */
@@ -1206,6 +1264,7 @@ export interface CapabilityParams {
   "causal.rdd": CausalRddParams;
   "causal.synthetic_control": CausalSyntheticControlParams;
   "causal.uplift": CausalUpliftParams;
+  "connect.api": ConnectApiParams;
   "connect.bigquery": ConnectBigqueryParams;
   "connect.gcs": ConnectGcsParams;
   "connect.sql": ConnectSqlParams;
@@ -1228,6 +1287,7 @@ export interface CapabilityParams {
   "ml.feature_selection": MlFeatureSelectionParams;
   "ml.predict": MlPredictParams;
   "mlops.monitor": MlopsMonitorParams;
+  "mlops.retrain_if_drift": MlopsRetrainIfDriftParams;
   "opt.linear_program": OptLinearProgramParams;
   "opt.monte_carlo": OptMonteCarloParams;
   "opt.scenarios": OptScenariosParams;
@@ -1390,6 +1450,19 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityInfo> = {
     "tags": [
       "causal",
       "marketing"
+    ]
+  },
+  "connect.api": {
+    "name": "connect.api",
+    "area": "connect",
+    "title": "Import from an API",
+    "summary": "Reads records from a JSON API: with a key or token (header, query or bearer) or basic sign-in, following page numbers, offsets, next links or cursors, and flattening nested fields into columns. Keys are used for this request only and never stored.",
+    "needsDataset": false,
+    "heavy": true,
+    "cacheable": false,
+    "tags": [
+      "import",
+      "api"
     ]
   },
   "connect.bigquery": {
@@ -1676,6 +1749,21 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityInfo> = {
       "mlops",
       "drift",
       "monitoring"
+    ]
+  },
+  "mlops.retrain_if_drift": {
+    "name": "mlops.retrain_if_drift",
+    "area": "mlops",
+    "title": "Retrain when drift is found",
+    "summary": "Checks a model against new data (drift and, with outcomes, performance decay) and, when the status reaches the chosen level, retrains it on that data with the same AutoML settings, registers the new version and, if asked, promotes it — to production only when it beats the current model on the new data.",
+    "needsDataset": true,
+    "heavy": true,
+    "cacheable": false,
+    "tags": [
+      "mlops",
+      "drift",
+      "retraining",
+      "automation"
     ]
   },
   "opt.linear_program": {

@@ -29,6 +29,7 @@ export interface OperationParams {
   remove_duplicates: Record<string, never>;
   derive_column: { source: string; transform: DeriveTransform; other?: string; name?: string };
   one_hot_encode: { column: string; prefix?: string };
+  label_encode: { column: string; order?: 'frequency' | 'alphabetical'; name?: string };
   standardize_text: { column: string; trim?: boolean; collapseSpaces?: boolean; case?: 'none' | 'lower' | 'upper' | 'title' };
   replace_values: { column: string; from: string; to: string; matchCase?: boolean };
   convert_type: { column: string; to: ColumnType };
@@ -366,6 +367,29 @@ const BASE_OPERATIONS: { [K in Exclude<OperationId, MoreId>]: OperationDef<K> } 
       return {
         dataset: rebuildDataset(ds, rows, [...colTypes(ds), ...names.map(n => ({ name: n, type: 'numeric' as const }))]),
         summary: `Split “${column}” into ${plural(names.length, 'column')}.`,
+      };
+    },
+  },
+
+  label_encode: {
+    label: 'Turn a category into numbers (label encoding)',
+    runsIn: 'browser',
+    run(ds, { column, order = 'frequency', name }) {
+      requireColumn(ds, column);
+      const counts = new Map<string, number>();
+      for (const r of ds.rows) if (!isEmpty(r[column])) { const v = String(r[column]); counts.set(v, (counts.get(v) ?? 0) + 1); }
+      if (counts.size === 0) throw new OperationError(`“${column}” has no values to encode.`);
+      if (counts.size > 5000) throw new OperationError(`“${column}” has ${counts.size} different values; label encoding suits categories, not ids or free text.`);
+      const cats = [...counts.keys()].sort((a, b) => order === 'alphabetical' ? a.localeCompare(b) : (counts.get(b)! - counts.get(a)!) || a.localeCompare(b));
+      const code = new Map(cats.map((c, i) => [c, i]));
+      const used = new Set(ds.columns.map(c => c.name.toLowerCase()));
+      let newName = name?.trim() || `${column}_code`;
+      for (let i = 2; used.has(newName.toLowerCase()); i++) newName = `${name?.trim() || `${column}_code`}_${i}`;
+      const rows = ds.rows.map(r => ({ ...r, [newName]: isEmpty(r[column]) ? null : code.get(String(r[column]))! }));
+      const shown = cats.slice(0, 4).map((c, i) => `${c} = ${i}`).join(', ');
+      return {
+        dataset: rebuildDataset(ds, rows, [...colTypes(ds), { name: newName, type: 'numeric' }]),
+        summary: `Encoded “${column}” as numbers in “${newName}” (${shown}${cats.length > 4 ? ', …' : ''}).`,
       };
     },
   },

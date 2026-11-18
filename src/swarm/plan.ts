@@ -130,7 +130,8 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
     pdf: everything || has(text, 'pdf'),
     pack: has(text, 'package', 'zip', 'reproducib'),
     automl: has(text, 'automl', 'auto ml', 'best model', 'compare (all |every )?models', 'every model', 'all models'),
-    monitor: has(text, 'drift', 'monitor'),
+    monitor: has(text, 'drift', 'monitor') && !has(text, 'retrain'),
+    retrain: has(text, 'retrain'),
     pin: has(text, '\\bpin'),
   };
 
@@ -176,6 +177,7 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
       if (wants.explain) analyses.push(add('models.explain_engine', {}, 'Explain the saved model: what matters overall, per-row reasons and readable rules.', [trainId]));
     } else skipped.push('AutoML (no column looks like an outcome — add “predict <column>”)');
   }
+  if (wants.retrain) analyses.push(add('models.retrain', {}, 'Check the newest saved model for drift on this data and retrain it if the data has drifted.', [...afterClean, ...analyses.filter(a => a === trainId)]));
   if (wants.monitor) analyses.push(add('models.monitor', target ? { target } : {}, 'Check the newest saved model for drift on this data.', [...afterClean, ...analyses.filter(a => a === trainId)]));
   if (!wants.automl && (wants.train || wants.tune || (wants.explain && !hasModel)) && !(wants.forecast && !everything && !wants.train)) {
     if (target) {

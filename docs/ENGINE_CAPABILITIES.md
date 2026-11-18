@@ -1,7 +1,7 @@
 # Engine capabilities
 
 Generated from engine 2.0.0 by `mlops_service/scripts/gen_contract.py`; do not edit by hand.
-63 capabilities. Run one with `POST /v2/run/{name}` (through the studio: `POST /api/engine/run/{name}`), or from the front end with `engine.run(name, params)` in `src/engine/client.ts`.
+65 capabilities. Run one with `POST /v2/run/{name}` (through the studio: `POST /api/engine/run/{name}`), or from the front end with `engine.run(name, params)` in `src/engine/client.ts`.
 
 ## bayes
 
@@ -140,6 +140,29 @@ Dataset: required · long-running (job by default)
 | `test_size` | `number` |  | 0.3 |  |
 
 ## connect
+
+### `connect.api` — Import from an API
+
+Reads records from a JSON API: with a key or token (header, query or bearer) or basic sign-in, following page numbers, offsets, next links or cursors, and flattening nested fields into columns. Keys are used for this request only and never stored.
+
+Dataset: not needed · long-running (job by default) · not cached
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | `string` | yes |  | The API address that returns JSON (https://…). |
+| `auth` | `"none" \| "bearer" \| "header" \| "query" \| "basic"` |  | "none" | How the key is sent. |
+| `api_key` | `string \| null` |  | null | The key or token (never stored). |
+| `key_name` | `string \| null` |  | null | Header or query parameter name for the key (X-API-Key / api_key when empty). |
+| `username` | `string \| null` |  | null | For basic sign-in. |
+| `password` | `string \| null` |  | null | For basic sign-in (never stored). |
+| `records_path` | `string \| null` |  | null | Where the list of records is, e.g. data.items (found automatically when empty). |
+| `pagination` | `"none" \| "page" \| "offset" \| "next_link" \| "cursor"` |  | "none" |  |
+| `page_param` | `string \| null` |  | null | page / offset / cursor parameter name (page, offset, cursor when empty). |
+| `page_size` | `number` |  | 100 | Rows asked for per page (offset paging). |
+| `size_param` | `string \| null` |  | null | Page-size parameter name (limit when empty). |
+| `next_path` | `string \| null` |  | null | Where the next link or cursor is in the response, e.g. next or meta.next_cursor. |
+| `max_pages` | `number` |  | 50 |  |
+| `name` | `string \| null` |  | null |  |
 
 ### `connect.bigquery` — Import from BigQuery
 
@@ -385,6 +408,7 @@ Dataset: required · long-running (job by default)
 | `time_column` | `string \| null` |  | null |  |
 | `group_column` | `string \| null` |  | null |  |
 | `test_size` | `number` |  | 0.2 |  |
+| `validation_size` | `number` |  | 0.0 | Share of all rows held out as a validation set (0 = none; cross-validation on the training rows still chooses the model). |
 | `balanced` | `"auto" \| "on" \| "off"` |  | "auto" |  |
 | `calibrate` | `"none" \| "sigmoid" \| "isotonic"` |  | "none" |  |
 | `ensemble` | `boolean` |  | true |  |
@@ -474,6 +498,24 @@ Dataset: not needed · quick · not cached
 | `max_rows` | `number` |  | 200000 |  |
 | `min_rows` | `number` |  | 100 | Fewer rows than this are too few to judge drift reliably. |
 | `save` | `boolean` |  | true | Keep the report in the model's monitoring history. |
+
+### `mlops.retrain_if_drift` — Retrain when drift is found
+
+Checks a model against new data (drift and, with outcomes, performance decay) and, when the status reaches the chosen level, retrains it on that data with the same AutoML settings, registers the new version and, if asked, promotes it — to production only when it beats the current model on the new data.
+
+Dataset: required · long-running (job by default) · not cached
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `model` | `string` | yes |  | The model to watch: id, or name@production / name@latest. |
+| `target` | `string \| null` |  | null | Outcome column in the new data (the model's own target when empty). |
+| `retrain_when` | `"warning" \| "alert" \| "always"` |  | "alert" | Retrain when drift or decay reaches this level (always = retrain on every run). |
+| `psi_warning` | `number` |  | 0.1 |  |
+| `psi_alert` | `number` |  | 0.25 |  |
+| `max_performance_drop` | `number` |  | 0.1 |  |
+| `time_budget_s` | `number` |  | 120 | Tuning time for the retrain. |
+| `promote` | `"none" \| "staging" \| "production_if_better"` |  | "staging" | What happens to the new version: nothing, staging, or production when it beats the current model on the new data. |
+| `min_rows` | `number` |  | 100 |  |
 
 ## optimize
 

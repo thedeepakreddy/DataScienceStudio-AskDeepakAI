@@ -59,7 +59,7 @@ function Stage({ dataset, train, onUseDataset }: { dataset: Dataset; train: Reac
       case 'forecast': return <MethodPanel group="forecast" dataset={dataset} builtins={builtins} />;
       case 'decide': return <MethodPanel group="decide" dataset={dataset} builtins={builtins} />;
       case 'checks': return <MethodPanel group="checks" dataset={dataset} />;
-      case 'automate': return <AutomatePanel />;
+      case 'automate': return <AutomatePanel dataset={dataset} />;
     }
   };
 

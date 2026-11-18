@@ -112,6 +112,7 @@ export const RECIPE_OPS: Record<string, { label: string; fields: OpField[] }> = 
   log: { label: 'Log-transform', fields: [{ key: 'columns', label: 'Columns', type: 'columns' }] },
   scale: { label: 'Standardise numbers', fields: [{ key: 'columns', label: 'Columns', type: 'columns' }, { key: 'method', label: 'Method', type: 'select', options: ['standard', 'minmax', 'robust'] }] },
   one_hot: { label: 'Split a category into yes/no columns', fields: [{ key: 'column', label: 'Column', type: 'column' }] },
+  label_encode: { label: 'Turn categories into numbers (label encoding)', fields: [{ key: 'columns', label: 'Columns', type: 'columns' }, { key: 'method', label: 'Numbering', type: 'select', options: ['frequency', 'alphabetical'] }] },
   sort: { label: 'Sort', fields: [{ key: 'columns', label: 'By', type: 'columns' }] },
   sample: { label: 'Random sample', fields: [{ key: 'n', label: 'Rows', type: 'number' }, { key: 'share', label: 'Or share (0–1)', type: 'number' }] },
   limit: { label: 'First N rows', fields: [{ key: 'n', label: 'Rows', type: 'number' }] },
@@ -153,7 +154,7 @@ export const RecipeEditor: React.FC<EditorProps<RecipeValue>> = ({ value, onChan
     return (
       <div className="space-y-2" role="group" aria-labelledby={id}>
         <textarea aria-label="Recipe steps as JSON" className="input min-h-[10rem] font-mono text-xs" value={value.json} onChange={e => onChange({ ...value, json: e.target.value })} />
-        <p className="text-xs text-label-3">Every step the engine knows: select, drop, rename, filter, cast, fill_missing, drop_missing, dedupe, sort, limit, sample, derive, bin, date_parts, text_clean, replace, split, one_hot, scale, log, clip, group, pivot, unpivot, window, join, union, sql.</p>
+        <p className="text-xs text-label-3">Every step the engine knows: select, drop, rename, filter, cast, fill_missing, drop_missing, dedupe, sort, limit, sample, derive, bin, date_parts, text_clean, replace, split, one_hot, label_encode, scale, log, clip, group, pivot, unpivot, window, join, union, sql.</p>
         <button type="button" className="btn btn-plain -ml-2 !text-sm" onClick={() => onChange({ steps, json: null })}>Back to the step form</button>
       </div>
     );

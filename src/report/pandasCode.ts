@@ -50,6 +50,11 @@ export function stepCode(step: AppliedOperation): string {
       const expr = { log: `np.log1p(${s})`, sqrt: `np.sqrt(${s})`, square: `${s} ** 2`, minmax: `(${s} - ${s}.min()) / (${s}.max() - ${s}.min())`, standard: `(${s} - ${s}.mean()) / ${s}.std()`, multiply: `${s} * ${o}`, divide: `${s} / ${o}.replace(0, np.nan)` }[p.transform as string] ?? s;
       return `${col(name)} = ${expr}`;
     }
+    case 'label_encode': {
+      const col = py(p.column), out = py(p.name || `${p.column}_code`);
+      const cats = p.order === 'alphabetical' ? `sorted(df[${col}].dropna().astype(str).unique())` : `df[${col}].dropna().astype(str).value_counts().index`;
+      return `codes = {v: i for i, v in enumerate(${cats})}\ndf[${out}] = df[${col}].astype(str).map(codes).where(df[${col}].notna())`;
+    }
     case 'one_hot_encode': return `df = pd.get_dummies(df, columns=[${py(p.column)}], prefix=${py(p.prefix || p.column)}, dtype=int)`;
     case 'standardize_text': {
       let e = `${col(p.column)}.astype("string")`;

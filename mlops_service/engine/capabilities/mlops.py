@@ -213,3 +213,74 @@ def monitor(ctx, p: MonitorParams):  # noqa: C901
         out["reportId"] = report_id
     return out
 
+
+
+class RetrainParams(BaseModel):
+    model: str = Field(..., description="The model to watch: id, or name@production / name@latest.")
+    target: str | None = Field(None, description="Outcome column in the new data (the model's own target when empty).")
+    retrain_when: Literal["warning", "alert", "always"] = Field("alert", description="Retrain when drift or decay reaches this level (always = retrain on every run).")
+    psi_warning: float = Field(0.1, gt=0)
+    psi_alert: float = Field(0.25, gt=0)
+    max_performance_drop: float = Field(0.1, gt=0, lt=1)
+    time_budget_s: int = Field(120, ge=5, le=3600, description="Tuning time for the retrain.")
+    promote: Literal["none", "staging", "production_if_better"] = Field(
+        "staging", description="What happens to the new version: nothing, staging, or production when it beats the current model on the new data.")
+    min_rows: int = Field(100, ge=10, le=100_000)
+
+
+@capability("mlops.retrain_if_drift", "mlops", "Retrain when drift is found",
+            "Checks a model against new data (drift and, with outcomes, performance decay) and, when the status reaches the chosen level, retrains it on that data with the same AutoML settings, registers the new version and, if asked, promotes it — to production only when it beats the current model on the new data.",
+            RetrainParams, needs_dataset=True, heavy=True, cacheable=False, tags=["mlops", "drift", "retraining", "automation"])
+def retrain_if_drift(ctx, p: RetrainParams):
+    from ..mlops_api import resolve_model
+    from .ml import AutoMLParams, automl
+
+    model_id = resolve_model(ctx.models, p.model)
+    meta = ctx.models.meta(model_id)
+    target = p.target or meta.get("target")
+    has_target = bool(target) and target in ctx.column_names()
+    ctx.progress(0.02, "Checking drift")
+    report = monitor(ctx, MonitorParams(model=model_id, source="dataset", target=target if has_target else None, psi_warning=p.psi_warning,
+                                        psi_alert=p.psi_alert, max_performance_drop=p.max_performance_drop, min_rows=p.min_rows))
+    status = report["summary"]["status"]
+    rank = {"ok": 0, "insufficient_data": 0, "warning": 1, "alert": 2}
+    level = {"warning": 1, "alert": 2, "always": 0}[p.retrain_when]
+    out: dict[str, Any] = {"model": {"id": model_id, "name": meta.get("name"), "version": meta.get("version"), "stage": meta.get("stage")},
+                           "status": status, "summary": report["summary"], "alerts": report["alerts"], "reportId": report.get("reportId"),
+                           "retrained": False}
+    if p.retrain_when != "always" and (status == "insufficient_data" or rank.get(status, 0) < level):
+        out["decision"] = f"No retrain: the status is {status.replace('_', ' ')}, below the “{p.retrain_when}” level."
+        return out
+    need(has_target, f"Drift was found, but the new data has no “{target}” column with the true outcome, so the model can't be retrained on it.")
+    kept = {k: v for k, v in (meta.get("trainParams") or {}).items() if k in AutoMLParams.model_fields}
+    features = [f for f in (kept.get("features") or meta.get("features") or []) if f in ctx.column_names()]
+    missing = [f for f in meta.get("features") or [] if f not in ctx.column_names()]
+    need(not missing, f"The new data is missing {len(missing)} of the model's features ({', '.join(missing[:5])}).")
+    for col in ("time_column", "group_column"):
+        if kept.get(col) and kept[col] not in ctx.column_names():
+            kept[col] = None
+            kept["split"] = "auto"
+    params = AutoMLParams(**{**kept, "target": target, "features": features or None, "name": meta.get("name") or kept.get("name"),
+                             "time_budget_s": p.time_budget_s})
+    ctx.progress(0.1, "Retraining with the model's own settings")
+    trained = automl(ctx, params)
+    new_id = trained["model"]["id"]
+    new_metrics, primary = trained.get("test") or {}, (report.get("performance") or {}).get("primaryMetric")
+    current = ((report.get("performance") or {}).get("current") or {}).get(primary) if primary else None
+    challenger = new_metrics.get(primary) if primary else None
+    better = None
+    if current is not None and challenger is not None:
+        better = challenger >= current if primary in HIGHER_IS_BETTER else challenger <= current
+    stage = None
+    if p.promote == "staging" or (p.promote == "production_if_better" and better is not True):
+        stage = "staging"
+    elif p.promote == "production_if_better" and better:
+        stage = "production"
+    if stage and ctx.models.meta(new_id).get("name"):
+        ctx.models.update(new_id, stage=stage, note=f"Retrained after drift ({status}) on {ctx.dataset.get('name')}")
+    elif stage:
+        ctx.note("The new version has no registered name, so it wasn't given a stage.")
+    out.update({"retrained": True, "newModel": {**trained["model"], "stage": stage or "none"}, "champion": trained.get("champion"),
+                "comparison": {"metric": primary, "currentModelOnNewData": current, "newModelOnTest": challenger, "newIsBetter": better},
+                "decision": f"Retrained because the status was {status}; the new version is {'in ' + stage if stage else 'saved without a stage'}."})
+    return out

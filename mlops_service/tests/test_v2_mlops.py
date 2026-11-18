@@ -195,3 +195,24 @@ def test_upload_url_needs_cloud_storage(client):
     r = client.post("/v2/datasets/upload-url", json={"filename": "big.csv"})
     assert r.status_code == 400 and r.json()["code"] == "not_supported"
     assert client.post("/v2/datasets/upload-url", json={"filename": "../x.csv"}).status_code == 422
+
+
+def test_retrain_only_when_drift_is_found(client, trained):
+    same = upload_rows(client, churn_rows(400, seed=21), "churn steady")
+    calm = run(client, "mlops.retrain_if_drift", same, model="mlops-churn@production", time_budget_s=10)
+    assert calm["retrained"] is False and calm["status"] in ("ok", "warning") and "No retrain" in calm["decision"]
+    shifted = upload_rows(client, churn_rows(400, seed=22, tenure_shift=40, flip=True), "churn drifted")
+    r = run(client, "mlops.retrain_if_drift", shifted, model="mlops-churn@production", time_budget_s=10, promote="production_if_better")
+    assert r["retrained"] is True and r["status"] == "alert"
+    new = client.get(f"/v2/models/{r['newModel']['id']}").json()
+    assert new["name"] == "mlops-churn" and new["trainedOn"]["dataset"] == shifted
+    assert r["comparison"]["newIsBetter"] is True and new["stage"] == "production"  # the flipped outcome makes the old model wrong
+
+
+def test_automl_validation_split(client):
+    rows = churn_rows(500, seed=5)
+    ds = upload_rows(client, rows, "churn val")
+    r = run(client, "ml.automl", ds, target="churn", models=["linear"], time_budget_s=8, max_trials_per_model=2, cv_folds=3, ensemble=False,
+            test_size=0.15, validation_size=0.15)
+    assert r["rows"]["validation"] == 75 and r["rows"]["test"] == 75 and r["rows"]["train"] == 350
+    assert r["validation"]["accuracy"] > 0.6

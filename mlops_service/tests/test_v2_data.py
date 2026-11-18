@@ -145,3 +145,48 @@ def test_yes_no_columns_stay_text_and_true_false_become_boolean(client):
     assert kinds == {"churn": "text", "flag": "boolean", "yn": "text", "n": "integer"}
     rows = client.get(f"/v2/datasets/{r.json()['id']}/preview").json()["rows"]
     assert rows[0]["churn"] == "Yes" and rows[0]["flag"] is True
+
+
+def test_recipe_label_encode(client, sales):
+    r = run(client, "data.recipe", sales, preview=True, steps=[{"op": "label_encode", "columns": ["region"], "method": "alphabetical"}])
+    codes = {row["id"] % 4: row["region"] for row in r["sample"]}
+    assert codes == {0: 1, 1: 2, 2: 0, 3: 3}  # North, South, East, West -> East 0, North 1, South 2, West 3
+
+
+class _Resp:
+    def __init__(self, body, status=200, links=None):
+        self.body, self.status_code, self.links = body, status, links or {}
+
+    def json(self):
+        return self.body
+
+
+def test_api_import_auth_and_pagination(client, monkeypatch):
+    import engine.capabilities.data_connectors as dc
+
+    calls = []
+    pages = {1: [{"id": 1, "user": {"name": "a"}}, {"id": 2, "user": {"name": "b"}}], 2: [{"id": 3, "user": {"name": "c"}}], 3: []}
+
+    def fake_get(url, headers=None, params=None, auth=None, **_):
+        calls.append((url, dict(headers or {}), dict(params or {})))
+        if headers.get("X-Key") != "s3cret":
+            return _Resp({"error": "no"}, 401)
+        return _Resp({"data": {"items": pages[params["page"]]}})
+
+    monkeypatch.setattr(dc, "_public_host", lambda host: None)
+    monkeypatch.setattr(dc.requests, "get", fake_get)
+    r = run(client, "connect.api", url="https://api.example.com/v1/users", auth="header", key_name="X-Key", api_key="s3cret",
+            records_path="data.items", pagination="page", name="users")
+    assert r["records"] == 3 and r["pages"] == 3 and "user.name" in r["columns"]
+    assert r["dataset"]["rows"] == 3 and "s3cret" not in str(r["manifest"])
+    bad = client.post("/v2/run/connect.api", json={"params": {"url": "https://api.example.com/x", "auth": "header", "key_name": "X-Key",
+                                                               "api_key": "wrong"}, "mode": "sync"})
+    assert bad.status_code == 400 and "refused" in bad.json()["detail"]
+
+    # Next links are followed, and each one is checked against private addresses.
+    seen = []
+    monkeypatch.setattr(dc, "_public_host", lambda host: seen.append(host))
+    nxt = {"https://api.example.com/a": _Resp({"results": [{"v": 1}], "next": "/b"}), "https://api.example.com/b": _Resp({"results": [{"v": 2}], "next": None})}
+    monkeypatch.setattr(dc.requests, "get", lambda url, **_: nxt[url])
+    r2 = run(client, "connect.api", url="https://api.example.com/a", pagination="next_link")
+    assert r2["records"] == 2 and seen == ["api.example.com", "api.example.com"]

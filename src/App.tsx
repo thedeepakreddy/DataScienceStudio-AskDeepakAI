@@ -37,6 +37,7 @@ import EngineStatus from './components/EngineStatus';
 import AppIcon from './components/AppIcon';
 import Orb from './components/Orb';
 import AiKeySheet from './components/AiKeySheet';
+import AiModelUpdate, { type AiModelInfo } from './components/AiModelUpdate';
 import { aiKeyHeaders, getUserGeminiKey, AI_KEY_CHANGED_EVENT } from './utils/aiKey';
 import { buildAdvisoryFallback } from './utils/advisoryFallback';
 import LoadingScreen from './components/LoadingScreen';
@@ -175,7 +176,7 @@ export default function App() {
   // any API call settles - so a silent fallback to template answers is visible.
   const [aiStatus, setAiStatus] = useState<{
     state: string; reason: string | null; message: string; detail: string | null;
-    visitorKey?: boolean; visitorKeyOk?: boolean | null; visitorKeyMessage?: string | null;
+    visitorKey?: boolean; visitorKeyOk?: boolean | null; visitorKeyMessage?: string | null; models?: AiModelInfo;
   } | null>(null);
   const [aiKeySheetOpen, setAiKeySheetOpen] = useState(false);
   const [hasOwnKey, setHasOwnKey] = useState<boolean>(() => !!getUserGeminiKey());
@@ -927,6 +928,7 @@ export default function App() {
             >
               {ownKeyFailed ? 'Check Your Key' : 'Use Your Own Key'}
             </button>
+            <AiModelUpdate compact models={aiStatus.models} onUpdated={() => refreshAiStatus()} />
             <button
               type="button"
               onClick={recheckAi}
@@ -1160,7 +1162,7 @@ export default function App() {
 
       <AnimatePresence>
         {aiKeySheetOpen && (
-          <AiKeySheet onClose={() => setAiKeySheetOpen(false)} onChanged={() => refreshAiStatus()} />
+          <AiKeySheet onClose={() => setAiKeySheetOpen(false)} onChanged={() => refreshAiStatus()} models={aiStatus?.models} />
         )}
       </AnimatePresence>
 

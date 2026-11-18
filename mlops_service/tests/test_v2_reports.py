@@ -23,7 +23,7 @@ def test_every_capability_has_methods_text():
     from engine.registry import REGISTRY
     from engine.reports import METHODS
 
-    missing = sorted(set(REGISTRY) - set(METHODS) - {"connect.url", "connect.gcs", "connect.bigquery", "connect.sql", "test.echo"})
+    missing = sorted(set(REGISTRY) - set(METHODS) - {"connect.url", "connect.api", "connect.gcs", "connect.bigquery", "connect.sql", "test.echo"})
     assert missing == []
 
 

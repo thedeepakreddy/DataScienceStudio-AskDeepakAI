@@ -461,5 +461,5 @@ export const GROUP_METHODS: Record<GroupId, string[]> = {
   patterns: ['correlation', 'normality'],
   textplus: ['text-overview', 'text-duplicates', 'text-map'],
   checks: ['features', 'fairness'],
-  import: ['from-url', 'from-sql', 'from-bigquery', 'from-gcs'],
+  import: ['from-url', 'from-api', 'from-sql', 'from-bigquery', 'from-gcs'],
 };

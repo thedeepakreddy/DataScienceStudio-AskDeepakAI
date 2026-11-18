@@ -258,6 +258,21 @@ const MODEL_CAPS: Capability[] = [
     selfCheck: engineCheck,
   },
   {
+    id: 'models.retrain', studio: 'Deploy', label: p => `Retrain ${p.model ? `“${p.model}”` : 'the newest model'} if this data has drifted`, defaultRole: 'mlops_engineer',
+    // It can save and promote a new model version, so it's approved on its own.
+    approval: 'separate', sideEffect: 'model', backend: true, idempotent: false, step: 'ml', timeoutMs: 1_200_000,
+    params: "{ model?: string, retrain_when?: 'alert'|'warning'|'always', promote?: 'staging'|'production_if_better'|'none' }",
+    validate: (_p, ds) => (ds ? null : 'No dataset is loaded.'),
+    run: async (p, port, signal) => {
+      const params = { model: await resolveModel(p.model), retrain_when: p.retrain_when ?? 'alert', promote: p.promote ?? 'staging' };
+      const r = await runCap('mlops.retrain_if_drift', params, port, signal, true);
+      const summary = String(r.decision ?? (r.retrained ? 'Retrained the model.' : 'No retrain needed.'));
+      port.logRun?.({ kind: 'engine', title: 'Retrain when drift is found', summary, status: 'succeeded', params: { capability: 'mlops.retrain_if_drift', params, runId: r.runId, view: { kind: 'monitor' } }, result: r });
+      return { summary, data: { capability: 'mlops.retrain_if_drift', runId: r.runId, view: { kind: 'monitor' }, result: r, modelId: r.newModel?.id } };
+    },
+    selfCheck: engineCheck,
+  },
+  {
     id: 'models.score', studio: 'Deploy', label: p => `Score every row with ${p.model ? `“${p.model}”` : 'the newest model'}`, defaultRole: 'mlops_engineer',
     approval: 'autonomous', sideEffect: 'none', backend: true, idempotent: true, step: 'ml', timeoutMs: 900_000,
     params: '{ model?: string }  // saves a scored copy in the engine; the studio data is unchanged',

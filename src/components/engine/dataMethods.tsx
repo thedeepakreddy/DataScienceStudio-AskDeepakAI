@@ -502,6 +502,31 @@ const fromUrl: Method = {
   headline: importedHeadline, tone: () => 'good', render: imported,
 };
 
+const fromApi: Method = {
+  id: 'from-api', cap: 'connect.api', title: 'From an API',
+  answers: 'Records from a JSON API, with a key or sign-in and every page followed; nested fields become columns. The key is used for this import only and never saved.',
+  fields: [
+    { key: 'url', label: 'API address (https://…)', kind: 'text', placeholder: 'https://api.example.com/v1/orders' },
+    { key: 'auth', label: 'Sign-in', kind: 'select', default: 'none', options: [
+      { value: 'none', label: 'None (public)' }, { value: 'bearer', label: 'Bearer token' }, { value: 'header', label: 'API key in a header' },
+      { value: 'query', label: 'API key in the address' }, { value: 'basic', label: 'Username and password' }] },
+    { key: 'api_key', label: 'Key or token', kind: 'text', secret: true, when: v => ['bearer', 'header', 'query'].includes(v.auth) },
+    { key: 'key_name', label: 'Key name (optional)', kind: 'text', optional: true, placeholder: 'X-API-Key / api_key', when: v => v.auth === 'header' || v.auth === 'query' },
+    { key: 'username', label: 'Username', kind: 'text', when: v => v.auth === 'basic' },
+    { key: 'password', label: 'Password', kind: 'text', secret: true, optional: true, when: v => v.auth === 'basic' },
+    { key: 'pagination', label: 'Pages', kind: 'select', default: 'none', options: [
+      { value: 'none', label: 'One page' }, { value: 'page', label: 'Page numbers (?page=1, 2 …)' }, { value: 'offset', label: 'Offset and limit' },
+      { value: 'next_link', label: 'Follow the “next” link' }, { value: 'cursor', label: 'Cursor' }] },
+    { key: 'next_path', label: 'Where the next link/cursor is (optional)', kind: 'text', optional: true, placeholder: 'next  ·  meta.next_cursor', when: v => v.pagination === 'next_link' || v.pagination === 'cursor' },
+    { key: 'page_size', label: 'Rows per page', kind: 'number', default: 100, min: 1, step: 1, when: v => v.pagination === 'offset' },
+    { key: 'max_pages', label: 'Most pages', kind: 'number', default: 50, min: 1, max: 1000, step: 1, when: v => v.pagination !== 'none' },
+    { key: 'records_path', label: 'Where the records are (optional)', kind: 'text', optional: true, placeholder: 'Found automatically · e.g. data.items' },
+    { key: 'name', label: 'Name it (optional)', kind: 'text', optional: true },
+  ],
+  headline: (r: any) => `${importedHeadline(r)} ${r.records?.toLocaleString()} records from ${r.pages} page${r.pages === 1 ? '' : 's'}.`,
+  tone: () => 'good', render: imported,
+};
+
 const fromSql: Method = {
   id: 'from-sql', cap: 'connect.sql', title: 'From a database',
   answers: 'A read-only SELECT on PostgreSQL or MySQL, streamed into the engine. The password is used once and never saved.',
@@ -543,5 +568,5 @@ export const DATA_METHODS: Method[] = [
   textAnalyze, textSimilarity, textEmbed,
   nonparametric, multipleTesting, srm,
   featureSelection, fairness,
-  fromUrl, fromSql, fromBigQuery, fromGcs,
+  fromUrl, fromApi, fromSql, fromBigQuery, fromGcs,
 ];

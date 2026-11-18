@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle2, AlertTriangle, ExternalLink, Eye, EyeOff, KeyRound, Lock } from 'lucide-react';
 import Orb from './Orb';
+import AiModelUpdate, { type AiModelInfo } from './AiModelUpdate';
 import { AI_KEY_HEADER, cleanGeminiKey, getUserGeminiKey, looksLikeGeminiKey, maskKey, setUserGeminiKey } from '../utils/aiKey';
 
 type TestResult = { ok: boolean; message: string; reason?: string } | null;
@@ -15,7 +16,7 @@ type TestResult = { ok: boolean; message: string; reason?: string } | null;
  * Lets a visitor add their own Gemini API key, used only when the app's own
  * key can't answer (for example when its free quota runs out).
  */
-export default function AiKeySheet({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+export default function AiKeySheet({ onClose, onChanged, models }: { onClose: () => void; onChanged: () => void; models?: AiModelInfo }) {
   const [saved, setSaved] = useState<string | null>(() => getUserGeminiKey());
   const [draft, setDraft] = useState('');
   const [reveal, setReveal] = useState(false);
@@ -177,6 +178,12 @@ export default function AiKeySheet({ onClose, onChanged }: { onClose: () => void
             {result.message}
           </p>
         )}
+
+        <div className="mt-5 pt-4 border-t border-separator space-y-1.5">
+          <p className="text-sm font-medium text-label">Gemini model</p>
+          <p className="text-xs text-label-2 leading-relaxed">Google retires models from time to time. The studio checks which ones exist and uses the newest on its own; press this if AI says a model isn’t available.</p>
+          <AiModelUpdate models={models} onUpdated={onChanged} />
+        </div>
 
         <a
           href="https://aistudio.google.com/app/apikey"
