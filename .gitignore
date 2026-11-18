@@ -21,3 +21,6 @@ serviceAccountKey.json
 
 # Runtime-generated logs (written by the server while the app is used, not source)
 deepakllm_training_data.jsonl
+
+# Engine token written by scripts/deploy_engine_hf.py
+.engine-token

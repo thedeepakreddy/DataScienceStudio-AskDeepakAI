@@ -28,7 +28,8 @@ ENV HF_HUB_OFFLINE=1
 
 # Run as an unprivileged user; it can only write to /tmp (where local engine storage lives
 # unless ENGINE_STORAGE points at a gs:// bucket).
-RUN useradd --create-home --uid 10001 engine
+# uid 1000: what Hugging Face Spaces run containers as (any uid works on Cloud Run).
+RUN useradd --create-home --uid 1000 engine
 USER engine
 
 EXPOSE 8000
