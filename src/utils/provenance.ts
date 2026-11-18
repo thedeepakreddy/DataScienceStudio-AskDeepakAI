@@ -64,13 +64,16 @@ export function describeRun(run: RunRecord): { heading: string; lines: string[] 
     }
     case 'ab-test':
       return { heading: run.title, lines: [run.summary, p.controlSize ? `Control ${p.controlSize} at ${(p.controlRate * 100).toFixed(1)}%, treatment ${p.treatmentSize} at ${(p.treatmentRate * 100).toFixed(1)}%.` : ''].filter(Boolean) };
+    case 'engine':
+      // An Engine v2 analysis: its headline sentence, and where to find the full method and reproduction.
+      return { heading: run.title, lines: [run.summary, p.runId ? `Computed by the AskDeepakAI engine (${p.capability}, run ${p.runId}); the methods section and a reproducing notebook are available from the run.` : ''].filter(Boolean) };
     default:
       return { heading: run.title, lines: [run.summary] };
   }
 }
 
 /** The kinds of saved runs that can go in a report. */
-export const REPORTABLE_KINDS: RunRecord['kind'][] = ['hypothesis-test', 'regression', 'forecast', 'ab-test'];
+export const REPORTABLE_KINDS: RunRecord['kind'][] = ['hypothesis-test', 'regression', 'forecast', 'ab-test', 'engine'];
 
 // --- Notebook --------------------------------------------------------------------
 

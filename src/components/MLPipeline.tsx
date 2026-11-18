@@ -249,7 +249,7 @@ export default function MLPipeline({
         const saved = await getModelFile(mlResult.modelId).catch(() => undefined);
         if (!saved) {
           const body = res ? await res.json().catch(() => ({})) : {};
-          throw new Error(body.error || 'The model is no longer on the ML service and no saved copy was found. Train again.');
+          throw new Error(body.error || 'The model is no longer on the engine and no saved copy was found. Train again.');
         }
         blob = new Blob([saved.bytes], { type: 'application/octet-stream' });
         filename = saved.filename;
@@ -659,8 +659,8 @@ export default function MLPipeline({
               )}
               {loadingML && (
                 <div className="flex items-center gap-2 text-label-2 font-sans">
-                  <Orb state="listening" label="Waiting for the ML engine" />
-                  <span>Waiting for the ML engine…</span>
+                  <Orb state="listening" label="Waiting for the engine" />
+                  <span>Waiting for the engine…</span>
                 </div>
               )}
             </div>

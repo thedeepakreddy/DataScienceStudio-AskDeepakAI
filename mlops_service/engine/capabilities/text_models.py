@@ -325,9 +325,13 @@ def semantic_topics(ctx, p: TopicParams):
     topics = sorted(t for t in set(labels) if t != -1)
     need(bool(topics), "No topics stood out; lower min_topic_size.")
     # Class-based TF-IDF (Grootendorst, 2022): a word scores high for a topic if it's common there and rare across topics.
-    cv = CountVectorizer(stop_words="english", ngram_range=(1, 2), min_df=2 if len(texts) > 100 else 1)
+    # One document per topic. min_df must stay 1: a word that appears in a single topic is exactly what makes
+    # that topic distinctive. Rare words are dropped by their count across all texts instead.
+    cv = CountVectorizer(stop_words="english", ngram_range=(1, 2), min_df=1)
     docs = [" ".join(t for t, lab in zip(texts, labels) if lab == k) for k in topics]
     C = cv.fit_transform(docs).toarray().astype(float)
+    if len(texts) > 100:
+        C[:, C.sum(axis=0) < 2] = 0
     tf = C / np.clip(C.sum(axis=1, keepdims=True), 1, None)
     idf = np.log(1 + C.sum(axis=1).mean() / np.clip(C.sum(axis=0), 1, None))
     ctfidf = tf * idf
@@ -336,9 +340,9 @@ def semantic_topics(ctx, p: TopicParams):
     for j, k in enumerate(topics):
         idx = np.where(labels == k)[0]
         centre = vec[idx].mean(axis=0)
-        typical = idx[np.argsort(-(vec[idx] @ centre))[:3]]
+        typical = list(dict.fromkeys(texts[i] for i in idx[np.argsort(-(vec[idx] @ centre))]))[:3]
         out_topics.append({"topic": int(j + 1), "size": int(len(idx)), "share": float(len(idx) / len(texts)),
-                           "keywords": vocab[np.argsort(-ctfidf[j])[: p.keywords]].tolist(), "typical": [texts[i][:300] for i in typical]})
+                           "keywords": [str(vocab[i]) for i in np.argsort(-ctfidf[j])[: p.keywords * 2] if ctfidf[j, i] > 0][: p.keywords], "typical": [t[:300] for t in typical]})
     out_topics.sort(key=lambda t: -t["size"])
     names = {k: j + 1 for j, k in enumerate(topics)}
     out: dict[str, Any] = {"model": _model_info(tm.get_model(p.model, "embedding")), "rows": len(texts), "topics": out_topics,

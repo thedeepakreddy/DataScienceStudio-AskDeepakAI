@@ -32,6 +32,7 @@ import {
   CategoricalValue
 } from '../utils/edaEngine';
 import SQLAssistant from './SQLAssistant';
+import TextAnalysis, { textColumns } from './explore/TextAnalysis';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
 import { useLogRun } from '../contexts/WorkspaceContext';
@@ -61,7 +62,9 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
   const { expertMode } = usePipelineContext();
   const logRun = useLogRun();
   // State for Sub-Workspaces
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'sql' | 'deepeda'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'sql' | 'deepeda' | 'text'>('overview');
+  // The Text tab only appears when there's free text to read.
+  const hasText = React.useMemo(() => textColumns(dataset).length > 0, [dataset]);
 
   // Real server-side EDA (Python/pandas) — computed on-demand since it hits the network.
   const [deepEdaResult, setDeepEdaResult] = useState<EdaReportType | null>(null);
@@ -263,6 +266,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
             { id: 'summaries', label: 'Statistics' },
             { id: 'integrity', label: 'Data Quality' },
             { id: 'deepeda', label: 'Deep Analysis' },
+            ...(hasText ? [{ id: 'text', label: 'Text' }] : []),
             ...(expertMode ? [
               { id: 'sql', label: 'SQL' },
               { id: 'outliers', label: 'Outliers' },
@@ -1065,6 +1069,8 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
         )}
 
         {/* 11. DEEP EDA — REAL SERVER-SIDE PANDAS/NUMPY COMPUTATION */}
+        {activeSubTab === 'text' && <TextAnalysis dataset={dataset} />}
+
         {activeSubTab === 'deepeda' && (
           <div className="space-y-6 animate-fade-in">
             {!deepEdaResult && (
