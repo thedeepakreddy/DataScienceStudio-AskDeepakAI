@@ -19,7 +19,7 @@
 - [Technology](#technology)
 - [Tests and CI](#tests-and-ci)
 - [Run it locally](#run-it-locally)
-- [Deploy on Render (free tier)](#deploy-on-render-free-tier)
+- [Deploy](#deploy)
 - [Project structure](#project-structure)
 - [Known limits](#known-limits)
 - [Further reading](#further-reading)
