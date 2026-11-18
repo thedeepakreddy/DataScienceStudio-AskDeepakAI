@@ -7,7 +7,7 @@ import math
 import platform
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from functools import lru_cache
 from importlib import metadata
 from typing import Any
@@ -51,7 +51,7 @@ def library_versions() -> dict[str, str]:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def jsonable(value: Any) -> Any:

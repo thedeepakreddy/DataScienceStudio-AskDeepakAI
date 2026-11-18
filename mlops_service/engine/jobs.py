@@ -14,8 +14,9 @@ import os
 import threading
 import traceback
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable
+from typing import Any
 
 from .core import Cancelled, EngineError, now_iso
 from .storage import Storage

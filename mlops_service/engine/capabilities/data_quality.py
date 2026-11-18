@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 from sklearn.ensemble import IsolationForest
