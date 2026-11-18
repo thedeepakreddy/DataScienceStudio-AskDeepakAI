@@ -5,7 +5,7 @@
 
 import { AGENTS, AgentRole } from '../swarm/agents';
 import { HumanMover } from '../swarm/humanMotion';
-import { findTarget } from '../swarm/interaction';
+import { SWARM_CONTROL_EVENT, findTarget, type SwarmControl } from '../swarm/interaction';
 import { cursorHtml, tagPlacement } from './AgentCursor';
 import { Dust, dustPalette } from './dust';
 
@@ -103,6 +103,8 @@ export class AgentStage {
   private dust: Dust;
   private svg: SVGSVGElement;
   private rootEl: HTMLDivElement;
+  private pauseBtn!: HTMLButtonElement;
+  private paused = false;
   private glowLayer: HTMLDivElement;
   private glows = new Map<string, Glow>();
   private partners = new Map<string, Partner>();
@@ -120,9 +122,16 @@ export class AgentStage {
     this.glowLayer.className = 'absolute inset-0';
     this.svg = document.createElementNS(NS, 'svg');
     this.svg.setAttribute('class', 'agent-tree');
+    // The Orchestrator node is also the team's control: click it to stop, or use the pause button beside it.
     this.rootEl = document.createElement('div');
     this.rootEl.className = 'agent-root';
-    this.rootEl.innerHTML = '<i></i>Orchestrator';
+    this.rootEl.innerHTML = '<button type="button" class="agent-root-stop" aria-label="Stop the agents" title="Stop the agents"><i></i><span>Orchestrator</span><b aria-hidden="true">Stop</b></button>'
+      + '<button type="button" class="agent-root-pause" aria-label="Pause the agents" title="Pause the agents"></button>';
+    this.pauseBtn = this.rootEl.querySelector('.agent-root-pause')!;
+    this.setPaused(false);
+    const send = (action: SwarmControl) => window.dispatchEvent(new CustomEvent(SWARM_CONTROL_EVENT, { detail: action }));
+    this.rootEl.querySelector('.agent-root-stop')!.addEventListener('click', e => { e.stopPropagation(); send('stop'); });
+    this.pauseBtn.addEventListener('click', e => { e.stopPropagation(); send(this.paused ? 'resume' : 'pause'); });
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'absolute inset-0 w-full h-full';
     host.append(this.glowLayer, this.svg, this.rootEl, this.canvas);
@@ -145,6 +154,17 @@ export class AgentStage {
     this.w = window.innerWidth; this.h = window.innerHeight;
     this.dust.resize(this.w, this.h);
   };
+
+  /** Shows pause (while working) or resume (while paused) beside the Orchestrator node. */
+  setPaused(paused: boolean) {
+    this.paused = paused;
+    this.rootEl.dataset.paused = paused ? '1' : '0';
+    this.pauseBtn.setAttribute('aria-label', paused ? 'Resume the agents' : 'Pause the agents');
+    this.pauseBtn.title = paused ? 'Resume the agents' : 'Pause the agents';
+    this.pauseBtn.innerHTML = paused
+      ? '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor"/></svg>'
+      : '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><rect x="2.5" y="2" width="2.4" height="8" rx="0.8" fill="currentColor"/><rect x="7.1" y="2" width="2.4" height="8" rx="0.8" fill="currentColor"/></svg>';
+  }
 
   // ---- What the cursor layer calls ----
 
@@ -433,6 +453,7 @@ export class AgentStage {
     }
     this.rootEl.style.transform = `translate3d(calc(${root.x}px - 50%), calc(${root.y}px - 50%), 0)`;
     this.rootEl.style.opacity = visible ? '1' : '0';
+    this.rootEl.style.pointerEvents = visible ? 'auto' : 'none';
     this.svg.style.opacity = visible ? '1' : '0';
     for (const p of this.partners.values()) {
       if (p.flying || !p.watching) continue;

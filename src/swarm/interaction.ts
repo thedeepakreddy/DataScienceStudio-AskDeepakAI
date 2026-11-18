@@ -366,3 +366,8 @@ export const RUN_LOGGED_EVENT = 'studio:run-logged';
 
 /** Sent when the current run is cleared (Clear in the chat or the Agents panel): the panel glows go out. */
 export const SWARM_CLEARED_EVENT = 'studio:swarm-cleared';
+/** The run's status, broadcast so the Orchestrator node can show pause or resume. */
+export const SWARM_STATUS_EVENT = 'studio:swarm-status';
+/** The Orchestrator node asks the team to stop, pause or resume. */
+export const SWARM_CONTROL_EVENT = 'studio:swarm-control';
+export type SwarmControl = 'stop' | 'pause' | 'resume';

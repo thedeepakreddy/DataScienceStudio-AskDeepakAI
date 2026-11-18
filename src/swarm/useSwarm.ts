@@ -10,7 +10,7 @@ import { apiFetch } from '../utils/api';
 import { ChatTurn, aiReviewRun, planRequest, PlanOutcome } from './gateway';
 import { TaskSpec, validatePlan } from './plan';
 import { ApprovalMode, RuntimeOptions, RuntimePort, SwarmRun, SwarmRuntime, newRun } from './runtime';
-import { SWARM_CLEARED_EVENT } from './interaction';
+import { SWARM_CLEARED_EVENT, SWARM_STATUS_EVENT } from './interaction';
 
 const APPROVAL_KEY = 'swarm-approval-mode';
 const ACTIVE: SwarmRun['status'][] = ['running', 'paused', 'cancelling', 'awaiting_approval'];
@@ -93,8 +93,10 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
   // The agents are only drawn while they work: a few seconds after a run ends
   // (or is paused), the panels it lit and the Orchestrator's tree fade away.
   const status = run?.status;
+  useEffect(() => { window.dispatchEvent(new CustomEvent(SWARM_STATUS_EVENT, { detail: status ?? null })); }, [status]);
   useEffect(() => {
-    if (!status || status === 'running' || status === 'cancelling') return;
+    // A paused run keeps its tree, so the Orchestrator's resume button stays in reach.
+    if (!status || status === 'running' || status === 'cancelling' || status === 'paused') return;
     const t = setTimeout(() => window.dispatchEvent(new Event(SWARM_CLEARED_EVENT)), status === 'awaiting_approval' ? 0 : 4000);
     return () => clearTimeout(t);
   }, [status, run?.id]);

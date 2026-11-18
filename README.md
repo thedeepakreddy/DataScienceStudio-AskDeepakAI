@@ -96,7 +96,7 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
    - **Strict step order:** a task starts only when every task of an earlier step (collect → clean → explore → statistics → model → dashboard → report) has finished, whatever links the plan gave it. Tasks of the same step may run together; waiting tasks say which step they wait for.
    - **Real actions, not mimes.** An agent choosing from a list opens it and runs down to the choice; typing goes in key by key and replaces the old text; buttons visibly press and the cursor then points at what appeared. If a value is already set, the agent glides past with *Already set: …* instead of pretending to act.
    - Each agent's cursor moves like a hand: curved paths, natural acceleration, a slight overshoot. A partner cursor lights up each panel the agent works in, and a thin branch grows from the **Orchestrator** node in the step bar to it, so a run reads like a tree.
-   - Two agents never use the same control at once: the second waits nearby (*Waiting for …*). A tap or key press of your own pauses the team, and you can Resume or Stop.
+   - Two agents never use the same control at once: the second waits nearby (*Waiting for …*). Touching the page doesn't interrupt them: **click the Orchestrator node** on the tree to stop the team, or the **pause button** beside it to pause and resume.
    - **Speed:** Natural, Fast or Instant (Agents panel). Reduced motion always means Instant.
 4. **Checked, not trusted.** Every task self-checks its own result (for example, no missing values left, or every kept row matches the filter). Risky results then get an **independent review** using a different method:
    - a permutation test for statistical tests,
