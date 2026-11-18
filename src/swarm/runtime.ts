@@ -8,6 +8,7 @@ import { AGENTS, AgentRole } from './agents';
 import { CAPABILITIES, Capability, CapabilityResult, StudioPort } from './catalog';
 import { LIMITS, TaskSpec, TaskStatus } from './plan';
 import { Driver } from './interaction';
+import { STAGE_ORDER } from '../stages';
 import { needsReview } from './review';
 import { Incident, IncidentState, RECOVERY_LIMITS, diagnose, fingerprint } from './recovery';
 import { MAX_FIXES, OrchestratorReview, auditRun } from './orchestratorReview';
@@ -117,6 +118,7 @@ export interface RuntimePort extends StudioPort {
   findAppliedVersion: (parentId: string | null, capability: string, params: unknown) => Promise<string | null>;
 }
 
+const STEP_NAMES: Record<string, string> = { ingest: 'collect', clean: 'clean', eda: 'explore', stats: 'statistics', ml: 'model', dashboard: 'dashboard', reports: 'report' };
 const TERMINAL: TaskStatus[] = ['completed', 'failed', 'cancelled', 'blocked'];
 const TRANSIENT = /timed out|timeout|503|502|504|unavailable|waking|network|fetch failed|ECONN|restarted|Load failed|HTTP 5/i;
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
@@ -306,7 +308,45 @@ export class SwarmRuntime {
       if (dep.status === 'failed' || dep.status === 'cancelled' || dep.status === 'blocked') return { blockedBy: dep };
       if (dep.status !== 'completed') return 'waiting';
     }
+    const gate = this.stepGate(t);
+    if (gate) return gate.status === 'failed' ? { blockedBy: gate } : 'waiting';
     return 'ready';
+  }
+
+  private stepOf(t: TaskState): number {
+    const i = STAGE_ORDER.indexOf(this.cap(t)?.step as any);
+    return i < 0 ? 0 : i;
+  }
+
+  /** Whether `a` waits (directly or through others) for `b`. */
+  private dependsOn(a: TaskState, b: TaskState, seen = new Set<string>()): boolean {
+    for (const d of a.dependsOn) {
+      if (d === b.id) return true;
+      if (seen.has(d)) continue;
+      seen.add(d);
+      const dt = this.task(d);
+      if (dt && this.dependsOn(dt, b, seen)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Strict workflow order: a task starts only when every task of an earlier step
+   * (collect → clean → explore → statistics → model → dashboard → report) has ended,
+   * whatever links the plan gave it. Tasks of the same step may run together. A
+   * failed change to the data stops the later steps (they'd work on the wrong data);
+   * another failed task only has to end. Returns the earliest task holding `t`.
+   */
+  private stepGate(t: TaskState): TaskState | null {
+    const mine = this.stepOf(t);
+    let holder: TaskState | null = null;
+    for (const o of this.run.tasks) {
+      if (o.id === t.id || this.stepOf(o) >= mine || this.dependsOn(o, t)) continue;
+      const changedData = this.cap(o)?.sideEffect === 'new-version';
+      if (o.status === 'failed' && changedData) return o;
+      if (!TERMINAL.includes(o.status) && (!holder || this.stepOf(o) < this.stepOf(holder))) holder = o;
+    }
+    return holder;
   }
 
   private async tick() {
@@ -330,7 +370,13 @@ export class SwarmRuntime {
         let backendSlots = LIMITS.maxConcurrentBackend - runningBackend;
         for (const t of this.run.tasks) {
           if (t.status !== 'pending' && t.status !== 'ready' && t.status !== 'awaiting_approval') continue;
-          if (this.depsState(t) !== 'ready') continue;
+          if (this.depsState(t) !== 'ready') {
+            const gate = this.stepGate(t);
+            const note = gate ? `Waiting for step ${this.stepOf(gate) + 1} (${STEP_NAMES[STAGE_ORDER[this.stepOf(gate)]] ?? STAGE_ORDER[this.stepOf(gate)]}) to finish.` : undefined;
+            if (note && t.note !== note && t.status !== 'awaiting_approval') { this.patch(t.id, { note }); changed = true; }
+            continue;
+          }
+          if (t.note?.startsWith('Waiting for step ')) this.patch(t.id, { note: undefined });
           if (!t.approved) {
             if (t.status !== 'awaiting_approval') {
               this.patch(t.id, { status: 'awaiting_approval', note: this.cap(t).approval === 'separate' ? 'Needs its own approval.' : 'Waiting for your approval.' });

@@ -151,3 +151,36 @@ describe('approval mode', () => {
     expect(preApproved('no.such.capability', 'auto')).toBe(false);
   });
 });
+
+describe('strict step order', () => {
+  it('runs later steps only after earlier ones end, even when the plan forgot the links', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const slowClean = new Promise<void>(r => { release = r; });
+    const port = fakePort(parseCSV(csv, 'c.csv'), {
+      train: vi.fn(async (target: string) => { order.push('train'); return { target, modelType: 'classification', modelAlgorithm: 'RF', metrics: { accuracy: 0.9 }, cv: { mean: 0.9, std: 0 }, modelId: 'm', leakageWarnings: [], featureImportance: [] } as any; }),
+      api: vi.fn(async () => { order.push('stats'); return { test: 't', pValue: 0.5, significant: false, rowsUsed: 4, assumptions: [] }; }),
+    });
+    const origCommit = port.commitDataset;
+    port.commitDataset = (...a: any[]) => { order.push('clean'); (origCommit as any)(...a); };
+    const settle = port.settle;
+    port.settle = async () => { await slowClean; return settle(); };
+    // Listed out of order, with no links between them.
+    const rt = new SwarmRuntime(newRun({ approvalMode: 'auto', request: 'x', reply: '', plannedBy: 'rules', datasetId: 'd', startVersionId: 'v0', tasks: [
+      { id: 'm', capability: 'models.train', params: { target: 'Churn' }, role: 'ml_engineer', dependsOn: [], why: '' },
+      { id: 's', capability: 'stats.compare', params: { columnA: 'MonthlyCharges', columnB: 'Churn' }, role: 'statistician', dependsOn: [], why: '' },
+      { id: 'c', capability: 'data.remove_duplicates', params: {}, role: 'data_engineer', dependsOn: [], why: '' },
+    ] }), port, async () => {}, () => {});
+    rt.start();
+    await new Promise(r => setTimeout(r, 40));
+    expect(order).not.toContain('train');
+    expect(order).not.toContain('stats');
+    expect(rt.run.tasks.find(t => t.id === 'm')!.note).toMatch(/Waiting for step \d \(/);
+    release();
+    const run = await runToEnd(rt);
+    expect(['completed', 'partial']).toContain(run.status);
+    expect(order).toContain('train');
+    expect(order.indexOf('stats')).toBeLessThan(order.indexOf('train'));
+    expect(order.indexOf('clean')).toBeLessThan(order.indexOf('stats'));
+  });
+});
