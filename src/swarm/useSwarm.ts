@@ -76,12 +76,21 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
       if (!open || runtime.current) return;
       const rt = attach(open);
       await rt.recover();
-      if (rt.run.status === 'running') rt.start();
+      // Agents never start on their own: a run interrupted by a reload waits for you to resume it.
+      if (rt.run.status === 'running') rt.pause('The page reloaded while the team was working, so the run is paused. Resume it when you’re ready, or cancel it.');
     }).catch(() => {});
   }, [ids.datasetId, attach]);
 
-  // Keep the recent-runs list current as runs finish.
+  // The agents are only drawn while they work: a few seconds after a run ends
+  // (or is paused), the panels it lit and the Orchestrator's tree fade away.
   const status = run?.status;
+  useEffect(() => {
+    if (!status || status === 'running' || status === 'cancelling') return;
+    const t = setTimeout(() => window.dispatchEvent(new Event(SWARM_CLEARED_EVENT)), status === 'awaiting_approval' ? 0 : 4000);
+    return () => clearTimeout(t);
+  }, [status, run?.id]);
+
+  // Keep the recent-runs list current as runs finish.
   useEffect(() => {
     if (status && !ACTIVE.includes(status)) listSwarmRuns(20).then(setHistory).catch(() => {});
   }, [status, run?.id]);

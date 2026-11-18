@@ -210,10 +210,10 @@ export class SwarmRuntime {
     void this.tick();
   }
 
-  pause() {
+  pause(message = 'Paused. Tasks already running will finish; no new ones start.') {
     if (this.run.status !== 'running') return;
     this.run.status = 'paused';
-    this.say('orchestrator', 'user', 'status', 'Paused. Tasks already running will finish; no new ones start.');
+    this.say('orchestrator', 'user', 'status', message);
     this.save();
   }
 

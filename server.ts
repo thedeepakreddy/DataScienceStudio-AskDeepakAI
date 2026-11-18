@@ -9,6 +9,7 @@ import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { buildAdvisoryFallback } from './src/utils/advisoryFallback';
+import { buildQualityFixes } from './src/utils/qualityAuditFixes';
 import { type GeminiFailureKind, classifyGeminiError, describeGeminiFailure, mostTellingFailure, summarizeGeminiError } from './geminiHealth';
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -189,16 +190,22 @@ class GeminiAttemptError extends Error {
   }
 }
 
+// A whole AI call (every model, every retry) gives up after this, so no feature
+// waits on Gemini longer than this before using its built-in version.
+const GEMINI_CALL_BUDGET_MS = 25_000;
+
 // One key, every model in turn, with backoff on temporary errors (503/429).
 async function runAcrossModels(client: GoogleGenAI, params: { contents: any; config?: any }) {
   let lastError: any = null;
   const kinds: GeminiFailureKind[] = [];
+  const deadline = Date.now() + GEMINI_CALL_BUDGET_MS;
 
   for (const model of GEMINI_MODELS) {
+    if (Date.now() > deadline) break;
     let attempts = 3;
     let delay = 600; // start with 600ms backoff delay
 
-    while (attempts > 0) {
+    while (attempts > 0 && Date.now() <= deadline) {
       try {
         console.log(`[AskDeepakAI Gemini Client] Querying model "${model}" (retries available: ${attempts})...`);
         const response = await client.models.generateContent({
@@ -245,6 +252,12 @@ async function runAcrossModels(client: GoogleGenAI, params: { contents: any; con
 // when it is actually needed. geminiHealth tracks the app's own key; the
 // outcome with a visitor key is kept on that visitor's request only.
 // (`_client` is kept for the existing call sites; the key decides the client.)
+// When the app's own key has just failed on every model (out of quota, rejected,
+// Gemini down), it rests for a while: features use their built-in versions at
+// once instead of each one waiting through the same retries again.
+const OWNER_KEY_REST_MS = 5 * 60 * 1000;
+let ownerKeyRestingUntil = 0;
+
 async function generateContentWithRetry(_client: GoogleGenAI, params: {
   contents: any;
   config?: any;
@@ -257,13 +270,20 @@ async function generateContentWithRetry(_client: GoogleGenAI, params: {
     throw new Error('GEMINI_API_KEY is not set on the server.');
   }
 
-  if (owner) {
+  const ownerResting = Date.now() < ownerKeyRestingUntil;
+  if (owner && ownerResting && !visitor) {
+    throw new Error('AI is unavailable right now (the last attempt failed); using the built-in version.');
+  }
+
+  if (owner && !ownerResting) {
     try {
       const { response, model } = await runAcrossModels(getGeminiClient(), params);
       geminiHealth.lastOk = { at: Date.now(), model };
+      ownerKeyRestingUntil = 0;
       return response;
     } catch (err) {
       const attempt = err as GeminiAttemptError;
+      ownerKeyRestingUntil = Date.now() + OWNER_KEY_REST_MS;
       geminiHealth.lastFailure = {
         at: Date.now(),
         kind: mostTellingFailure(attempt.kinds ?? []),
@@ -594,6 +614,8 @@ app.get('/api/ai/status', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   if (req.query.probe === '1' && aiKeyAvailable() && Date.now() - lastAiProbeAt > AI_PROBE_MIN_INTERVAL_MS) {
     lastAiProbeAt = Date.now();
+    // "Check again" is a deliberate retry: it may try the app's key even while it rests.
+    ownerKeyRestingUntil = 0;
     try {
       await generateContentWithRetry(getGeminiClient(), { contents: 'Reply with the single word: OK' });
     } catch { /* the failure is recorded in geminiHealth and reported below */ }
@@ -904,28 +926,37 @@ app.post('/api/run-ml-prediction', async (req, res) => {
     return res.json(baseResult);
   }
 
+  // The model comes back as soon as it's trained, with a summary the studio writes
+  // from the real metrics. An AI write-up, when AI is available, is asked for
+  // separately (POST /api/model-narrative) so training never waits on it.
+  const narrativeKey = randomUUID();
+  rememberNarrativeInputs(narrativeKey, { trainResult, champion, safeTarget, safeFeatures });
+  return res.json({ ...baseResult, ...buildTemplateNarrative(baseResult, safeTarget, safeFeatures), narrativeSource: 'studio', narrativeKey });
+});
+
+// What an AI write-up of a trained model needs, kept briefly after training.
+const narrativeInputs = new Map<string, { at: number; trainResult: any; champion: any; safeTarget: string; safeFeatures: string[] }>();
+function rememberNarrativeInputs(key: string, v: { trainResult: any; champion: any; safeTarget: string; safeFeatures: string[] }) {
+  narrativeInputs.set(key, { ...v, at: Date.now() });
+  for (const [k, x] of narrativeInputs) if (narrativeInputs.size > 50 || Date.now() - x.at > 60 * 60 * 1000) narrativeInputs.delete(k);
+}
+
+/** An AI-written business summary of an already-trained model (its numbers are never changed). */
+async function aiModelNarrative({ trainResult, champion, safeTarget, safeFeatures }: { trainResult: any; champion: any; safeTarget: string; safeFeatures: string[] }) {
   const client = getGeminiClient();
-  const hasKey = aiKeyAvailable();
-
-  if (!hasKey) {
-    console.log('[AskDeepakAI] No API key detected. Using a template narrative built from the real metrics above (no numbers invented).');
-    return res.json({ ...baseResult, ...buildTemplateNarrative(baseResult, safeTarget, safeFeatures) });
-  }
-
-  try {
     const realMetricsJson = JSON.stringify({
-      task: trainResult.task,
-      algorithm: champion.modelName,
-      metrics: champion.metrics,
-      confusionMatrix: champion.confusionMatrix,
-      crossValidation: champion.cv,
-      topFeatures: (champion.featureImportance || []).slice(0, 5),
-      comparisonAcrossModels: trainResult.comparison,
-      trainRows: champion.trainRows,
-      testRows: champion.testRows
-    });
+    task: trainResult.task,
+    algorithm: champion.modelName,
+    metrics: champion.metrics,
+    confusionMatrix: champion.confusionMatrix,
+    crossValidation: champion.cv,
+    topFeatures: (champion.featureImportance || []).slice(0, 5),
+    comparisonAcrossModels: trainResult.comparison,
+    trainRows: champion.trainRows,
+    testRows: champion.testRows
+  });
 
-    const systemInstruction = `You are a Business Translator summarizing the results of a machine learning model that has ALREADY been trained and evaluated by a real scikit-learn/XGBoost pipeline on held-out test data. You will be given REAL_METRICS — the exact, final, computed results.
+  const systemInstruction = `You are a Business Translator summarizing the results of a machine learning model that has ALREADY been trained and evaluated by a real scikit-learn/XGBoost pipeline on held-out test data. You will be given REAL_METRICS — the exact, final, computed results.
 
 STRICT RULES (violating these is a critical failure):
 1. Do NOT invent, recompute, guess, or restate with different precision any numeric value. Every number you write must be copied verbatim from REAL_METRICS.
@@ -939,59 +970,65 @@ ${realMetricsJson}
 Target Variable: "${safeTarget}"
 Feature Variables: ${JSON.stringify(safeFeatures)}`;
 
-    const aiResponse = await generateContentWithRetry(client, {
-      contents: 'Explain these real, already-computed model results in clear business language for a non-technical stakeholder. Reference numbers only from REAL_METRICS.',
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          required: ['markdownReport', 'risks', 'recommendations', 'scientistCallout'],
-          properties: {
-            markdownReport: { type: Type.STRING, description: 'Business-language markdown narrative. Any number cited must appear verbatim in REAL_METRICS.' },
-            risks: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                required: ['title', 'riskLevel', 'description'],
-                properties: {
-                  title: { type: Type.STRING },
-                  riskLevel: { type: Type.STRING, description: 'Must be "High", "Medium", or "Low"' },
-                  description: { type: Type.STRING }
-                }
-              }
-            },
-            recommendations: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                required: ['title', 'impact', 'details'],
-                properties: {
-                  title: { type: Type.STRING },
-                  impact: { type: Type.STRING, description: 'Must be "High", "Medium", or "Low"' },
-                  details: { type: Type.STRING }
-                }
-              }
-            },
-            scientistCallout: {
+  const aiResponse = await generateContentWithRetry(client, {
+    contents: 'Explain these real, already-computed model results in clear business language for a non-technical stakeholder. Reference numbers only from REAL_METRICS.',
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        required: ['markdownReport', 'risks', 'recommendations', 'scientistCallout'],
+        properties: {
+          markdownReport: { type: Type.STRING, description: 'Business-language markdown narrative. Any number cited must appear verbatim in REAL_METRICS.' },
+          risks: {
+            type: Type.ARRAY,
+            items: {
               type: Type.OBJECT,
-              required: ['focusColumns', 'justification', 'pathways'],
+              required: ['title', 'riskLevel', 'description'],
               properties: {
-                focusColumns: { type: Type.ARRAY, items: { type: Type.STRING } },
-                justification: { type: Type.STRING },
-                pathways: { type: Type.ARRAY, items: { type: Type.STRING } }
+                title: { type: Type.STRING },
+                riskLevel: { type: Type.STRING, description: 'Must be "High", "Medium", or "Low"' },
+                description: { type: Type.STRING }
               }
+            }
+          },
+          recommendations: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              required: ['title', 'impact', 'details'],
+              properties: {
+                title: { type: Type.STRING },
+                impact: { type: Type.STRING, description: 'Must be "High", "Medium", or "Low"' },
+                details: { type: Type.STRING }
+              }
+            }
+          },
+          scientistCallout: {
+            type: Type.OBJECT,
+            required: ['focusColumns', 'justification', 'pathways'],
+            properties: {
+              focusColumns: { type: Type.ARRAY, items: { type: Type.STRING } },
+              justification: { type: Type.STRING },
+              pathways: { type: Type.ARRAY, items: { type: Type.STRING } }
             }
           }
         }
       }
-    });
+    }
+  });
 
-    const narrative = JSON.parse(aiResponse.text || '{}');
-    return res.json({ ...baseResult, ...narrative });
-  } catch (apiError: any) {
-    console.error('[AskDeepakAI Gemini Client] Narrative generation failed, using template narrative built from real metrics:', apiError);
-    return res.json({ ...baseResult, ...buildTemplateNarrative(baseResult, safeTarget, safeFeatures) });
+  return JSON.parse(aiResponse.text || '{}');
+}
+
+app.post('/api/model-narrative', async (req, res) => {
+  const inputs = narrativeInputs.get(String(req.body?.narrativeKey ?? ''));
+  if (!inputs) return res.status(404).json({ error: 'That model’s details are no longer available for a write-up.' });
+  if (!aiKeyAvailable()) return res.status(503).json({ error: 'AI is not set up.', reason: 'ai_unavailable' });
+  try {
+    return res.json({ ...(await aiModelNarrative(inputs)), narrativeSource: 'ai' });
+  } catch (err: any) {
+    return res.status(503).json({ error: err?.message || 'AI could not write the summary.', reason: 'ai_unavailable' });
   }
 });
 
@@ -1023,29 +1060,29 @@ app.post('/api/eda', async (req, res) => {
     });
   }
 
+  // The analysis comes back at once with a summary the studio writes from the real
+  // numbers; an AI write-up, when AI is available, is asked for separately
+  // (POST /api/eda/narrative) so the numbers never wait on it.
+  return res.json({ ...edaResult, narrative: buildEdaTemplateNarrative(edaResult), narrativeSource: 'studio' });
+});
+
+/** An AI-written summary of an already-computed EDA (the numbers are never changed). */
+async function aiEdaNarrative(edaResult: any) {
   const client = getGeminiClient();
-  const hasKey = aiKeyAvailable();
-
-  if (!hasKey) {
-    console.log('[AskDeepakAI EDA] No API key detected. Using a template narrative built from the real EDA numbers above.');
-    return res.json({ ...edaResult, narrative: buildEdaTemplateNarrative(edaResult) });
-  }
-
-  try {
     const realEdaJson = JSON.stringify({
-      rowCount: edaResult.rowCount,
-      columnCount: edaResult.columnCount,
-      numericSummaries: edaResult.numericSummaries,
-      outliers: (edaResult.outliers || []).map((o: any) => ({
-        column: o.column, outlierCount: o.outlierCount, outlierPercent: o.outlierPercent,
-        lowerBound: o.lowerBound, upperBound: o.upperBound
-      })),
-      correlation: edaResult.correlation,
-      missingReport: edaResult.missingReport,
-      categoricalSummaries: edaResult.categoricalSummaries
-    });
+    rowCount: edaResult.rowCount,
+    columnCount: edaResult.columnCount,
+    numericSummaries: edaResult.numericSummaries,
+    outliers: (edaResult.outliers || []).map((o: any) => ({
+      column: o.column, outlierCount: o.outlierCount, outlierPercent: o.outlierPercent,
+      lowerBound: o.lowerBound, upperBound: o.upperBound
+    })),
+    correlation: edaResult.correlation,
+    missingReport: edaResult.missingReport,
+    categoricalSummaries: edaResult.categoricalSummaries
+  });
 
-    const systemInstruction = `You are a Data Quality Analyst summarizing a REAL exploratory data analysis that has ALREADY been computed by pandas/numpy. You will be given REAL_EDA — every mean, median, std, skew, correlation, and outlier count in it was genuinely measured from the dataset.
+  const systemInstruction = `You are a Data Quality Analyst summarizing a REAL exploratory data analysis that has ALREADY been computed by pandas/numpy. You will be given REAL_EDA — every mean, median, std, skew, correlation, and outlier count in it was genuinely measured from the dataset.
 
 STRICT RULES (violating these is a critical failure):
 1. Do NOT invent, recompute, guess, or restate with different precision any numeric value. Every number you write must be copied verbatim from REAL_EDA.
@@ -1056,39 +1093,45 @@ STRICT RULES (violating these is a critical failure):
 REAL_EDA:
 ${realEdaJson}`;
 
-    const aiResponse = await generateContentWithRetry(client, {
-      contents: 'Summarize this real, already-computed exploratory data analysis in plain business language for a data scientist. Reference numbers only from REAL_EDA.',
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          required: ['summary', 'dataQualityFlags', 'recommendedNextSteps'],
-          properties: {
-            summary: { type: Type.STRING, description: 'Plain-language narrative. Any number cited must appear verbatim in REAL_EDA.' },
-            dataQualityFlags: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                required: ['column', 'issue', 'severity'],
-                properties: {
-                  column: { type: Type.STRING },
-                  issue: { type: Type.STRING },
-                  severity: { type: Type.STRING, description: 'Must be "High", "Medium", or "Low"' }
-                }
+  const aiResponse = await generateContentWithRetry(client, {
+    contents: 'Summarize this real, already-computed exploratory data analysis in plain business language for a data scientist. Reference numbers only from REAL_EDA.',
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        required: ['summary', 'dataQualityFlags', 'recommendedNextSteps'],
+        properties: {
+          summary: { type: Type.STRING, description: 'Plain-language narrative. Any number cited must appear verbatim in REAL_EDA.' },
+          dataQualityFlags: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              required: ['column', 'issue', 'severity'],
+              properties: {
+                column: { type: Type.STRING },
+                issue: { type: Type.STRING },
+                severity: { type: Type.STRING, description: 'Must be "High", "Medium", or "Low"' }
               }
-            },
-            recommendedNextSteps: { type: Type.ARRAY, items: { type: Type.STRING } }
-          }
+            }
+          },
+          recommendedNextSteps: { type: Type.ARRAY, items: { type: Type.STRING } }
         }
       }
-    });
+    }
+  });
 
-    const narrative = JSON.parse(aiResponse.text || '{}');
-    return res.json({ ...edaResult, narrative });
-  } catch (apiError: any) {
-    console.error('[AskDeepakAI EDA] Narrative generation failed, using template narrative built from real numbers:', apiError);
-    return res.json({ ...edaResult, narrative: buildEdaTemplateNarrative(edaResult) });
+  return JSON.parse(aiResponse.text || '{}');
+}
+
+app.post('/api/eda/narrative', async (req, res) => {
+  const { eda } = req.body || {};
+  if (!eda || typeof eda !== 'object') return res.status(400).json({ error: 'The analysis to summarise is required.' });
+  if (!aiKeyAvailable()) return res.status(503).json({ error: 'AI is not set up.', reason: 'ai_unavailable' });
+  try {
+    return res.json({ narrative: await aiEdaNarrative(eda), narrativeSource: 'ai' });
+  } catch (err: any) {
+    return res.status(503).json({ error: err?.message || 'AI could not write the summary.', reason: 'ai_unavailable' });
   }
 });
 
@@ -2367,57 +2410,8 @@ function buildEdaTemplateNarrative(edaResult: any) {
 // counts, constant columns, high-cardinality, mixed types); this only
 // supplies a mechanical, genuinely-correct pandas snippet for each one,
 // nothing about the underlying finding is invented.
-function buildDeepQualityAuditFallback(auditSummary: any) {
-  const fixes: Array<{ issueName: string; severity: string; description: string; pythonFix: string }> = [];
-  const columnIssues = Array.isArray(auditSummary?.columnIssues) ? auditSummary.columnIssues : [];
-  const duplicateRows = auditSummary?.duplicateRows || 0;
-
-  if (duplicateRows > 0) {
-    fixes.push({
-      issueName: 'Duplicate rows',
-      severity: duplicateRows > (auditSummary?.totalRows || 0) * 0.05 ? 'High' : 'Medium',
-      description: `Found ${duplicateRows} fully duplicate row(s) across the dataset.`,
-      pythonFix: `df.drop_duplicates(inplace=True)`
-    });
-  }
-
-  for (const col of columnIssues) {
-    if (col.missingCount > 0) {
-      fixes.push({
-        issueName: `Missing values in ${col.name}`,
-        severity: parseFloat(col.missingPercentage) > 30 ? 'High' : parseFloat(col.missingPercentage) > 10 ? 'Medium' : 'Low',
-        description: `${col.missingCount} missing value(s) (${col.missingPercentage}) found in "${col.name}".`,
-        pythonFix: `df['${col.name}'] = df['${col.name}'].fillna(df['${col.name}'].median() if pd.api.types.is_numeric_dtype(df['${col.name}']) else df['${col.name}'].mode()[0])`
-      });
-    }
-    if (col.isConstant) {
-      fixes.push({
-        issueName: `Constant column ${col.name}`,
-        severity: 'Low',
-        description: `"${col.name}" has only 1 unique value across all rows and carries no predictive signal.`,
-        pythonFix: `df.drop(columns=['${col.name}'], inplace=True)`
-      });
-    }
-    if (col.isHighCardinality) {
-      fixes.push({
-        issueName: `High cardinality in ${col.name}`,
-        severity: 'Medium',
-        description: `"${col.name}" has ${col.uniqueValues} distinct values relative to the row count, which can overwhelm one-hot encoding.`,
-        pythonFix: `# Consider target/frequency encoding instead of one-hot for high-cardinality columns\nfreq = df['${col.name}'].value_counts(normalize=True)\ndf['${col.name}_freq_encoded'] = df['${col.name}'].map(freq)`
-      });
-    }
-    if (col.typeMismatchWarning) {
-      fixes.push({
-        issueName: `Mixed types in ${col.name}`,
-        severity: 'Medium',
-        description: `"${col.name}" contains a mix of string and numeric values.`,
-        pythonFix: `df['${col.name}'] = pd.to_numeric(df['${col.name}'], errors='coerce')`
-      });
-    }
-  }
-
-  return fixes;
-}
+// The audit's rules live in src/utils/qualityAuditFixes.ts (shared with the studio).
+const buildDeepQualityAuditFallback = buildQualityFixes;
 
 // Truthful, non-AI narrative for the Model Explainer — used only when
 // GEMINI_API_KEY isn't configured or the interpretation call fails. Every

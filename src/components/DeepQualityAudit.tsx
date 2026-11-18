@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Dataset } from '../types';
 import { Microscope, AlertTriangle, Download, Code, ShieldCheck } from 'lucide-react';
 import { usePipelineContext } from '../contexts/PipelineContext';
-import { apiFetch } from '../utils/api';
+import { buildQualityFixes } from '../utils/qualityAuditFixes';
 import Orb from './Orb';
 
 interface DeepQualityAuditProps {
@@ -22,7 +22,8 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
   const [issues, setIssues] = useState<Issue[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const runAudit = async () => {
+  // Everything is computed here, from every row, by fixed rules: no AI and no server round trip.
+  const runAudit = () => {
     setLoading(true);
     setError(null);
 
@@ -65,22 +66,11 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
         columnIssues: columnIssues.filter(c => c.missingCount > 0 || c.isConstant || c.isHighCardinality || c.typeMismatchWarning)
       };
 
-      // 2. Fetch AI Python fixes
-      const response = await apiFetch('/api/deep-quality-audit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ auditSummary })
-      });
-
-      const data = await response.json();
-      if (response.ok && data.fixes) {
-        setIssues(data.fixes);
-        setHasRunAudit(true);
-      } else {
-        setError(data.error || 'Failed to process quality audit.');
-      }
+      // 2. A fix for each finding, from the audit's own rules.
+      setIssues(buildQualityFixes(auditSummary));
+      setHasRunAudit(true);
     } catch (err: any) {
-      setError('Network error running deep audit.');
+      setError(err?.message || 'The audit could not finish.');
     } finally {
       setLoading(false);
     }
@@ -121,7 +111,7 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
         <div>
           <h2 id="audit-heading" className="section-title">Quality audit</h2>
           <p className="mt-1 text-sm text-label-2">
-            An AI scan for duplicates, mismatched types and formatting problems.
+            Checks every row for duplicates, missing values, constant and mixed-type columns, with a pandas fix for each. Done by the studio’s rules, instantly — no AI.
           </p>
         </div>
         {issues && !loading && issues.length > 0 && (

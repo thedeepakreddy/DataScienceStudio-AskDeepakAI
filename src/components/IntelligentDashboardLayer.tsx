@@ -18,6 +18,7 @@ import { isIdentifierColumn } from '../utils/csvParser';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
 import DashboardToolbar from './DashboardToolbar';
+import { designDashboard } from '../swarm/dashboardDesign';
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -101,33 +102,19 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
     };
   }, [dataset, mlResult]);
 
-  const runAutoConfig = async (problemOverride?: string) => {
-    const startedAt = Date.now();
-    setLoadingConfig(true);
+  // The dashboard is designed by the studio's chart rules from your columns (the
+  // same designer the agents use): instant, and the same every time. No AI call.
+  const runAutoConfig = (problemOverride?: string) => {
     setConfigError(null);
     try {
-      const response = await apiFetch('/api/dashboard/auto-configure', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile: datasetProfile, customProblem: problemOverride || customProblem })
-      });
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
-      }
-      const data = await response.json();
-      // The agents designed one while this was loading: keep theirs.
-      if (agentDesignedAt.current > startedAt) return;
-      if (data && data.recommendedComponents) {
-        setConfig(data);
-        setActiveComponents(data.recommendedComponents.map((c: any) => c.type));
-      } else {
-        throw new Error('No dashboard configuration was returned.');
-      }
+      const design = designDashboard(dataset, { focus: problemOverride || customProblem || undefined }, mlResult ?? null);
+      const comps = withIds(design.recommendedComponents);
+      setConfig({ ...design, recommendedComponents: comps, designedBy: 'rules' });
+      setActiveComponents(comps.map((c: any) => c.id));
+      if (design.layout) setLayout(design.layout as any);
     } catch (e: any) {
-      console.error('Failed to configure dashboard', e);
-      setConfigError(e.message || 'Could not auto-configure the dashboard. Check that the backend server is running.');
-    } finally {
-      setLoadingConfig(false);
+      console.error('Failed to design the dashboard', e);
+      setConfigError(e?.message || 'The dashboard couldn’t be designed from this data.');
     }
   };
 
@@ -344,7 +331,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
       <div className="flex flex-col items-center justify-center p-12 bg-surface border border-separator rounded-xl">
         <Orb state="solving" size={64} label="Building your dashboard" className="mb-4" />
         <h3 className="text-sm font-semibold text-label">Building your dashboard</h3>
-        <p className="text-xs text-label-3 mt-2">AI is analyzing {dataset.columns.length} features to recommend components...</p>
+        <p className="text-xs text-label-3 mt-2">Choosing charts for your {dataset.columns.length} columns…</p>
       </div>
       </div>
     );
@@ -424,7 +411,7 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
                 {activeComponents
                   .filter(c => !['KPI Cards', 'Data Table', 'Filters Panel', 'Slicers Panel', 'Heatmap Correlation Matrix'].includes(baseType(c)))
                   .map((comp) => {
-                    const rec = config?.designedBy === 'agents' ? config.recommendedComponents?.find((c: any) => c.id === comp) : null;
+                    const rec = config?.designedBy ? config.recommendedComponents?.find((c: any) => c.id === comp) : null;
                     return (
                       <div key={comp} className="block mb-7 break-inside-avoid w-full" data-agent={`dash-chart-${slug(comp)}`}>
                         {rec?.questionAnswered && <p className="text-xs text-label-2 mb-1.5 px-1">{rec.questionAnswered}</p>}

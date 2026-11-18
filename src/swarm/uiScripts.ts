@@ -40,7 +40,7 @@ export interface UiPort extends StudioPort {
 
 export type UiScript = (p: any, d: Driver, port: UiPort, signal: AbortSignal) => Promise<CapabilityResult>;
 
-const pageAlert = () => (typeof document !== 'undefined' ? document.querySelector('[role="alert"]')?.textContent?.trim() : undefined);
+const pageAlert = () => (typeof document !== 'undefined' ? [...document.querySelectorAll('[role="alert"]')].find(el => !el.closest('[hidden]'))?.textContent?.trim() : undefined);
 
 /** Presses the control that changes the data and confirms a new version was saved. */
 async function changeData(d: Driver, port: UiPort, op: OperationId, params: any, press: () => Promise<void>): Promise<CapabilityResult> {
