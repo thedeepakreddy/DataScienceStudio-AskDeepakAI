@@ -1,0 +1,41 @@
+# Top-level dependencies of the ML service and Engine v2. requirements.txt is the
+# pinned lockfile generated from this (see docs/DEPLOY_ENGINE.md, "Updating dependencies").
+# API
+fastapi
+uvicorn
+python-multipart
+pydantic
+# data layer
+duckdb
+pyarrow
+pandas
+numpy
+openpyxl
+# statistics
+scipy
+statsmodels
+lifelines
+# machine learning
+scikit-learn
+joblib
+# CPU-only XGBoost build: the default wheel pulls ~200 MB of CUDA libraries.
+xgboost-cpu
+lightgbm
+catboost
+optuna
+shap
+umap-learn
+vaderSentiment
+# pretrained transformer text models on CPU (no PyTorch)
+onnxruntime
+tokenizers
+huggingface_hub
+# formulaic (via lifelines) asks for wrapt>=1.17.0rc1, which lets pip pick pre-releases; pin a stable one.
+wrapt==2.5.2
+# connectors
+requests
+sqlalchemy
+psycopg[binary]
+pymysql
+google-cloud-storage
+google-cloud-bigquery

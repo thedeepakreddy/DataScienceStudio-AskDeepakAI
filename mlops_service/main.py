@@ -98,6 +98,13 @@ class LabelEncodedClassifier(BaseEstimator, ClassifierMixin):
 
 app = FastAPI(title="AskDeepakAI MLOps Service")
 
+# Engine v2: datasets on Parquet/DuckDB, the capability registry, jobs, and the
+# token check (ENGINE_TOKEN). Every v1 endpoint below keeps working unchanged.
+from engine import ENGINE_VERSION  # noqa: E402
+from engine.api import mount as mount_engine_v2  # noqa: E402
+
+mount_engine_v2(app)
+
 MAX_STORED_MODELS = 25
 model_store: dict[str, dict[str, Any]] = {}
 model_order: list[str] = []
@@ -661,7 +668,7 @@ def keep_alive_page():
 @app.get("/health")
 def health():
     # keep_alive_page lets the web app send people to "/" instead of "/health".
-    return {"status": "ok", "xgboost_available": HAS_XGBOOST, "keep_alive_page": True}
+    return {"status": "ok", "xgboost_available": HAS_XGBOOST, "keep_alive_page": True, "engine_version": ENGINE_VERSION}
 
 
 @app.post("/train")

@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("ENGINE_SCHEDULER", "0")  # tests drive schedules through /v2/schedules/tick
 
 import main as ml_service_main  # noqa: E402
 
@@ -13,6 +14,40 @@ import main as ml_service_main  # noqa: E402
 @pytest.fixture(scope="session")
 def client():
     return TestClient(ml_service_main.app)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _engine_storage(tmp_path_factory):
+    # Engine v2 keeps datasets, jobs and results in a throwaway folder during tests.
+    from engine import api as engine_api
+
+    engine_api.configure(str(tmp_path_factory.mktemp("engine-storage")))
+    yield
+
+
+def upload_rows(client, rows, name="test"):
+    r = client.post("/v2/datasets", json={"name": name, "rows": rows})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def wait_job(client, job_id, timeout=120):
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        job = client.get(f"/v2/jobs/{job_id}").json()
+        if job["status"] in ("done", "failed", "cancelled"):
+            return job
+        time.sleep(0.2)
+    raise AssertionError(f"job {job_id} did not finish")
+
+
+def run(client, cap, dataset_id=None, mode="sync", **params):
+    r = client.post(f"/v2/run/{cap}", json={"dataset_id": dataset_id, "params": params, "mode": mode, "use_cache": False})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    return body["result"] if mode == "sync" else body
 
 
 @pytest.fixture

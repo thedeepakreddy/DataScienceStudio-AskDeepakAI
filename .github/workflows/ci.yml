@@ -17,17 +17,31 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: "pip"
-          cache-dependency-path: mlops_service/requirements-dev.txt
+          cache-dependency-path: |
+            mlops_service/requirements.txt
+            mlops_service/requirements-dev.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+
+      # The pinned pretrained text models (~530 MB), cached by their pinned revisions.
+      - name: Cache text models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/askdeepakai-models
+          key: text-models-${{ hashFiles('mlops_service/engine/text_models.py') }}
+
+      - name: Download text models
+        run: python -m engine.text_models --download
 
       - name: Ruff lint
         run: ruff check .
 
       - name: Pytest
+        env:
+          ENGINE_SCHEDULER: "0"
         run: pytest tests/ -v
 
   frontend:
