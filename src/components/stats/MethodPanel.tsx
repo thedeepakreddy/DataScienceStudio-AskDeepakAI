@@ -80,6 +80,13 @@ export function problems(fields: Field[], v: Values): string | null {
   return null;
 }
 
+/** Parameters as they may be stored (history, pins): secret fields (passwords) left out. */
+export function storedParams(m: Method, params: Record<string, unknown>): Record<string, unknown> {
+  const secret = new Set(m.fields.filter(f => f.kind === 'text' && f.secret).map(f => f.key));
+  return secret.size ? Object.fromEntries(Object.entries(params).filter(([k]) => !secret.has(k))) : params;
+}
+const storedValues = (m: Method, v: Values) => storedParams(m, v) as Values;
+
 export function toParams(m: Method, fields: Field[], v: Values): Record<string, unknown> {
   const clean: Values = {};
   for (const f of fields) {
@@ -122,8 +129,9 @@ const FieldInput: React.FC<{ field: Field; dataset: Dataset; value: any; onChang
   if (f.kind === 'select') return <div>{label}<select id={id} data-agent={`field-${id}`} className="input" value={value} onChange={e => onChange(e.target.value)}>{f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>;
   if (f.kind === 'number') return <div>{label}<input id={id} data-agent={`field-${id}`} className="input" type="number" inputMode="decimal" value={value} min={f.min} max={f.max} step={f.step ?? 'any'} placeholder={f.optional ? 'Optional' : ''} onChange={e => onChange(e.target.value)} /></div>;
   if (f.kind === 'toggle') return <label className="flex items-center gap-2 text-sm text-label self-end pb-2"><input data-agent={`field-${id}`} type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} /> {f.label}</label>;
-  if (f.kind === 'text') return <div className="sm:col-span-2">{label}<input id={id} data-agent={`field-${id}`} className="input" value={value} placeholder={f.placeholder} onChange={e => onChange(e.target.value)} /></div>;
-  if (f.kind === 'custom') { const Editor = f.editor; return <div className="sm:col-span-2 lg:col-span-4"><span className="field-label" id={id}>{f.label}</span><Editor value={value} onChange={onChange} id={id} /></div>; }
+  if (f.kind === 'text' && f.multiline) return <div className="sm:col-span-2 lg:col-span-4">{label}<textarea id={id} data-agent={`field-${id}`} className="input min-h-[5rem] font-mono text-sm" value={value} placeholder={f.placeholder} onChange={e => onChange(e.target.value)} /></div>;
+  if (f.kind === 'text') return <div className="sm:col-span-2">{label}<input id={id} type={f.secret ? 'password' : 'text'} autoComplete={f.secret ? 'off' : undefined} data-agent={`field-${id}`} className="input" value={value} placeholder={f.placeholder} onChange={e => onChange(e.target.value)} /></div>;
+  if (f.kind === 'custom') { const Editor = f.editor; return <div className="sm:col-span-2 lg:col-span-4"><span className="field-label" id={id}>{f.label}</span><Editor value={value} onChange={onChange} id={id} dataset={dataset} /></div>; }
   // arms: results so far, one row per option
   const arms: any[] = value;
   const set = (i: number, k: string, x: string) => onChange(arms.map((a, j) => (j === i ? { ...a, [k]: x } : a)));
@@ -148,7 +156,7 @@ export const EngineMethod: React.FC<{ method: Method; dataset: Dataset }> = ({ m
   const logRun = useLogRun();
   const [values, setValues] = useState<Values>(() => initialValues(m.fields, dataset));
   const [ran, setRan] = useState<Values | null>(null);
-  const issue = problems(m.fields, values);
+  const issue = problems(m.fields, values) ?? m.check?.(values) ?? null;
   const singles = m.fields.filter(f => f.kind === 'column').map(f => values[f.key]).filter(Boolean);
   const r = run.result as any;
 
@@ -156,7 +164,7 @@ export const EngineMethod: React.FC<{ method: Method; dataset: Dataset }> = ({ m
     if (!r || !ran) return;
     let headline = '';
     try { headline = m.headline(r, ran); } catch { headline = m.title; }
-    logRun({ kind: 'engine', title: m.title, summary: headline, status: 'succeeded', params: { capability: m.cap, params: toParams(m, m.fields, ran), runId: r.runId, view: { kind: 'method', methodId: m.id, values: ran } }, result: r });
+    logRun({ kind: 'engine', title: m.title, summary: headline, status: 'succeeded', params: { capability: m.cap, params: storedParams(m, toParams(m, m.fields, ran)), runId: r.runId, view: { kind: 'method', methodId: m.id, values: storedValues(m, ran) } }, result: r });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r]);
 
@@ -187,7 +195,7 @@ export const EngineMethod: React.FC<{ method: Method; dataset: Dataset }> = ({ m
           <p className={`text-[17px] font-semibold ${TONE[tone]}`}>{headline}</p>
           {body}
           <ResultFooter agent={`pin-${m.id}`} provenance={<Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} />}
-            pin={{ title: m.title, headline, view: { kind: 'method', methodId: m.id, values: ran }, capability: m.cap, params: toParams(m, m.fields, ran), result: r }} />
+            pin={{ title: m.title, headline, view: { kind: 'method', methodId: m.id, values: storedValues(m, ran) }, capability: m.cap, params: storedParams(m, toParams(m, m.fields, ran)), result: r }} />
         </div>
       )}
     </div>

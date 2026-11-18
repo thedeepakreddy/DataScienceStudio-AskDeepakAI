@@ -160,16 +160,22 @@ def outliers(ctx, p: OutlierParams):
     else:
         filled = X.fillna(X.median())
         Z = RobustScaler().fit_transform(filled)
-        contamination = min(0.5, p.threshold) if p.threshold and p.threshold < 1 else "auto"
+        share = min(0.5, p.threshold) if p.threshold and p.threshold < 1 else None
         if p.method == "isolation_forest":
-            model = IsolationForest(n_estimators=200, contamination=contamination, random_state=ctx.seed)
+            model = IsolationForest(n_estimators=200, contamination=share or "auto", random_state=ctx.seed)
             pred = model.fit_predict(Z)
             score = pd.Series(-model.score_samples(Z), index=X.index)
         else:
-            model = LocalOutlierFactor(n_neighbors=min(35, max(5, len(Z) // 20)), contamination=contamination)
+            model = LocalOutlierFactor(n_neighbors=min(35, max(5, len(Z) // 20)), contamination=share or "auto")
             pred = model.fit_predict(Z)
             score = pd.Series(-model.negative_outlier_factor_, index=X.index)
-        row_flag = pd.Series(pred == -1, index=X.index)
+        if share:
+            row_flag = pd.Series(pred == -1, index=X.index)
+        else:
+            # Without an expected share, a row is unusual only when its score is "far out" among the
+            # scores (Tukey: above Q3 + 3 × IQR). scikit-learn's "auto" cut-off flags a third of ordinary data.
+            q1, q3 = float(score.quantile(0.25)), float(score.quantile(0.75))
+            row_flag = score > q3 + 3 * max(q3 - q1, 1e-12)
     flagged = df[row_flag]
     examples = flagged.assign(_outlier_score=score[row_flag]).sort_values("_outlier_score", ascending=False).head(p.examples)
     out: dict[str, Any] = {"method": p.method, "rowsChecked": len(df), "flaggedRows": int(row_flag.sum()),

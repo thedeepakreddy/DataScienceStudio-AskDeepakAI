@@ -8,6 +8,7 @@ import { Trash2, RotateCcw, CheckCircle, Plus, Minus, AlertTriangle, X, Undo2 } 
 import MoreCleanTools from './MoreCleanTools';
 import { Dataset, CleaningOperation } from '../types';
 import DeepQualityAudit from './DeepQualityAudit';
+import MethodPanel from './stats/MethodPanel';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { describeCleaningOperation } from '../utils/cleaningOperations';
 import {
@@ -715,6 +716,14 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
       </section>
 
       <DeepQualityAudit dataset={dataset} />
+
+      <section aria-labelledby="engine-quality-heading" className="space-y-4">
+        <div>
+          <h2 id="engine-quality-heading" className="section-title">Full-data checks and preparation</h2>
+          <p className="mt-1 text-sm text-label-2">Run on every row by the engine: profile, data rules, unusual values, personal data and masking, preparation recipes and quick estimates.</p>
+        </div>
+        <MethodPanel group="quality" dataset={dataset} />
+      </section>
     </div>
   );
 }

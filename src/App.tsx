@@ -51,6 +51,7 @@ import ModelStage from './components/model/ModelStage';
 import StageKeep from './components/StageKeep';
 import PinnedResults from './components/pins/PinnedResults';
 import { PinTargetContext } from './components/pins/PinButton';
+import { StudioDataContext } from './components/engine/UseEngineDataset';
 import DeployPanel from './components/DeployPanel';
 import SwarmPanel from './components/SwarmPanel';
 import MoreMenu from './components/MoreMenu';
@@ -615,6 +616,11 @@ export default function App() {
   useEffect(() => { setVisitedTabs(new Set([activeTab])); }, [datasetId]);
   // Charts and maps that were hidden measure themselves again when their step is shown.
   useEffect(() => { const t = requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); return () => cancelAnimationFrame(t); }, [activeTab]);
+  // Engine-made data (imports, masked copies, recipes) reaching the studio.
+  const studioData = {
+    open: (ds: Dataset) => handleDatasetLoaded(ds),
+    replace: (ds: Dataset, summary: string) => handleUpdateDataset(ds, undefined, summary),
+  };
   const pinTarget = React.useMemo(() => ({ datasetId, versionId: activeVersionId }), [datasetId, activeVersionId]);
 
   // ---- Agent swarm --------------------------------------------------------
@@ -676,6 +682,7 @@ export default function App() {
   return (
     <WorkspaceContext.Provider value={workspaceValue}>
     <PinTargetContext.Provider value={pinTarget}>
+    <StudioDataContext.Provider value={studioData}>
     <div className="min-h-screen flex flex-col bg-canvas text-label" id="workstation_app">
       <AnimatePresence>
         {showLoading && <LoadingScreen onComplete={handleLoadingComplete} />}
@@ -1248,6 +1255,7 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </StudioDataContext.Provider>
     </PinTargetContext.Provider>
     </WorkspaceContext.Provider>
   );

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import EngineImport from './engine/EngineImport';
 import React, { useState, useRef } from 'react';
 import { Upload, FileSpreadsheet, AlertTriangle, Sparkles, ArrowRight, ChevronRight, Users, TrendingUp, Activity, type LucideIcon } from 'lucide-react';
 import { Dataset } from '../types';
@@ -470,6 +471,7 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
           </div>
         </section>
       )}
+      <div className="mt-10"><EngineImport /></div>
     </div>
   );
 }

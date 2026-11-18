@@ -32,6 +32,7 @@ import {
   CategoricalValue
 } from '../utils/edaEngine';
 import SQLAssistant from './SQLAssistant';
+import MethodPanel from './stats/MethodPanel';
 import TextAnalysis, { textColumns } from './explore/TextAnalysis';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { apiFetch } from '../utils/api';
@@ -62,7 +63,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
   const { expertMode } = usePipelineContext();
   const logRun = useLogRun();
   // State for Sub-Workspaces
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'sql' | 'deepeda' | 'text'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'summaries' | 'integrity' | 'outliers' | 'correlation' | 'distributions' | 'categorical' | 'sql' | 'deepeda' | 'text' | 'segments' | 'time' | 'patterns'>('overview');
   // The Text tab only appears when there's free text to read.
   const hasText = React.useMemo(() => textColumns(dataset).length > 0, [dataset]);
 
@@ -271,6 +272,9 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
             { id: 'summaries', label: 'Statistics' },
             { id: 'integrity', label: 'Data Quality' },
             { id: 'deepeda', label: 'Deep Analysis' },
+            { id: 'segments', label: 'Segments & baskets' },
+            { id: 'time', label: 'Time patterns' },
+            { id: 'patterns', label: 'Relationships' },
             ...(hasText ? [{ id: 'text', label: 'Text' }] : []),
             ...(expertMode ? [
               { id: 'sql', label: 'SQL' },
@@ -1074,7 +1078,11 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
         )}
 
         {/* 11. DEEP EDA — REAL SERVER-SIDE PANDAS/NUMPY COMPUTATION */}
-        {activeSubTab === 'text' && <TextAnalysis dataset={dataset} />}
+        {activeSubTab === 'text' && <div className="space-y-8"><TextAnalysis dataset={dataset} /><MethodPanel group="textplus" dataset={dataset} /></div>}
+        {/* Engine analyses on every row: segments, maps and baskets; time patterns; relationships. */}
+        <div hidden={activeSubTab !== 'segments'}><MethodPanel group="segments" dataset={dataset} /></div>
+        <div hidden={activeSubTab !== 'time'}><MethodPanel group="time" dataset={dataset} /></div>
+        <div hidden={activeSubTab !== 'patterns'}><MethodPanel group="patterns" dataset={dataset} /></div>
 
         {activeSubTab === 'deepeda' && (
           <div className="space-y-6 animate-fade-in">

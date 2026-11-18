@@ -59,6 +59,17 @@ def test_outliers_find_the_planted_values(client, sales, method):
     assert r["flaggedRows"] >= 1 and big, method
 
 
+@pytest.mark.parametrize("method", ["isolation_forest", "lof"])
+def test_forest_outliers_default_flags_only_clear_outliers(client, method):
+    # Ordinary data plus one far-off row: without an expected share only that row stands out.
+    rng = np.random.default_rng(3)
+    rows = [{"a": float(x), "b": float(y)} for x, y in rng.normal(size=(400, 2))] + [{"a": 40.0, "b": -40.0}]
+    ds = upload_rows(client, rows, "plain")
+    r = run(client, "data.outliers", ds, method=method)
+    assert r["flaggedShare"] < 0.05, r["flaggedShare"]  # was 35% with scikit-learn's "auto" cut-off
+    assert any(e["a"] == 40.0 for e in r["examples"])
+
+
 def test_pii_scan_and_mask(client, sales):
     r = run(client, "data.pii_scan", sales)
     found = {f["column"]: f for f in r["findings"]}

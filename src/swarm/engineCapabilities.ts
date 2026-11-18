@@ -9,7 +9,7 @@ import { CAPABILITIES as ENGINE_CAPS, engine, type CapabilityName } from '../eng
 import { syncDataset } from '../engine/datasetSync';
 import { ENGINE_METHODS, GROUP_METHODS, type GroupId } from '../components/stats/methods';
 import { columnsFor, type Field, type Method, type Values } from '../components/stats/methodKit';
-import { initialValues, problems, toParams } from '../components/stats/MethodPanel';
+import { initialValues, problems, storedParams, toParams } from '../components/stats/MethodPanel';
 import { automlHeadline } from '../components/model/AutoMLPanel';
 import { explainHeadline } from '../components/model/ExplainPanel';
 import { monitorHeadline } from '../components/model/MonitorPanel';
@@ -35,7 +35,17 @@ const GROUPS: Record<GroupId, { stage: PipelineStage; tab: string; studio: Capab
   hypothesis: { stage: 'stats', tab: 'stats-tab-hypothesis', studio: 'Statistics', role: 'statistician' },
   forecast: { stage: 'ml', tab: 'model-tab-forecast', studio: 'Models', role: 'time_series_analyst' },
   decide: { stage: 'ml', tab: 'model-tab-decide', studio: 'Research', role: 'insights_strategist' },
+  quality: { stage: 'clean', tab: '', studio: 'Data', role: 'data_quality' },
+  segments: { stage: 'eda', tab: 'eda-tab-segments', studio: 'Explore', role: 'segmentation_analyst' },
+  time: { stage: 'eda', tab: 'eda-tab-time', studio: 'Explore', role: 'time_series_analyst' },
+  patterns: { stage: 'eda', tab: 'eda-tab-patterns', studio: 'Explore', role: 'data_scientist' },
+  textplus: { stage: 'eda', tab: 'eda-tab-text', studio: 'Explore', role: 'data_scientist' },
+  checks: { stage: 'ml', tab: 'model-tab-checks', studio: 'Models', role: 'ml_engineer' },
+  import: { stage: 'ingest', tab: '', studio: 'Data', role: 'data_engineer' },
 };
+
+/** Groups agents don't run: importing reaches outside systems with your credentials, so only you do it. */
+export const NOT_FOR_AGENT_GROUPS: GroupId[] = ['import'];
 
 const groupOf = (id: string): GroupId | undefined => (Object.keys(GROUP_METHODS) as GroupId[]).find(g => GROUP_METHODS[g].includes(id));
 
@@ -91,7 +101,8 @@ export function validateMethod(m: Method, p: Record<string, unknown>, ds: Datase
     if (f.kind === 'select' && given !== undefined && !f.options.some(o => o.value === given)) return `${f.key} must be one of ${f.options.map(o => o.value).join(', ')}.`;
     if (f.kind === 'number' && given !== undefined && !Number.isFinite(Number(given))) return `${f.key} must be a number.`;
   }
-  return problems(m.fields, valuesFor(m, p, ds));
+  const v = valuesFor(m, p, ds);
+  return problems(m.fields, v) ?? m.check?.(v) ?? null;
 }
 
 /** Runs a method on the engine directly (without the page). */
@@ -104,7 +115,7 @@ export async function runMethod(m: Method, p: Record<string, unknown>, port: Stu
   const res: any = await engine.runAndWait(m.cap, params as never, { datasetId, signal });
   const summary = m.headline(res, values);
   const view: PinView = { kind: 'method', methodId: m.id, values };
-  port.logRun?.({ kind: 'engine', title: m.title, summary, status: 'succeeded', params: { capability: m.cap, params, runId: res.runId, view }, result: res });
+  port.logRun?.({ kind: 'engine', title: m.title, summary, status: 'succeeded', params: { capability: m.cap, params: storedParams(m, params), runId: res.runId, view }, result: res });
   return { summary, data: { capability: m.cap, runId: res.runId, view, result: res } };
 }
 
@@ -112,7 +123,7 @@ export async function runMethod(m: Method, p: Record<string, unknown>, port: Stu
 async function fillAndRun(m: Method, p: Record<string, unknown>, d: Driver, port: UiPort, signal: AbortSignal): Promise<CapabilityResult> {
   const g = GROUPS[groupOf(m.id)!];
   await d.navigate(g.stage, `Opening ${g.stage === 'stats' ? 'Statistics' : 'Model'}`);
-  await d.click(g.tab, 'Opening the group');
+  if (g.tab) await d.click(g.tab, 'Opening the group');
   if (findTarget(`method-${m.id}`)) await d.click(`method-${m.id}`, m.title);
   await d.claim(`area-${m.id}`, m.title);
   for (const f of m.fields) {
@@ -283,6 +294,6 @@ export async function pinLatest(port: StudioPort, title?: string): Promise<Capab
 }
 
 export const ENGINE_AGENT_CAPABILITIES: Capability[] = [
-  ...Object.values(ENGINE_METHODS).filter(m => groupOf(m.id)).map(methodCapability),
+  ...Object.values(ENGINE_METHODS).filter(m => { const g = groupOf(m.id); return g && !NOT_FOR_AGENT_GROUPS.includes(g); }).map(methodCapability),
   ...MODEL_CAPS,
 ];

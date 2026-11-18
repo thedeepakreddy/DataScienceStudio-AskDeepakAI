@@ -16,10 +16,10 @@ export type Field =
   | { key: string; label: string; kind: 'select'; options: { value: string; label: string }[]; default: string; help?: string }
   | { key: string; label: string; kind: 'number'; default?: number; min?: number; max?: number; step?: number; optional?: boolean; help?: string; percent?: boolean }
   | { key: string; label: string; kind: 'toggle'; default: boolean; help?: string }
-  | { key: string; label: string; kind: 'text'; placeholder?: string; optional?: boolean; default?: string; help?: string }
+  | { key: string; label: string; kind: 'text'; placeholder?: string; optional?: boolean; default?: string; help?: string; secret?: boolean; multiline?: boolean }
   | { key: string; label: string; kind: 'arms'; help?: string }
   /** A bespoke editor (e.g. a table of variables); `check` returns a problem to show, or null. */
-  | { key: string; label: string; kind: 'custom'; initial: () => any; editor: React.FC<{ value: any; onChange: (v: any) => void; id: string }>; check?: (v: any) => string | null; help?: string };
+  | { key: string; label: string; kind: 'custom'; initial: () => any; editor: React.FC<{ value: any; onChange: (v: any) => void; id: string; dataset?: Dataset }>; check?: (v: any) => string | null; help?: string };
 
 export type Values = Record<string, any>;
 
@@ -37,6 +37,8 @@ export interface Method {
   /** Green when the finding is clear, orange when it needs care, plain otherwise. */
   tone?: (r: any, v: Values) => 'good' | 'warn' | 'plain';
   render: (r: any, v: Values) => React.ReactNode;
+  /** A check of the form's values beyond “required fields are filled” (a problem to show, or null). */
+  check?: (v: Values) => string | null;
   /** Whether the dataset can support this method at all (else it's hidden). */
   available?: (d: Dataset) => boolean;
 }

@@ -59,6 +59,9 @@ function ModelDetail({ model, onOpen }: { model: ModelMeta; onOpen: (tab: 'expla
   const remove = () => act('delete', async () => { await engine.models.remove(model.id); select(null); });
 
   const metrics = Object.entries(model.testMetrics ?? {}).slice(0, 8);
+  // The full record (stage changes, approvals, notes) comes from the engine on demand.
+  const [history, setHistory] = useState<Array<Record<string, unknown>> | null>(null);
+  useEffect(() => { setHistory(null); engine.models.get(model.id).then(m => setHistory((m.history as any) ?? [])).catch(() => setHistory([])); }, [model.id, model.stage, model.name]);
   return (
     <div className="card p-4 sm:p-5 space-y-5 animate-fade-in" aria-label={`Model ${modelName(model)}`} role="region">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -130,6 +133,17 @@ function ModelDetail({ model, onOpen }: { model: ModelMeta; onOpen: (tab: 'expla
       </div>
       {(needsName || needsApprover) && dirty && <p className="text-xs text-label-3">{needsName ? 'Give the model a name before staging or production.' : 'Enter who approved this promotion.'}</p>}
       {error && <p className="text-sm text-red">{error}</p>}
+
+      {history && history.length > 0 && (
+        <details>
+          <summary className="text-sm text-label cursor-pointer">History ({history.length} change{history.length === 1 ? '' : 's'})</summary>
+          <ul className="mt-2 space-y-1 text-xs text-label-2">
+            {history.slice().reverse().map((h, i) => (
+              <li key={i}>{h.at ? new Date(String(h.at)).toLocaleString() : ''} — {Object.entries(h).filter(([k]) => k !== 'at').map(([k, v]) => `${k}: ${String(v)}`).join(', ')}</li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {card && (
         <div className="space-y-2">
