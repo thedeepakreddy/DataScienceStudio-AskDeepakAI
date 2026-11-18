@@ -62,6 +62,9 @@ class AutoMLParams(BaseModel):
     conformal_alpha: float = Field(0.1, gt=0.001, lt=0.5, description="Prediction intervals/sets cover the truth (1 − alpha) of the time.")
     sensitive_features: list[str] | None = Field(None, description="Columns to check fairness across (not used as features unless listed).")
     positive_class: str | None = None
+    text_columns: list[str] | None = Field(None, description="Columns to treat as free text (detected automatically when empty).")
+    text_encoder: Literal["tfidf", "minilm-en", "minilm-multilingual"] = Field(
+        "tfidf", description="How free-text columns become features: TF-IDF word statistics, or pretrained transformer embeddings (meaning).")
     interactions: bool = Field(False, description="Add pairwise products of numeric features (up to 15 of them) for interaction effects.")
     nested_cv: bool = Field(False, description="Also estimate the whole tuning procedure's performance with nested cross-validation (slower, unbiased).")
     cost_false_positive: float | None = Field(None, gt=0, description="Binary tasks: cost of a false alarm, to choose the decision threshold.")
@@ -121,7 +124,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
     else:
         y = pd.to_numeric(y, errors="coerce")
     X = df[feats]
-    roles = mc.column_roles(X, types)
+    roles = mc.column_roles(X, types, p.text_columns)
     if roles["dropped"]:
         ctx.note(f"Left out {', '.join(roles['dropped'])} (constant, empty or ID-like).")
     used = [c for c in feats if c not in roles["dropped"]]
@@ -175,7 +178,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
             def objective(trial, fam=fam):
                 ctx.check()
                 params = {} if trial.number == 0 else mc.suggest(trial, fam, task)
-                s_ = cross_val_score(mc.pipeline(roles, fam, task, params, ctx.seed, balanced, p.interactions), Xa, ya, cv=cv_a,
+                s_ = cross_val_score(mc.pipeline(roles, fam, task, params, ctx.seed, balanced, p.interactions, p.text_encoder), Xa, ya, cv=cv_a,
                                      scoring=scoring, groups=ga, error_score="raise")
                 trial.set_user_attr("scores", s_.tolist())
                 trial.set_user_attr("params", params)
@@ -218,7 +221,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
             if not ib:
                 continue
             w = max(ib, key=lambda b: b["cvMean"])
-            est = mc.pipeline(roles, w["family"], task, w["params"], ctx.seed, balanced, p.interactions).fit(Xa, ya)
+            est = mc.pipeline(roles, w["family"], task, w["params"], ctx.seed, balanced, p.interactions, p.text_encoder).fit(Xa, ya)
             outer_scores.append(float(get_scorer(scoring)(est, Xtr.iloc[ote], ytr.iloc[ote])))
             winners.append(w["family"])
         if outer_scores:
@@ -230,7 +233,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
     if p.ensemble and len(ranked) >= 3:
         ctx.progress(0.7, "Building a stacked ensemble")
         top = ranked[:3]
-        est = [(b["family"], mc.pipeline(roles, b["family"], task, b["params"], ctx.seed, balanced, p.interactions)) for b in top]
+        est = [(b["family"], mc.pipeline(roles, b["family"], task, b["params"], ctx.seed, balanced, p.interactions, p.text_encoder)) for b in top]
         stack = (StackingClassifier(est, final_estimator=LogisticRegression(max_iter=2000), cv=3, stack_method="auto")
                  if task == "classification" else StackingRegressor(est, final_estimator=RidgeCV(), cv=3))
         try:
@@ -243,7 +246,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
             ctx.note(f"The stacked ensemble couldn't be built ({str(err).splitlines()[0]}).")
 
     champ = ranked[0]
-    model = champ.pop("estimator", None) or mc.pipeline(roles, champ["family"], task, champ["params"], ctx.seed, balanced, p.interactions)
+    model = champ.pop("estimator", None) or mc.pipeline(roles, champ["family"], task, champ["params"], ctx.seed, balanced, p.interactions, p.text_encoder)
     for b in ranked:
         b.pop("estimator", None)
     comparison = None

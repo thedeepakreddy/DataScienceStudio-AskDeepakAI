@@ -7,6 +7,8 @@
 // deep analysis), for the jobs panel. Stopping a job stops waiting for it in
 // this browser; work already running on the server finishes on its own.
 
+import { CAPABILITIES, type CapabilityName } from '../engine/contract.generated';
+
 export type JobStatus = 'running' | 'succeeded' | 'failed' | 'stopped';
 
 export interface Job {
@@ -45,7 +47,19 @@ const JOB_LABELS: [RegExp, string][] = [
   [/^\/api\/db-connections\b/, 'Connecting to the database'],
 ];
 
-export const labelForUrl = (url: string) => JOB_LABELS.find(([re]) => re.test(url))?.[1] ?? 'Working';
+const ENGINE_LABELS: [RegExp, string][] = [
+  [/^\/api\/engine\/models\/[^/]+\/predict\b/, 'Predicting'],
+  [/^\/api\/engine\/pipelines\b/, 'Running a pipeline'],
+  [/^\/api\/engine\/datasets\b/, 'Preparing data'],
+  [/^\/api\/engine\/schedules\/tick\b/, 'Running schedules'],
+];
+
+export const labelForUrl = (url: string) => {
+  // Engine analyses are labelled with the capability's own title, e.g. "Forecast".
+  const cap = /^\/api\/engine\/run\/([^/?]+)/.exec(url)?.[1];
+  if (cap) return CAPABILITIES[decodeURIComponent(cap) as CapabilityName]?.title ?? 'Running an analysis';
+  return [...JOB_LABELS, ...ENGINE_LABELS].find(([re]) => re.test(url))?.[1] ?? 'Working';
+};
 
 /** Finished jobs kept in the list. */
 const KEEP_FINISHED = 8;

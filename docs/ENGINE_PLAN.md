@@ -118,7 +118,7 @@ Hosting set-up (Cloud Run, budget alert, secrets) is documented in
 
 ## Status (November 2026): engine v2 built
 
-All seven phases are built and tested: 57 capabilities across 13 areas, behind
+All seven phases are built and tested: 63 capabilities across 13 areas, behind
 `/v2`, with every v1 endpoint unchanged. The suite has 170+ tests, which run
 in the pinned Python 3.13 environment, and checks results three ways:
 
@@ -167,6 +167,25 @@ large mean differences use the Welch normal interval.
 - The container image builds and runs. The apt step that installs `libgomp1`
   couldn't run in the build sandbox, because its network policy blocks the
   Debian mirrors.
+
+**Pretrained text models (deep learning on CPU).** Six capabilities run
+transformer models with ONNX Runtime (no PyTorch). Each model is pinned to a
+Hugging Face commit and baked into the image:
+
+- sentence embeddings, English and multilingual: `text.embed`, `text.semantic_search`, `text.semantic_topics`;
+- RoBERTa sentiment: `text.sentiment`;
+- DeBERTa zero-shot labelling: `text.zero_shot`;
+- BERT named entities: `text.entities`.
+
+AutoML can also use embeddings as text features (`text_encoder`). They were
+checked against the published sentence-transformers similarity for the
+reference sentence pair (0.755), and run at about 1,000 texts a second on
+4 vCPU.
+
+**Front-end contract.** `src/engine/client.ts` has a typed method for every
+engine route, with parameter types generated from the engine
+(`src/engine/contract.generated.ts`). Tests on both sides fail if they drift
+apart. See `docs/ENGINE_API.md`.
 
 **Next:** the studio front end. That means new panels for the v2 capabilities,
 and registering them for the agent team; the agent coverage test will then

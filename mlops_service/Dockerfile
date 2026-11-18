@@ -20,6 +20,12 @@ RUN pip install -r requirements.txt
 COPY main.py stats_engine.py model_extras.py forecasting.py monitoring.py ./
 COPY engine ./engine
 
+# Pretrained text models (about 530 MB, each pinned to an exact Hugging Face commit) are baked
+# into the image, so the engine never downloads at request time and runs with the hub offline.
+ENV ENGINE_MODEL_DIR=/app/models
+RUN python -m engine.text_models --download && rm -rf /app/models/.hub
+ENV HF_HUB_OFFLINE=1
+
 # Run as an unprivileged user; it can only write to /tmp (where local engine storage lives
 # unless ENGINE_STORAGE points at a gs:// bucket).
 RUN useradd --create-home --uid 10001 engine

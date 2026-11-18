@@ -26,6 +26,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      # The pinned pretrained text models (~530 MB), cached by their pinned revisions.
+      - name: Cache text models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/askdeepakai-models
+          key: text-models-${{ hashFiles('mlops_service/engine/text_models.py') }}
+
+      - name: Download text models
+        run: python -m engine.text_models --download
+
       - name: Ruff lint
         run: ruff check .
 

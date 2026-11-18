@@ -2195,7 +2195,11 @@ app.all('/api/engine/*', async (req, res) => {
     const baseUrl = await getMlServiceUrl();
     const hasBody = !['GET', 'HEAD'].includes(req.method);
     const isJson = req.is('application/json');
-    const headers = mlHeaders(hasBody && req.get('content-type') ? { 'Content-Type': req.get('content-type') as string } : {});
+    const headers = mlHeaders({
+      ...(hasBody && req.get('content-type') ? { 'Content-Type': req.get('content-type') as string } : {}),
+      // Who acted, for the engine's audit log and model approvals (an attribution hint, not authentication).
+      ...(req.get('x-engine-user') ? { 'X-Engine-User': String(req.get('x-engine-user')).slice(0, 200) } : {}),
+    });
     const init: any = { method: req.method, headers, signal: controller.signal };
     if (hasBody) {
       if (isJson) init.body = JSON.stringify(req.body ?? {});
@@ -2203,6 +2207,14 @@ app.all('/api/engine/*', async (req, res) => {
     }
     const upstream = await fetch(`${baseUrl}/v2/${tail}`, init);
     res.status(upstream.status);
+    const contentType = upstream.headers.get('content-type') || '';
+    // JSON goes back through res.json so the background-job layer (X-Async-Job) can capture it.
+    if (contentType.includes('application/json') && !upstream.headers.get('content-disposition')) {
+      const text = await upstream.text();
+      let parsed: unknown = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch { parsed = { error: text }; }
+      return res.json(parsed);
+    }
     for (const name of ENGINE_FORWARD_RESPONSE_HEADERS) {
       const value = upstream.headers.get(name);
       if (value) res.setHeader(name, value);

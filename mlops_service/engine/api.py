@@ -121,6 +121,14 @@ def capabilities(area: str | None = None) -> list[dict[str, Any]]:
     return [c.describe() for c in sorted(caps, key=lambda c: (c.area, c.name))]
 
 
+@router.get("/text-models")
+def text_models() -> list[dict[str, Any]]:
+    """The pinned pretrained text models, whether each is installed, and its licence."""
+    from .text_models import describe
+
+    return describe()
+
+
 # ---- datasets ----
 class RowsUpload(BaseModel):
     name: str = Field("dataset", max_length=200)

@@ -23,7 +23,7 @@ because they change. When this guide was written (November 2026):
 | Cloud Run, instance-based billing | 240,000 vCPU-seconds, 450,000 GiB-seconds | You pay for the instance's whole life, including idle time before it scales down. |
 | Cloud Storage | 5 GB-months of Standard storage in us-central1, us-east1 or us-west1 | Datasets are kept as compressed Parquet: a 265 MB CSV of 5 million rows stored as 26 MB. |
 | Cloud Scheduler | 3 jobs per billing account | One job is enough (the schedule tick). |
-| Artifact Registry | 0.5 GB of storage | The engine image is larger than this, so expect a few cents a month. Delete old images. |
+| Artifact Registry | 0.5 GB of storage | The engine image (about 2.7 GB with the text models) is larger than this, so expect a few cents a month. Delete old images. |
 
 Billing must be enabled even to use the free tier. **Set a budget alert first**
 (step 1).
@@ -133,6 +133,7 @@ gcloud run deploy askdeepakai-engine \
 - `ENGINE_SCHEDULER=0` turns off the in-process scheduler, which would sleep
   with the instance. Cloud Scheduler drives schedules instead (step 6).
 - `ENGINE_LOG_FORMAT=json` gives structured logs in Cloud Logging.
+- The image build downloads the pinned text models from Hugging Face (about 530 MB), and the engine then runs with the hub offline (`HF_HUB_OFFLINE=1`).
 - Cloud Run's filesystem is held in memory. With `ENGINE_STORAGE=gs://…`, data
   lives in the bucket and only a working cache sits on local disk.
 
@@ -179,6 +180,8 @@ through the studio at `/api/engine/…`, which passes requests through to
 | `ENGINE_LOG_LEVEL` | INFO | Log level. |
 | `ENGINE_PREDICTION_LOG` | 1 | Keep a capped log of online predictions, for monitoring. |
 | `ENGINE_REQUIRE_APPROVAL` | 0 | 1 = promoting a model to production needs an approver. |
+| `ENGINE_MODEL_DIR` | `~/.cache/askdeepakai-models` | Where the text models live (`/app/models` in the image). |
+| `ENGINE_TEXT_THREADS` | CPU count | Threads for text-model inference. |
 | `ENGINE_ALLOW_PRIVATE_NETWORK` | 0 | 1 = connectors may reach private addresses (local development only). |
 
 ## Running locally

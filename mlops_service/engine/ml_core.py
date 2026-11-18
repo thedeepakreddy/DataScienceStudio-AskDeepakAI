@@ -109,6 +109,40 @@ class PairwiseProducts(TransformerMixin, BaseEstimator):
 MAX_INTERACTION_COLUMNS = 15
 
 
+class TextEmbedding(TransformerMixin, BaseEstimator):
+    """A free-text column becomes a pretrained sentence-transformer embedding (meaning, not word counts).
+    Only the model key is pickled; vectors are cached in memory so cross-validation doesn't re-embed."""
+
+    _cache: dict[tuple[str, str], np.ndarray] = {}
+    _cache_limit = 300_000
+
+    def __init__(self, model: str = "minilm-en"):
+        self.model = model
+
+    def fit(self, X, y=None):
+        self.column_ = X.columns[0]
+        from . import text_models as tm
+
+        self.dims_ = tm.get_model(self.model, "embedding").dims
+        return self
+
+    def transform(self, X):
+        from . import text_models as tm
+
+        texts = X.iloc[:, 0].fillna("").astype(str).tolist()
+        todo = list(dict.fromkeys(t for t in texts if (self.model, t) not in self._cache))
+        if todo:
+            vec = tm.runtime(tm.get_model(self.model, "embedding")).embed(todo)
+            if len(self._cache) + len(todo) > self._cache_limit:
+                TextEmbedding._cache.clear()
+            for t, v in zip(todo, vec):
+                TextEmbedding._cache[(self.model, t)] = v
+        return np.vstack([self._cache[(self.model, t)] for t in texts]) if texts else np.zeros((0, self.dims_))
+
+    def get_feature_names_out(self, input_features=None):
+        return np.array([f"{self.column_}__emb{k}" for k in range(self.dims_)])
+
+
 class TextColumn(TransformerMixin, BaseEstimator):
     """A free-text column becomes TF-IDF compressed to a few dense dimensions."""
 
@@ -166,7 +200,7 @@ def _looks_like_dates(s: pd.Series) -> bool:
     return pd.to_datetime(v, errors="coerce", format="mixed").notna().mean() >= 0.95
 
 
-def column_roles(X: pd.DataFrame, types: dict[str, str]) -> dict[str, list[str]]:
+def column_roles(X: pd.DataFrame, types: dict[str, str], text_columns: list[str] | None = None) -> dict[str, list[str]]:
     """Sorts feature columns into numeric, boolean, date, low/high-cardinality categorical and free text."""
     roles: dict[str, list[str]] = {"numeric": [], "date": [], "low_card": [], "high_card": [], "text": [], "dropped": []}
     n = len(X)
@@ -175,16 +209,20 @@ def column_roles(X: pd.DataFrame, types: dict[str, str]) -> dict[str, list[str]]
         s = X[c]
         if s.notna().sum() == 0 or s.nunique(dropna=True) <= 1:
             roles["dropped"].append(c)
+        elif text_columns and c in text_columns:
+            roles["text"].append(c)
         elif t in ("integer", "number") or pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
             roles["numeric"].append(c)
         elif t in ("date", "datetime") or pd.api.types.is_datetime64_any_dtype(s) or _looks_like_dates(s):
             roles["date"].append(c)
         else:
             nun = s.nunique(dropna=True)
-            avg_len = s.dropna().astype(str).str.len().mean()
-            if nun >= 0.9 * s.notna().sum() and avg_len < 40 and n > 50:
-                roles["dropped"].append(c)  # an ID: unique per row, carries no signal
-            elif avg_len >= 40 and nun > 50:
+            vals = s.dropna().astype(str)
+            avg_len = vals.str.len().mean()
+            avg_words = vals.str.split().str.len().mean()
+            if nun >= 0.9 * s.notna().sum() and avg_words < 1.5 and n > 50:
+                roles["dropped"].append(c)  # an ID: unique per row, a single token, carries no signal
+            elif (avg_len >= 40 and nun > 50) or (avg_words >= 4 and nun >= 20):
                 roles["text"].append(c)
             elif nun > 30:
                 roles["high_card"].append(c)
@@ -193,7 +231,8 @@ def column_roles(X: pd.DataFrame, types: dict[str, str]) -> dict[str, list[str]]
     return roles
 
 
-def preprocessor(roles: dict[str, list[str]], scale: bool, task: str, seed: int, interactions: bool = False) -> ColumnTransformer:
+def preprocessor(roles: dict[str, list[str]], scale: bool, task: str, seed: int, interactions: bool = False,
+                 text_encoder: str = "tfidf") -> ColumnTransformer:
     parts = []
     if roles["numeric"]:
         steps = [("impute", SimpleImputer(strategy="median", add_indicator=True))]
@@ -221,7 +260,8 @@ def preprocessor(roles: dict[str, list[str]], scale: bool, task: str, seed: int,
             steps.append(("scale", StandardScaler()))
         parts.append(("date", Pipeline(steps), roles["date"]))
     for c in roles["text"]:
-        parts.append((f"text_{c}", TextColumn(seed=seed), [c]))
+        enc = TextColumn(seed=seed) if text_encoder == "tfidf" else TextEmbedding(text_encoder)
+        parts.append((f"text_{c}", enc, [c]))
     return ColumnTransformer(parts, remainder="drop", sparse_threshold=0, verbose_feature_names_out=True)
 
 
@@ -337,8 +377,9 @@ def suggest(trial, family: str, task: str) -> dict[str, Any]:
     return {}
 
 
-def pipeline(roles, family, task, params, seed, balanced, interactions: bool = False) -> Pipeline:
-    return Pipeline([("prep", preprocessor(roles, family in SCALED, task, seed, interactions)), ("model", make_model(family, task, params, seed, balanced))])
+def pipeline(roles, family, task, params, seed, balanced, interactions: bool = False, text_encoder: str = "tfidf") -> Pipeline:
+    return Pipeline([("prep", preprocessor(roles, family in SCALED, task, seed, interactions, text_encoder)),
+                     ("model", make_model(family, task, params, seed, balanced))])
 
 
 # ---------------------------------------------------------------- metrics
