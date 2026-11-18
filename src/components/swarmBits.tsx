@@ -7,7 +7,7 @@ import React from 'react';
 import { AlertTriangle, CheckCircle2, CircleSlash, XCircle } from 'lucide-react';
 import Orb from './Orb';
 import { CAPABILITIES } from '../swarm/catalog';
-import type { RunStatus, SwarmRun, TaskState } from '../swarm/runtime';
+import type { ApprovalMode, RunStatus, SwarmRun, TaskState } from '../swarm/runtime';
 
 // Shared pieces of the agent views (the chat's run card and the Agents panel).
 
@@ -39,3 +39,22 @@ export const canStart = (run: SwarmRun) =>
 /** The data changes made by a finished run can be undone in one step. */
 export const canUndo = (run: SwarmRun) =>
   !isActive(run) && !!run.startVersionId && !!run.report && run.report.data.endVersionId !== run.startVersionId;
+
+/** Whether agents run on their own (you watch) or wait for your approval before changing anything. */
+export function ApprovalSwitch({ mode, onChange, compact = false }: { mode: ApprovalMode; onChange: (m: ApprovalMode) => void; compact?: boolean }) {
+  return (
+    <div className="space-y-1">
+      <div className="segmented w-full" role="group" aria-label="Agent approval">
+        <button type="button" className="flex-1" aria-pressed={mode === 'auto'} onClick={e => { e.stopPropagation(); onChange('auto'); }}>Watch them work</button>
+        <button type="button" className="flex-1" aria-pressed={mode === 'ask'} onClick={e => { e.stopPropagation(); onChange('ask'); }}>Ask me first</button>
+      </div>
+      {!compact && (
+        <p className="text-xs text-label-3">
+          {mode === 'auto'
+            ? 'Agents start at once and you watch. Every change is a saved version you can undo; pause or stop them any time.'
+            : 'Agents plan first. Changes to your data, models and dashboards wait for you to approve them.'}
+        </p>
+      )}
+    </div>
+  );
+}

@@ -47,7 +47,7 @@ class Agg(BaseModel):
 
 class Step(BaseModel):
     op: Literal["select", "drop", "rename", "filter", "cast", "fill_missing", "drop_missing", "dedupe", "sort", "limit", "sample",
-                "derive", "bin", "date_parts", "text_clean", "replace", "split", "one_hot", "scale", "log", "clip", "group",
+                "derive", "bin", "date_parts", "text_clean", "replace", "split", "one_hot", "label_encode", "scale", "log", "clip", "group",
                 "pivot", "unpivot", "window", "join", "union", "sql"]
     columns: list[str] | None = None
     column: str | None = None
@@ -292,6 +292,17 @@ def _compile_step(c: _Compiler, s: Step, i: int) -> None:  # noqa: C901 - one br
         need(bool(cats), f"“{col}” has no values to encode.")
         flags = ", ".join(f"CAST(CAST({q(col)} AS VARCHAR) = {lit(v)} AS INTEGER) AS {q(f'{col}_{v}'[:120])}" for v in cats)
         c.add(f"SELECT *, {flags} FROM {p}")
+    elif op == "label_encode":
+        # Each category becomes a whole number (0, 1, 2 …): by how often it appears (most common = 0) or alphabetically.
+        reps = []
+        for x in _cols(s, cols, op):
+            order = "v" if (s.method or "frequency") == "alphabetical" else "n DESC, v"
+            cats = [r[0] for r in c.con.execute(f"SELECT CAST({q(x)} AS VARCHAR) v, count(*) n FROM ({c.sql_so_far()}) WHERE {q(x)} IS NOT NULL GROUP BY 1 ORDER BY {order} LIMIT 5001").fetchall()]
+            need(bool(cats), f"“{x}” has no values to encode.")
+            need(len(cats) <= 5000, f"“{x}” has more than 5,000 different values; label encoding suits categories, not free text or ids.")
+            whens = " ".join(f"WHEN {lit(v)} THEN {k}" for k, v in enumerate(cats))
+            reps.append(f"CAST(CASE CAST({q(x)} AS VARCHAR) {whens} END AS INTEGER) AS {q(x)}")
+        c.add(f"SELECT * REPLACE ({', '.join(reps)}) FROM {p}")
     elif op == "scale":
         chosen = _cols(s, cols, op)
         m = s.method or "standard"

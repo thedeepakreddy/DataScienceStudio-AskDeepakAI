@@ -13,8 +13,9 @@ import os
 import socket
 import tempfile
 import urllib.parse
-from typing import Literal
+from typing import Any, Literal
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import requests
@@ -81,6 +82,124 @@ def from_url(ctx, p: UrlParams):
         if os.path.exists(tmp.name):
             os.unlink(tmp.name)
     return {"dataset": meta, "bytes": size}
+
+
+class ApiParams(BaseModel):
+    url: str = Field(..., max_length=2000, description="The API address that returns JSON (https://…).")
+    auth: Literal["none", "bearer", "header", "query", "basic"] = Field("none", description="How the key is sent.")
+    api_key: str | None = Field(None, description="The key or token (never stored).")
+    key_name: str | None = Field(None, max_length=100, description="Header or query parameter name for the key (X-API-Key / api_key when empty).")
+    username: str | None = Field(None, max_length=200, description="For basic sign-in.")
+    password: str | None = Field(None, description="For basic sign-in (never stored).")
+    records_path: str | None = Field(None, max_length=200, description="Where the list of records is, e.g. data.items (found automatically when empty).")
+    pagination: Literal["none", "page", "offset", "next_link", "cursor"] = "none"
+    page_param: str | None = Field(None, max_length=100, description="page / offset / cursor parameter name (page, offset, cursor when empty).")
+    page_size: int = Field(100, ge=1, le=10_000, description="Rows asked for per page (offset paging).")
+    size_param: str | None = Field(None, max_length=100, description="Page-size parameter name (limit when empty).")
+    next_path: str | None = Field(None, max_length=200, description="Where the next link or cursor is in the response, e.g. next or meta.next_cursor.")
+    max_pages: int = Field(50, ge=1, le=1000)
+    name: str | None = None
+
+
+def _dig(obj: Any, path: str | None) -> Any:
+    for part in [p for p in (path or "").split(".") if p]:
+        if isinstance(obj, list) and part.isdigit():
+            obj = obj[int(part)] if int(part) < len(obj) else None
+        elif isinstance(obj, dict):
+            obj = obj.get(part)
+        else:
+            return None
+    return obj
+
+
+def _records(body: Any, path: str | None) -> list[dict[str, Any]]:
+    """The list of records in a JSON response: at `path`, or the response itself, or its first list."""
+    found = _dig(body, path) if path else body
+    if isinstance(found, dict) and not path:
+        found = next((v for v in found.values() if isinstance(v, list) and (not v or isinstance(v[0], dict))), [found])
+    if isinstance(found, dict):
+        found = [found]
+    if not isinstance(found, list):
+        raise EngineError(f"No list of records at “{path or 'the top'}” in the response.")
+    return [r if isinstance(r, dict) else {"value": r} for r in found]
+
+
+@capability("connect.api", "connect", "Import from an API",
+            "Reads records from a JSON API: with a key or token (header, query or bearer) or basic sign-in, following page numbers, offsets, next links or cursors, and flattening nested fields into columns. Keys are used for this request only and never stored.",
+            ApiParams, needs_dataset=False, heavy=True, cacheable=False, tags=["import", "api"])
+def from_api(ctx, p: ApiParams):
+    if urllib.parse.urlparse(p.url).scheme not in ("https", "http"):
+        raise EngineError("Use an http(s) address.")
+    headers = {"Accept": "application/json", "User-Agent": "AskDeepakAI-engine"}
+    query: dict[str, Any] = {}
+    auth = None
+    if p.auth != "none" and p.auth != "basic" and not p.api_key:
+        raise EngineError("Enter the key or token.")
+    if p.auth == "bearer":
+        headers["Authorization"] = f"Bearer {p.api_key}"
+    elif p.auth == "header":
+        headers[p.key_name or "X-API-Key"] = str(p.api_key)
+    elif p.auth == "query":
+        query[p.key_name or "api_key"] = p.api_key
+    elif p.auth == "basic":
+        auth = (p.username or "", p.password or "")
+
+    rows: list[dict[str, Any]] = []
+    url: str | None = p.url
+    page_param = p.page_param or {"page": "page", "offset": "offset", "cursor": "cursor"}.get(p.pagination, "page")
+    page, offset, cursor, pages = 1, 0, None, 0
+    while url and pages < p.max_pages:
+        _public_host(urllib.parse.urlparse(url).hostname or "")
+        params = dict(query)
+        if p.pagination == "page":
+            params[page_param] = page
+        elif p.pagination == "offset":
+            params[page_param] = offset
+            params[p.size_param or "limit"] = p.page_size
+        elif p.pagination == "cursor" and cursor:
+            params[page_param] = cursor
+        try:
+            r = requests.get(url, headers=headers, params=params, auth=auth, timeout=(10, 60), allow_redirects=False)
+        except requests.RequestException as err:
+            raise EngineError(f"Couldn't reach the API: {err}") from err
+        if r.status_code in (401, 403):
+            raise EngineError(f"The API refused the request (HTTP {r.status_code}): check the key and how it's sent.")
+        if r.status_code != 200:
+            raise EngineError(f"The API answered HTTP {r.status_code}.")
+        try:
+            body = r.json()
+        except ValueError as err:
+            raise EngineError("The API didn't return JSON.") from err
+        batch = _records(body, p.records_path)
+        rows.extend(batch)
+        pages += 1
+        ctx.progress(min(0.95, pages / p.max_pages), f"Read {len(rows):,} records from {pages} page(s)")
+        ctx.check()
+        if len(rows) > 2_000_000:
+            raise EngineError("More than 2 million records; narrow the request.", 413, "too_large")
+        if p.pagination == "none" or not batch:
+            break
+        if p.pagination == "page":
+            page += 1
+        elif p.pagination == "offset":
+            offset += len(batch)
+            if len(batch) < p.page_size:
+                break
+        elif p.pagination == "next_link":
+            nxt = _dig(body, p.next_path or "next") or r.links.get("next", {}).get("url")
+            url = urllib.parse.urljoin(url, nxt) if isinstance(nxt, str) and nxt else None
+            query = {k: v for k, v in query.items() if p.auth == "query" and k == (p.key_name or "api_key")}
+        elif p.pagination == "cursor":
+            cursor = _dig(body, p.next_path or "next_cursor")
+            if not cursor:
+                break
+    if not rows:
+        raise EngineError("The API returned no records.")
+    df = pd.json_normalize(rows, sep=".")
+    parsed = urllib.parse.urlparse(p.url)
+    meta = ctx.datasets.ingest_frame(df, p.name or (parsed.netloc + parsed.path).strip("/").replace("/", " ") or "api",
+                                     {"kind": "api", "url": f"{parsed.scheme}://{parsed.netloc}{parsed.path}", "pages": pages})
+    return {"dataset": meta, "records": len(rows), "pages": pages, "columns": list(df.columns)[:200]}
 
 
 class GcsParams(BaseModel):

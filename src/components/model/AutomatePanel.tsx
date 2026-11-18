@@ -7,6 +7,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { CalendarClock, Play, RotateCw, Trash2 } from 'lucide-react';
 import { CAPABILITIES, engine, type CapabilityName, type EngineJob, type PipelineStep, type RunRecord, type Schedule } from '../../engine/client';
 import Orb from '../Orb';
+import type { Dataset } from '../../types';
+import RetrainPanel from './RetrainPanel';
 
 const title = (cap: string) => CAPABILITIES[cap as CapabilityName]?.title ?? cap;
 const EVERY: { label: string; minutes: number }[] = [
@@ -20,7 +22,7 @@ const stepOf = (r: RunRecord): PipelineStep => ({ capability: r.capability as Ca
  * Re-run past engine analyses (as one pipeline) or put them on a schedule, so
  * a forecast, a drift check or a data-rule check repeats on its own.
  */
-export default function AutomatePanel() {
+export default function AutomatePanel({ dataset = null }: { dataset?: Dataset | null }) {
   const [runs, setRuns] = useState<RunRecord[] | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
@@ -63,6 +65,7 @@ export default function AutomatePanel() {
 
   return (
     <div className="space-y-6" data-agent="area-automate">
+      <RetrainPanel dataset={dataset} onScheduled={load} />
       <div className="card p-4 sm:p-5 space-y-4">
         <div>
           <h3 className="card-title">Repeat analyses</h3>

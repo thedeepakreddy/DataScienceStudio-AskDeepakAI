@@ -36,7 +36,9 @@ import StageHeader from './components/StageHeader';
 import EngineStatus from './components/EngineStatus';
 import AppIcon from './components/AppIcon';
 import Orb from './components/Orb';
+import AboutCreator from './components/AboutCreator';
 import AiKeySheet from './components/AiKeySheet';
+import AiModelUpdate, { type AiModelInfo } from './components/AiModelUpdate';
 import { aiKeyHeaders, getUserGeminiKey, AI_KEY_CHANGED_EVENT } from './utils/aiKey';
 import { buildAdvisoryFallback } from './utils/advisoryFallback';
 import LoadingScreen from './components/LoadingScreen';
@@ -175,7 +177,7 @@ export default function App() {
   // any API call settles - so a silent fallback to template answers is visible.
   const [aiStatus, setAiStatus] = useState<{
     state: string; reason: string | null; message: string; detail: string | null;
-    visitorKey?: boolean; visitorKeyOk?: boolean | null; visitorKeyMessage?: string | null;
+    visitorKey?: boolean; visitorKeyOk?: boolean | null; visitorKeyMessage?: string | null; models?: AiModelInfo;
   } | null>(null);
   const [aiKeySheetOpen, setAiKeySheetOpen] = useState(false);
   const [hasOwnKey, setHasOwnKey] = useState<boolean>(() => !!getUserGeminiKey());
@@ -927,6 +929,7 @@ export default function App() {
             >
               {ownKeyFailed ? 'Check Your Key' : 'Use Your Own Key'}
             </button>
+            <AiModelUpdate compact models={aiStatus.models} onUpdated={() => refreshAiStatus()} />
             <button
               type="button"
               onClick={recheckAi}
@@ -1139,6 +1142,8 @@ export default function App() {
             onCancelTask={swarm.cancelTask}
             onDiscard={swarm.discard}
             onUndoAll={undoSwarmRun}
+            approvalMode={swarm.approvalMode}
+            onApprovalMode={swarm.setApprovalMode}
           />
         )}
       </AnimatePresence>
@@ -1160,99 +1165,13 @@ export default function App() {
 
       <AnimatePresence>
         {aiKeySheetOpen && (
-          <AiKeySheet onClose={() => setAiKeySheetOpen(false)} onChanged={() => refreshAiStatus()} />
+          <AiKeySheet onClose={() => setAiKeySheetOpen(false)} onChanged={() => refreshAiStatus()} models={aiStatus?.models} />
         )}
       </AnimatePresence>
 
       {/* About the creator — presented as a sheet. */}
       <AnimatePresence>
-        {isAboutModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setIsAboutModalOpen(false)}
-              className="absolute inset-0 bg-[var(--scrim)]"
-            />
-
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="about-title"
-              initial={{ opacity: 0, y: 24, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 24, scale: 0.98 }}
-              transition={{ duration: 0.3, ease: [0.28, 0.11, 0.32, 1] }}
-              className="relative z-10 w-full sm:max-w-md bg-raised rounded-t-3xl sm:rounded-3xl shadow-xl p-6 sm:p-8 max-h-[90vh] overflow-y-auto"
-            >
-              <div className="flex justify-end -mt-2 -mr-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAboutModalOpen(false)}
-                  className="btn btn-plain font-semibold"
-                  autoFocus
-                >
-                  Done
-                </button>
-              </div>
-
-              <div className="flex flex-col items-center text-center">
-                <div className="w-20 h-20 rounded-full bg-blue flex items-center justify-center">
-                  <span className="text-white text-[28px] font-semibold tracking-tight">DR</span>
-                </div>
-                <h2 id="about-title" className="mt-4 text-2xl font-semibold tracking-tight text-label">
-                  Gorisi Deepak Reddy
-                </h2>
-                <p className="mt-1 text-sm text-label-2">Data Analyst &amp; Analytics Engineer</p>
-                <p className="mt-1 inline-flex items-center gap-1 text-xs text-label-3">
-                  <MapPin className="w-3.5 h-3.5" /> Budapest, Hungary
-                </p>
-              </div>
-
-              <div className="mt-6 space-y-3 text-sm text-label leading-relaxed">
-                <p>
-                  I’m a Data Analyst and Analytics Engineer based in Budapest. With an MSc in IT for Business Data
-                  Analytics, I build end-to-end data pipelines that connect technical insight to business strategy.
-                </p>
-                <p>
-                  My work spans Python, SQL, predictive machine learning and data visualization. I built AskDeepakAI
-                  to automate the data science workflow — turning raw data into clean pipelines, ML analyses and
-                  actionable reports. I’m currently open to Data Analyst and BI roles.
-                </p>
-              </div>
-
-              <div className="mt-6 grid grid-cols-3 gap-2">
-                <a
-                  href="https://github.com/thedeepakreddy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn-secondary flex-col gap-1 h-auto py-3 rounded-2xl text-xs"
-                >
-                  <Github className="w-5 h-5" />
-                  GitHub
-                </a>
-                <a
-                  href="https://www.linkedin.com/in/deepak-reddy-038582223"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn-secondary flex-col gap-1 h-auto py-3 rounded-2xl text-xs"
-                >
-                  <Linkedin className="w-5 h-5" />
-                  LinkedIn
-                </a>
-                <a
-                  href="mailto:thedeepakreddy1@gmail.com"
-                  className="btn btn-secondary flex-col gap-1 h-auto py-3 rounded-2xl text-xs"
-                >
-                  <Mail className="w-5 h-5" />
-                  Email
-                </a>
-              </div>
-            </motion.div>
-          </div>
-        )}
+        {isAboutModalOpen && <AboutCreator onClose={() => setIsAboutModalOpen(false)} />}
       </AnimatePresence>
     </div>
     </StudioDataContext.Provider>

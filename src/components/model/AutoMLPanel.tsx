@@ -38,6 +38,13 @@ const Chips: React.FC<{ id: string; label: string; options: string[]; value: str
   </div>
 );
 
+const SPLITS = [
+  { value: '80-0-20', label: 'Train 80% · test 20% (most accurate)' },
+  { value: '70-15-15', label: 'Train 70% · validation 15% · test 15%' },
+  { value: '60-20-20', label: 'Train 60% · validation 20% · test 20%' },
+  { value: '90-0-10', label: 'Train 90% · test 10% (small data)' },
+];
+
 export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onOpen: (tab: 'explain' | 'predict' | 'registry', modelId: string) => void }) {
   const run = useCapability('ml.automl', dataset);
   const logRun = useLogRun();
@@ -60,6 +67,7 @@ export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onO
   const [nested, setNested] = useState(false);
   const [interactions, setInteractions] = useState(false);
   const [calibrate, setCalibrate] = useState<'none' | 'sigmoid' | 'isotonic'>('none');
+  const [holdout, setHoldout] = useState('80-0-20');
 
   const tcol = dataset.columns.find(c => c.name === target);
   const task: 'classification' | 'regression' = tcol && tcol.type === 'numeric' && tcol.distinctCount > 12 ? 'regression' : 'classification';
@@ -72,6 +80,9 @@ export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onO
 
   const params = () => {
     const p: Record<string, unknown> = { target, time_budget_s: budget, metric, split, text_encoder: encoder, nested_cv: nested, interactions, calibrate };
+    const [, va, te] = holdout.split('-').map(Number);
+    p.test_size = te / 100;
+    if (va) p.validation_size = va / 100;
     if (features.length) p.features = features;
     if (name.trim()) p.name = name.trim();
     if (split === 'time' && splitCol) p.time_column = splitCol;
@@ -120,6 +131,13 @@ export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onO
             <select id="automl-metric" className="input" value={metric} onChange={e => setMetric(e.target.value)}>
               {METRICS[task].map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="field-label" htmlFor="automl-holdout">Split the rows</label>
+            <select id="automl-holdout" data-agent="automl-holdout" className="input" value={holdout} onChange={e => setHoldout(e.target.value)}>
+              {SPLITS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="mt-1 text-xs text-label-3">{holdout === '80-0-20' ? 'Cross-validation on the training rows picks the model; the test rows judge it.' : 'Validation rows give a second, independent check before the final test.'}</p>
           </div>
           <div>
             <label className="field-label" htmlFor="automl-name">Save as (name)</label>
@@ -251,6 +269,12 @@ function AutoMLResult({ r, params, onOpen }: { r: any; params: Record<string, un
       <div className="space-y-1.5">
         <StatGrid items={TEST_KEYS[cls ? 'classification' : 'regression'].filter(k => test[k] != null).slice(0, 8).map(k => [metricLabel(k), num(test[k])] as [string, React.ReactNode])} />
         <p className="text-xs text-label-3">Held-out test rows ({r.rows?.test?.toLocaleString()}){cls && cutoff != null ? `. Yes/no scores here use a 50% cut-off; the saved model flags at ${pct(cutoff)} — see “Choosing the cut-off”.` : '.'}</p>
+        {r.validation && (
+          <div className="space-y-1.5 pt-2" data-agent="automl-validation">
+            <StatGrid items={TEST_KEYS[cls ? 'classification' : 'regression'].filter(k => r.validation[k] != null).slice(0, 8).map(k => [metricLabel(k), num(r.validation[k])] as [string, React.ReactNode])} />
+            <p className="text-xs text-label-3">Validation rows ({r.rows?.validation?.toLocaleString()}), kept apart from training and the test{r.validation[primaryKey] != null && test[primaryKey] != null ? `: ${metricLabel(primaryKey)} ${num(r.validation[primaryKey])} here vs ${num(test[primaryKey])} on test${Math.abs(r.validation[primaryKey] - test[primaryKey]) > 0.05 ? ' — a noticeable gap, so judge the model on both' : ' — consistent'}` : ''}.</p>
+          </div>
+        )}
       </div>
 
       <Section title={`Every model tried (${metricLabel(scoring)}, cross-validated on ${r.rows?.train?.toLocaleString()} training rows; bars show 95% intervals)`}>

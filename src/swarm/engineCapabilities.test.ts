@@ -107,6 +107,8 @@ describe('the built-in planner reaches the engine', () => {
     expect(a[0].params).toEqual({ target: 'churn' });
     expect(a[2].dependsOn).toEqual([a[1].id]);
     expect(rulePlan('monitor the model for drift', churn).tasks.map(t => t.capability)).toEqual(['models.monitor']);
+    expect(rulePlan('retrain the model if the data drifted', churn).tasks.map(t => t.capability)).toEqual(['models.retrain']);
+    expect(CAPABILITIES['models.retrain'].approval).toBe('separate');
     expect(rulePlan('pin it', churn).tasks.map(t => t.capability)).toEqual(['dashboard.pin']);
     expect(rulePlan('train a model to predict churn', churn).tasks.map(t => t.capability)).toEqual(['models.train']);
   });

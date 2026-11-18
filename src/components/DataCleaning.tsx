@@ -56,7 +56,8 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
   const [groupByResult, setGroupByResult] = useState<{ key: string; val: number }[] | null>(null);
 
   // States for Feature Engineering Studio
-  const [feTransform, setFeTransform] = useState<'log' | 'sqrt' | 'square' | 'minmax' | 'standard' | 'interaction_mul' | 'interaction_div' | 'onehot'>('log');
+  const [feLabelOrder, setFeLabelOrder] = useState<'frequency' | 'alphabetical'>('frequency');
+  const [feTransform, setFeTransform] = useState<'log' | 'sqrt' | 'square' | 'minmax' | 'standard' | 'interaction_mul' | 'interaction_div' | 'onehot' | 'labelencode'>('log');
   const [feSourceColA, setFeSourceColA] = useState(dataset.columns[0]?.name || '');
   const [feSourceColB, setFeSourceColB] = useState(dataset.columns[1]?.name || dataset.columns[0]?.name || '');
   const [feNewColName, setFeNewColName] = useState('');
@@ -208,12 +209,17 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
     interaction_mul: `Multiplying ${feSourceColA} by ${feSourceColB} captures their combined effect.`,
     interaction_div: `Dividing ${feSourceColA} by ${feSourceColB} creates a ratio feature.`,
     onehot: 'Each category became its own 1/0 column, which models that need numbers can use.',
+    labelencode: 'Each category became one whole number (most common = 0), in a single column models can use; best for tree models or ordered categories.',
   };
 
   const handleApplyFeatureEngineering = () => {
     if (!feSourceColA) return;
     let result: OperationResult | null;
-    if (feTransform === 'onehot') {
+    if (feTransform === 'labelencode') {
+      result = runOperation('label_encode', { column: feSourceColA, order: feLabelOrder, name: feNewColName.trim() || undefined }, {
+        type: 'type_convert', column: feSourceColA, params: { action: 'labelencode', newColumn: feNewColName.trim() || `${feSourceColA}_code` },
+      });
+    } else if (feTransform === 'onehot') {
       const before = new Set(dataset.columns.map(c => c.name));
       result = runOperation('one_hot_encode', { column: feSourceColA, prefix: feNewColName.trim() || undefined }, {
         type: 'type_convert', column: feSourceColA, params: { action: 'onehot' },
@@ -584,6 +590,7 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
                     <option value="interaction_mul">Multiply two columns (A × B)</option>
                     <option value="interaction_div">Divide two columns (A ÷ B)</option>
                     <option value="onehot">One-hot encode categories</option>
+                    <option value="labelencode">Label encode categories (one number each)</option>
                   </select>
                 </div>
 
@@ -619,6 +626,16 @@ export default function DataCleaning({ dataset, onUpdateDataset, onResetOriginal
                   )}
                 </div>
 
+                {feTransform === 'labelencode' && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-label-2">
+                    <label htmlFor="fe-label-order" className="font-medium">Numbering</label>
+                    <select id="fe-label-order" data-agent="fe-label-order" value={feLabelOrder} onChange={e => setFeLabelOrder(e.target.value as 'frequency' | 'alphabetical')} className="input !w-auto !py-1 text-xs">
+                      <option value="frequency">Most common first (0, 1, 2 …)</option>
+                      <option value="alphabetical">Alphabetical</option>
+                    </select>
+                    <span>Keeps “{feSourceColA}” and adds one number column. Best for tree models; use one-hot for linear models.</span>
+                  </div>
+                )}
                 {feTransform === 'onehot' && (
                   <p className="text-xs text-label-2 leading-relaxed">
                     Each distinct value in “{feSourceColA}” becomes its own true/false column. Recommended for

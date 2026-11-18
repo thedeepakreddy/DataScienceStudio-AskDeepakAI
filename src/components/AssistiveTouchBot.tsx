@@ -11,6 +11,7 @@ import Orb from './Orb';
 import ChatRunCard from './ChatRunCard';
 import type { useSwarm } from '../swarm/useSwarm';
 import type { SwarmRun } from '../swarm/runtime';
+import { ApprovalSwitch } from './swarmBits';
 import { CAPABILITIES } from '../swarm/catalog';
 
 type Swarm = ReturnType<typeof useSwarm>;
@@ -269,7 +270,7 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
       const outcome = mode === 'sql'
         ? await swarm.planFromTasks(raw, [{ id: 't1', capability: 'sql.query', params: { sql: raw }, role: 'data_scientist', dependsOn: [], why: 'Run your SQL query.' }], 'I’ll run your query (read-only).')
         : mode === 'python'
-          ? await swarm.planFromTasks(raw, [{ id: 't1', capability: 'data.custom_code', params: { code: wrapUserCode(raw), explanation: 'your code' }, role: 'data_engineer', dependsOn: [], why: 'Run your code in a sandbox.' }], 'I’ll run your code in a sandbox. Custom code needs your approval.')
+          ? await swarm.planFromTasks(raw, [{ id: 't1', capability: 'data.custom_code', params: { code: wrapUserCode(raw), explanation: 'your code' }, role: 'data_engineer', dependsOn: [], why: 'Run your code in a sandbox.' }], swarm.approvalMode === 'ask' ? 'I’ll run your code in a sandbox once you approve it.' : 'I’ll run your code in a sandbox.')
           : await swarm.plan(raw, history);
 
       if (outcome.tasks.length && !outcome.problems.length) {
@@ -592,7 +593,8 @@ Ask in plain English, or switch to **SQL** or **Code** below. For example:
                 onSubmit={(e) => { e.preventDefault(); e.stopPropagation(); handleSendMessage(); }}
                 className="p-3 pt-1 border-t border-separator flex flex-col gap-2 shrink-0 select-none"
               >
-                <div className="segmented w-full mt-2" role="group" aria-label="Input mode">
+                <div className="mt-2"><ApprovalSwitch compact mode={swarm.approvalMode} onChange={swarm.setApprovalMode} /></div>
+                <div className="segmented w-full" role="group" aria-label="Input mode">
                   <button type="button" className="flex-1" aria-pressed={inputMode === 'english'} onClick={(e) => { e.stopPropagation(); setInputMode('english'); }}>
                     Ask
                   </button>

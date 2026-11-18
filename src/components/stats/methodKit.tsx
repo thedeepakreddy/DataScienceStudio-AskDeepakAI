@@ -10,7 +10,9 @@ import type { CapabilityName } from '../../engine/client';
 // ------------------------------------------------------------------ specs
 export type ColumnFilter = 'numeric' | 'categorical' | 'binary' | 'date' | 'group' | 'any';
 
-export type Field =
+/** `when`: show (and require) the field only when it returns true for the current values. */
+export type Field = FieldSpec & { when?: (v: Values) => boolean };
+type FieldSpec =
   | { key: string; label: string; kind: 'column'; filter: ColumnFilter; optional?: boolean; help?: string }
   | { key: string; label: string; kind: 'columns'; filter: ColumnFilter; min?: number; max?: number; help?: string }
   | { key: string; label: string; kind: 'select'; options: { value: string; label: string }[]; default: string; help?: string }

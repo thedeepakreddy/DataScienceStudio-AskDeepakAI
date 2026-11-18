@@ -14,6 +14,7 @@ import { type GeminiFailureKind, classifyGeminiError, describeGeminiFailure, mos
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from '@google/genai';
+import { FALLBACK_GEMINI_MODELS, rankGeminiModels, withFallback, type ListedModel } from './geminiModels';
 
 const app = express();
 // Render (and most hosts) put the app behind one proxy; trust it so req.ip is the visitor's address.
@@ -178,11 +179,57 @@ const geminiHealth: {
   lastFailure: { at: number; kind: GeminiFailureKind; models: string[]; detail: string } | null;
 } = { lastOk: null, lastFailure: null };
 
-// Ordered newest -> most-available. gemini-2.0-flash was REMOVED here: Google
-// shut it down on 2026-06-01, so every call to it now fails and only burns a
-// retry cycle. gemini-3.6-flash is Google's named replacement for it, and
-// gemini-2.5-flash stays last as the widely-provisioned safety net.
-const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'];
+// Which models to ask, best first. It starts as the built-in list and is
+// replaced by what Google says this key can use (ListModels), so a retired
+// model never needs a code change: discovery runs at start-up, again on its
+// own when a model stops working, and from the "Update to latest model" button.
+let GEMINI_MODELS = [...FALLBACK_GEMINI_MODELS];
+const geminiModelInfo: { source: 'built-in' | 'google'; updatedAt: number | null; models: string[]; error: string | null } = {
+  source: 'built-in', updatedAt: null, models: GEMINI_MODELS, error: null,
+};
+const MODEL_REFRESH_MIN_MS = 10 * 60 * 1000;
+let modelRefresh: Promise<boolean> | null = null;
+
+async function listGeminiModels(apiKey: string): Promise<ListedModel[]> {
+  const out: ListedModel[] = [];
+  let pageToken = '';
+  for (let page = 0; page < 5; page++) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+    const res = await fetch(url, { headers: { 'x-goog-api-key': apiKey }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`Google answered HTTP ${res.status} when listing models.`);
+    const body = await res.json() as { models?: ListedModel[]; nextPageToken?: string };
+    out.push(...(body.models ?? []));
+    if (!body.nextPageToken) break;
+    pageToken = body.nextPageToken;
+  }
+  return out;
+}
+
+/** Asks Google for the newest usable models; true when the list changed. `force` skips the 10-minute limit. */
+function refreshGeminiModels(force = false, key = ownerGeminiKey() || visitorGeminiKey()): Promise<boolean> {
+  if (!key) return Promise.resolve(false);
+  if (modelRefresh) return modelRefresh;
+  if (!force && geminiModelInfo.updatedAt && Date.now() - geminiModelInfo.updatedAt < MODEL_REFRESH_MIN_MS) return Promise.resolve(false);
+  modelRefresh = (async () => {
+    try {
+      const ranked = rankGeminiModels(await listGeminiModels(key));
+      if (!ranked.length) throw new Error('Google listed no text models this key can use.');
+      const next = withFallback(ranked);
+      const changed = next.join() !== GEMINI_MODELS.join();
+      GEMINI_MODELS = next;
+      Object.assign(geminiModelInfo, { source: 'google', updatedAt: Date.now(), models: next, error: null });
+      console.log(`[AskDeepakAI Gemini Client] Models from Google: ${next.join(', ')}`);
+      return changed;
+    } catch (err: any) {
+      Object.assign(geminiModelInfo, { updatedAt: Date.now(), error: String(err?.message || err) });
+      console.log(`[AskDeepakAI Gemini Client] Couldn't list models (${geminiModelInfo.error}); keeping ${GEMINI_MODELS.join(', ')}.`);
+      return false;
+    } finally {
+      modelRefresh = null;
+    }
+  })();
+  return modelRefresh;
+}
 
 class GeminiAttemptError extends Error {
   constructor(public lastError: any, public kinds: GeminiFailureKind[]) {
@@ -277,7 +324,15 @@ async function generateContentWithRetry(_client: GoogleGenAI, params: {
 
   if (owner && !ownerResting) {
     try {
-      const { response, model } = await runAcrossModels(getGeminiClient(), params);
+      let result: { response: any; model: string };
+      try {
+        result = await runAcrossModels(getGeminiClient(), params);
+      } catch (first) {
+        // A retired or renamed model: ask Google for the current ones and try once more.
+        if (!((first as GeminiAttemptError).kinds ?? []).includes('model_unavailable') || !(await refreshGeminiModels(true, owner))) throw first;
+        result = await runAcrossModels(getGeminiClient(), params);
+      }
+      const { response, model } = result;
       geminiHealth.lastOk = { at: Date.now(), model };
       ownerKeyRestingUntil = 0;
       return response;
@@ -623,11 +678,38 @@ app.get('/api/ai/status', async (req, res) => {
   const visitorKeyResult = aiKeyContext.getStore()?.visitorKeyResult;
   res.json({
     ...currentAiStatus(),
+    models: geminiModelInfo,
     // Whether this visitor sent their own key, and - if the probe fell back to
     // it - whether it worked. The key itself is never echoed back.
     visitorKey: !!visitorGeminiKey(),
     visitorKeyOk: visitorKeyResult ? visitorKeyResult.ok : null,
     visitorKeyMessage: visitorKeyResult && visitorKeyResult.ok === false ? describeVisitorKeyFailure(visitorKeyResult.kind) : null,
+  });
+});
+
+// "Update to latest model": asks Google which models exist now, switches to the
+// newest suitable ones, and tries them at once. Uses the app's key, or the
+// visitor's own key when the app has none. Limited so it can't hammer Google.
+let lastModelUpdateAt = 0;
+app.post('/api/ai/refresh-models', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!aiKeyAvailable()) return res.status(400).json({ ok: false, message: 'There is no Gemini key to ask Google with; add your own key first.', models: geminiModelInfo });
+  if (Date.now() - lastModelUpdateAt < 15_000) return res.status(429).json({ ok: false, message: 'Updated a moment ago; try again in a few seconds.', models: geminiModelInfo });
+  lastModelUpdateAt = Date.now();
+  const before = GEMINI_MODELS[0];
+  await refreshGeminiModels(true);
+  ownerKeyRestingUntil = 0;
+  try {
+    await generateContentWithRetry(getGeminiClient(), { contents: 'Reply with the single word: OK' });
+  } catch { /* recorded in geminiHealth and reported below */ }
+  const status = currentAiStatus();
+  res.json({
+    ok: status.state === 'ok', ...status, models: geminiModelInfo,
+    message: geminiModelInfo.error
+      ? `Couldn't ask Google for new models (${geminiModelInfo.error}); still using ${GEMINI_MODELS[0]}.`
+      : status.state === 'ok'
+        ? `Using ${status.model ?? GEMINI_MODELS[0]}${GEMINI_MODELS[0] !== before ? ` (was ${before})` : ' — already the latest'}.`
+        : `Updated to ${GEMINI_MODELS[0]}, but Gemini still isn't answering: ${status.message}`,
   });
 });
 
@@ -666,7 +748,14 @@ app.post('/api/ai/test-key', async (req, res) => {
   if (keyTestLastAt.size > 5000) keyTestLastAt.clear();
 
   try {
-    await runAcrossModels(new GoogleGenAI({ apiKey: key }), { contents: 'Reply with the single word: OK' });
+    const client = new GoogleGenAI({ apiKey: key });
+    try {
+      await runAcrossModels(client, { contents: 'Reply with the single word: OK' });
+    } catch (first) {
+      // The models may have been retired: ask Google with this key for current ones, then retry once.
+      if (!((first as GeminiAttemptError).kinds ?? []).includes('model_unavailable') || !(await refreshGeminiModels(true, key))) throw first;
+      await runAcrossModels(client, { contents: 'Reply with the single word: OK' });
+    }
     res.json({ ok: true, message: 'Your key works.' });
   } catch (err) {
     const kind = mostTellingFailure((err as GeminiAttemptError).kinds ?? []);
@@ -2292,6 +2381,11 @@ async function start() {
     });
   }
 
+  // Learn which Gemini models exist now (in the background), and check again daily.
+  if (ownerGeminiKey()) {
+    refreshGeminiModels(true).catch(() => {});
+    setInterval(() => { refreshGeminiModels(true).catch(() => {}); }, 24 * 60 * 60 * 1000).unref();
+  }
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[AskDeepakAI Working Server] Running on http://localhost:${PORT}`);
   });

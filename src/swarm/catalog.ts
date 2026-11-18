@@ -114,6 +114,7 @@ const DATA_OPS: Partial<Record<OperationId, { label: (p: any) => string; params:
   convert_type: { label: p => `Change “${p.column}” to ${p.to}`, params: '{ column: string, to: "numeric"|"categorical"|"boolean"|"datetime" }', columns: p => [p.column] },
   derive_column: { label: p => `Create a ${p.transform} column from “${p.source}”`, params: '{ source: string, transform: "log"|"sqrt"|"square"|"minmax"|"standard"|"multiply"|"divide", other?: string, name?: string }', columns: p => [p.source, ...(p.other ? [p.other] : [])] },
   one_hot_encode: { label: p => `Split “${p.column}” into yes/no columns`, params: '{ column: string }', columns: p => [p.column] },
+  label_encode: { label: p => `Encode “${p.column}” as numbers`, params: "{ column: string; order?: 'frequency' | 'alphabetical' }", columns: p => [p.column] },
   add_column: { label: p => `Add a column “${p.name}”`, params: '{ name: string, type: "numeric"|"categorical"|"boolean", value: string|number|boolean|null }', columns: () => [] },
   add_row: { label: () => 'Add a row', params: '{ values?: { [column]: value } }', columns: () => [] },
   delete_rows: { label: p => `Delete ${p.indices?.length === 1 ? `row ${Number(p.indices[0]) + 1}` : `${p.indices?.length} rows`}`, params: '{ indices: number[] }  // 0-based', columns: () => [] },
@@ -122,7 +123,7 @@ const DATA_OPS: Partial<Record<OperationId, { label: (p: any) => string; params:
 };
 
 /** Feature work belongs to the Feature Engineer; the rest of the data operations to the Data Engineer. */
-const FEATURE_OPS: OperationId[] = ['derive_column', 'one_hot_encode', 'convert_type'];
+const FEATURE_OPS: OperationId[] = ['derive_column', 'one_hot_encode', 'label_encode', 'convert_type'];
 
 function dataCapability(op: OperationId): Capability {
   const meta = DATA_OPS[op]!;
@@ -624,6 +625,7 @@ export const NOT_FOR_AGENTS: Record<string, string> = {
   'workspace.import': 'Replaces all saved work; only you can do it.',
   'workspace.clear': 'Deletes all saved work; only you can do it.',
   'analysis.from-url': 'Imports data from outside the studio; only you choose what comes in.',
+  'analysis.from-api': 'Needs your API key and imports data from outside the studio; only you connect to an API.',
   'analysis.from-sql': 'Needs your database password; only you connect to a database.',
   'analysis.from-bigquery': 'Runs queries that can cost money in your BigQuery project; only you run them.',
   'analysis.from-gcs': 'Reads files from your cloud storage; only you choose what comes in.',

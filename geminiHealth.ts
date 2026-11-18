@@ -38,7 +38,7 @@ export function describeGeminiFailure(kind: GeminiFailureKind, models: string[])
     case 'quota':
       return 'The Gemini quota for this API key is used up for now. Free-tier limits reset on their own; wait a little, or enable billing for the key.';
     case 'model_unavailable':
-      return `Google no longer serves the Gemini models this app asks for (${models.join(', ')}). The model list in server.ts needs updating.`;
+      return `Google no longer serves the Gemini models this app asks for (${models.join(', ')}). Press “Update to latest model” to switch to the newest one Google offers.`;
     case 'busy':
       return 'Gemini is temporarily overloaded. Try again in a minute.';
     case 'network':

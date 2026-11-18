@@ -68,8 +68,11 @@ export function initialValues(fields: Field[], dataset: Dataset): Values {
   return v;
 }
 
+export const shown = (f: Field, v: Values) => !f.when || f.when(v);
+
 export function problems(fields: Field[], v: Values): string | null {
   for (const f of fields) {
+    if (!shown(f, v)) continue;
     if (f.kind === 'column' && !f.optional && !v[f.key]) return `Choose ${f.label.toLowerCase()}.`;
     if (f.kind === 'columns' && (v[f.key]?.length ?? 0) < (f.min ?? 0)) return `Choose at least ${f.min} for “${f.label}”.`;
     if (f.kind === 'number' && !f.optional && (v[f.key] === '' || Number.isNaN(Number(v[f.key])))) return `Enter ${f.label.toLowerCase()}.`;
@@ -90,6 +93,7 @@ const storedValues = (m: Method, v: Values) => storedParams(m, v) as Values;
 export function toParams(m: Method, fields: Field[], v: Values): Record<string, unknown> {
   const clean: Values = {};
   for (const f of fields) {
+    if (!shown(f, v)) continue;
     const x = v[f.key];
     if (x === '' || x === undefined || (Array.isArray(x) && x.length === 0 && f.kind !== 'columns')) continue;
     if (f.kind === 'number') clean[f.key] = Number(x);
@@ -181,7 +185,7 @@ export const EngineMethod: React.FC<{ method: Method; dataset: Dataset }> = ({ m
           <p className="mt-1 text-sm text-label-2">{m.answers}</p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {m.fields.map(f => (
+          {m.fields.filter(f => shown(f, values)).map(f => (
             <FieldInput key={f.key} id={`${m.id}-${f.key}`} field={f} dataset={dataset} value={values[f.key]}
               taken={f.kind === 'columns' ? singles : []} onChange={x => setValues(prev => ({ ...prev, [f.key]: x }))} />
           ))}
