@@ -16,7 +16,8 @@ import { engine } from '../engine/client';
 import { RUN_LOGGED_EVENT } from '../swarm/interaction';
 import { buildReport } from '../report/buildReport';
 import { shapeReport, toMarkdown, useReportLayout } from '../report/layout';
-import { download, printReport, toHtml, toPdf } from '../report/exporters';
+import { captureVisuals, download, printReport, toHtml, toPdf } from '../report/exporters';
+import Orb from './Orb';
 import ReportDocument from '../report/ReportDocument';
 import ExecutivePDFReport from './ExecutivePDFReport';
 import ETLPipelineExport from './ETLPipelineExport';
@@ -96,7 +97,22 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult, datasetId = 
   });
   const notify = (t: string) => { setMessage(t); setTimeout(() => setMessage(m => (m === t ? null : m)), 4000); };
 
-  const downloadPdf = () => { toPdf(sections, layout, dataset.filename, doc.generatedAt).save(`${baseName}_report.pdf`); notify('Saved the PDF.'); };
+  // Pictures of the charts and result panels, as shown, for the PDF.
+  const visualsFor = async () => {
+    const el = document.getElementById('report-document');
+    if (!el) return new Map();
+    return captureVisuals(el, (done, total) => setBusy(total ? `Adding charts… ${done}/${total}` : 'pdf'));
+  };
+  const downloadPdf = async () => {
+    setBusy('pdf');
+    try {
+      const visuals = await visualsFor();
+      toPdf(sections, layout, dataset.filename, doc.generatedAt, visuals).save(`${baseName}_report.pdf`);
+      notify(`Saved the PDF${visuals.size ? ` with ${visuals.size} chart${visuals.size === 1 ? '' : 's'} and panels as pictures` : ''}.`);
+    } catch (err) {
+      notify(`Couldn’t create the PDF: ${(err as Error).message}`);
+    } finally { setBusy(null); }
+  };
   const downloadHtml = () => {
     const el = document.getElementById('report-document');
     if (el) { download(`${baseName}_report.html`, toHtml(el, layout.title), 'text/html'); notify('Saved the HTML report (charts included).'); }
@@ -113,7 +129,7 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult, datasetId = 
       const prep = doc.sections.find(s => s.id === 'preparation')?.blocks.find(b => b.id === 'prep-pandas');
       const files: ZipEntry[] = [
         { path: 'README.md', data: `# ${layout.title} — ${dataset.filename}\n\nExported from Data Science Studio on ${new Date().toISOString()}.\n\n- \`report.pdf\`, \`report.html\`, \`report.md\`: the report (HTML keeps the charts).\n- \`data/current.csv\`: the data the report is based on (${dataset.rows.length.toLocaleString()} rows).\n${original ? `- \`data/original.csv\`: the data as imported (${original.rows.length.toLocaleString()} rows).\n` : ''}- \`prepare.py\`: the cleaning steps as pandas code.\n- \`analysis.ipynb\`: a notebook that reloads the data and repeats the model and tests.\n- \`lineage.json\`, \`workflow.json\`, \`analyses.json\`: every data version, the repeatable steps${skipped.length ? ` (not repeatable: ${skipped.join('; ')})` : ''}, and every saved analysis with its full result.\n${activeModel ? '- `model_card.md`: the active registered model’s card.\n' : ''}` },
-        { path: 'report.pdf', data: toPdf(sections, layout, dataset.filename, doc.generatedAt).output('arraybuffer') },
+        { path: 'report.pdf', data: toPdf(sections, layout, dataset.filename, doc.generatedAt, await visualsFor()).output('arraybuffer') },
         ...(el ? [{ path: 'report.html', data: toHtml(el, layout.title) }] : []),
         { path: 'report.md', data: toMarkdown(sections, layout, doc.generatedAt) },
         { path: 'data/current.csv', data: rowsToCsv(dataset.rows, columns) },
@@ -152,8 +168,8 @@ export default function ReportsHub({ dataset, aiAnalysis, mlResult, datasetId = 
             <button type="button" className="btn btn-secondary" onClick={printReport} title="Print, or choose “Save as PDF” — keeps the charts"><Printer className="w-4 h-4" /> Print</button>
             <button type="button" className="btn btn-secondary" onClick={downloadHtml} title="One file that opens in any browser, charts included"><Globe className="w-4 h-4" /> HTML</button>
             <button type="button" className="btn btn-secondary" onClick={downloadMarkdown}><FileText className="w-4 h-4" /> Markdown</button>
-            <button type="button" data-agent="report-package" onClick={downloadPackage} disabled={busy === 'package'} className="btn btn-secondary" title="Report, data, pandas code, notebook and lineage in one ZIP"><Package className="w-4 h-4" /> Package</button>
-            <button type="button" data-agent="report-pdf" onClick={downloadPdf} className="btn btn-primary" title="Download an A4 PDF"><Download className="w-4 h-4" /> Download PDF</button>
+            <button type="button" data-agent="report-package" onClick={downloadPackage} disabled={!!busy} className="btn btn-secondary" title="Report, data, pandas code, notebook and lineage in one ZIP"><Package className="w-4 h-4" /> Package</button>
+            <button type="button" data-agent="report-pdf" onClick={downloadPdf} disabled={!!busy} className="btn btn-primary" title="Download an A4 PDF with the charts">{busy && busy !== 'package' ? <><Orb state="solving" onAccent label="Making the PDF" /> {busy.startsWith('Adding') ? busy : 'Making the PDF…'}</> : <><Download className="w-4 h-4" /> Download PDF</>}</button>
           </div>
         </div>
         {message && <p className="text-sm text-green" role="status">{message}</p>}
