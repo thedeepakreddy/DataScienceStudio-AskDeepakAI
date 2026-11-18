@@ -623,6 +623,10 @@ export const NOT_FOR_AGENTS: Record<string, string> = {
   'deploy.monitor': 'Needs a file of new data you choose.',
   'workspace.import': 'Replaces all saved work; only you can do it.',
   'workspace.clear': 'Deletes all saved work; only you can do it.',
+  'analysis.from-url': 'Imports data from outside the studio; only you choose what comes in.',
+  'analysis.from-sql': 'Needs your database password; only you connect to a database.',
+  'analysis.from-bigquery': 'Runs queries that can cost money in your BigQuery project; only you run them.',
+  'analysis.from-gcs': 'Reads files from your cloud storage; only you choose what comes in.',
 };
 
 /**

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import EngineWorkbench from './engine/EngineWorkbench';
 import React, { useState } from 'react';
 import { jsPDF } from 'jspdf';
 import {
@@ -590,6 +591,7 @@ ${activeModel ? '- `model_card.md`: the active registered model’s card.\n' : '
       </div>
       )}
 
+      <div className="mt-10"><EngineWorkbench dataset={dataset} /></div>
     </div>
   );
 }

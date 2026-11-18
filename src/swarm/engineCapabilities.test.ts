@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../engine/datasetSync', () => ({ syncDataset: vi.fn(async () => ({ id: 'ds_1' })) }));
 
 import { engine } from '../engine/client';
-import { ENGINE_METHODS } from '../components/stats/methods';
+import { ENGINE_METHODS, GROUP_METHODS } from '../components/stats/methods';
 import { _resetConnectionForTests, addPin, deletePin, exportWorkspace, importWorkspace, listPins, movePin, recordRun } from '../utils/workspaceStore';
-import { CAPABILITIES, catalogForPlanner } from './catalog';
+import { CAPABILITIES, NOT_FOR_AGENTS, catalogForPlanner } from './catalog';
 import { ENGINE_AGENT_CAPABILITIES, describeFields, pinLatest, validateMethod, valuesFor } from './engineCapabilities';
 import { toParams } from '../components/stats/MethodPanel';
 import type { Dataset } from '../types';
@@ -25,6 +25,8 @@ beforeEach(() => {
 describe('engine analyses as agent capabilities', () => {
   it('every engine method is an agent capability, described for the planner', () => {
     for (const m of Object.values(ENGINE_METHODS)) {
+      // Imports reach outside systems with your credentials: listed as not for agents instead.
+      if (GROUP_METHODS.import.includes(m.id)) { expect(NOT_FOR_AGENTS[`analysis.${m.id}`], m.id).toBeTruthy(); continue; }
       const c = CAPABILITIES[`analysis.${m.id}`];
       expect(c, m.id).toBeDefined();
       expect(c.label({})).toBe(m.title);

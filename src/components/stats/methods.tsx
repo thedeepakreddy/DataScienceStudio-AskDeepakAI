@@ -8,6 +8,7 @@ import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, R
 import { CHART_COLORS, CHART_CURSOR } from '../../utils/chartTheme';
 import { DataTable, EffectTable, Note, Section, StatGrid, ciText, num, pValue, pct, sig, signed, type GuideStep, type Method } from './methodKit';
 import { MODEL_METHODS } from '../model/modelMethods';
+import { DATA_METHODS } from '../engine/dataMethods';
 
 const axis = { tick: { fontSize: 11, fill: 'var(--label-2)' } };
 const nonIntercept = (rows: any[] = []) => rows.filter(r => !/intercept/i.test(r.term));
@@ -417,10 +418,11 @@ const bayesReg: Method = {
 };
 
 // ================================================================== groups
-export type GroupId = 'compare' | 'regression' | 'causal' | 'power' | 'survival' | 'bayesian' | 'hypothesis' | 'forecast' | 'decide';
+export type GroupId = 'compare' | 'regression' | 'causal' | 'power' | 'survival' | 'bayesian' | 'hypothesis' | 'forecast' | 'decide'
+  | 'quality' | 'segments' | 'time' | 'patterns' | 'textplus' | 'checks' | 'import';
 
 export const ENGINE_METHODS: Record<string, Method> = Object.fromEntries(
-  [glm, anova, mixed, robust, bootstrap, propensity, did, synth, iv, rdd, uplift, abTest, sampleSize, sequential, bandit, km, cox, bayesAb, bayesT, bayesReg, ...MODEL_METHODS].map(m => [m.id, m]),
+  [glm, anova, mixed, robust, bootstrap, propensity, did, synth, iv, rdd, uplift, abTest, sampleSize, sequential, bandit, km, cox, bayesAb, bayesT, bayesReg, ...MODEL_METHODS, ...DATA_METHODS].map(m => [m.id, m]),
 );
 
 export const GUIDES: Partial<Record<GroupId, GuideStep>> = {
@@ -444,13 +446,20 @@ export const GUIDES: Partial<Record<GroupId, GuideStep>> = {
 };
 
 export const GROUP_METHODS: Record<GroupId, string[]> = {
-  compare: ['quick', 'bootstrap'],
+  compare: ['quick', 'bootstrap', 'nonparametric', 'multiple'],
   regression: ['quick', 'glm', 'anova', 'mixed', 'robust'],
   causal: ['propensity', 'did', 'synth', 'iv', 'rdd', 'uplift'],
-  power: ['quick', 'sample', 'ab', 'sequential', 'bandit', 'interpret'],
+  power: ['quick', 'sample', 'ab', 'srm', 'sequential', 'bandit', 'interpret'],
   survival: ['km', 'cox'],
   bayesian: ['bayes-ab', 'bayes-t', 'bayes-reg'],
   hypothesis: ['quick'],
   forecast: ['forecast', 'hierarchical', 'quick'],
   decide: ['montecarlo', 'optimize', 'scenarios'],
+  quality: ['profile', 'validate', 'outliers', 'pii', 'mask', 'recipe', 'estimate'],
+  segments: ['cluster', 'map', 'basket'],
+  time: ['decompose', 'anomalies', 'changes'],
+  patterns: ['correlation', 'normality'],
+  textplus: ['text-overview', 'text-duplicates', 'text-map'],
+  checks: ['features', 'fairness'],
+  import: ['from-url', 'from-sql', 'from-bigquery', 'from-gcs'],
 };

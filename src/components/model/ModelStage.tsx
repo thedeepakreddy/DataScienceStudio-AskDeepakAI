@@ -13,9 +13,10 @@ import MonitorPanel from './MonitorPanel';
 import PredictPanel from './PredictPanel';
 import RegistryPanel from './RegistryPanel';
 import ScenariosPanel from './ScenariosPanel';
+import AutomatePanel from './AutomatePanel';
 import { ModelsProvider, useModels } from './models';
 
-export type ModelTab = 'train' | 'automl' | 'registry' | 'explain' | 'predict' | 'monitor' | 'forecast' | 'decide';
+export type ModelTab = 'train' | 'automl' | 'registry' | 'explain' | 'predict' | 'monitor' | 'checks' | 'forecast' | 'decide' | 'automate';
 
 // "train" keeps the existing quick-model workflow (the agent team drives it via model-tab-train).
 const TABS: { id: ModelTab; label: string; hint: string }[] = [
@@ -25,8 +26,10 @@ const TABS: { id: ModelTab; label: string; hint: string }[] = [
   { id: 'explain', label: 'Explain', hint: 'Why a model predicts what it does.' },
   { id: 'predict', label: 'Predict', hint: 'Score one case or the whole dataset with a saved model.' },
   { id: 'monitor', label: 'Monitor', hint: 'Is a model still valid on new data?' },
+  { id: 'checks', label: 'Checks', hint: 'Which columns help predict, and does a model treat groups fairly?' },
   { id: 'forecast', label: 'Forecast', hint: 'Predict how a number will move over time.' },
   { id: 'decide', label: 'Decide', hint: 'Turn uncertainty and limits into a decision: simulate, optimise, ask what-if.' },
+  { id: 'automate', label: 'Automate', hint: 'Run analyses again, or on a schedule.' },
 ];
 
 function Stage({ dataset, train, onUseDataset }: { dataset: Dataset; train: React.ReactNode; onUseDataset?: (d: Dataset, summary: string) => void }) {
@@ -55,6 +58,8 @@ function Stage({ dataset, train, onUseDataset }: { dataset: Dataset; train: Reac
       case 'monitor': return <MonitorPanel dataset={dataset} />;
       case 'forecast': return <MethodPanel group="forecast" dataset={dataset} builtins={builtins} />;
       case 'decide': return <MethodPanel group="decide" dataset={dataset} builtins={builtins} />;
+      case 'checks': return <MethodPanel group="checks" dataset={dataset} />;
+      case 'automate': return <AutomatePanel />;
     }
   };
 
