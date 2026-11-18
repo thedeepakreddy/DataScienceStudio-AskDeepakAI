@@ -10,6 +10,7 @@ import { useCapability } from '../../engine/useCapability';
 import { useLogRun } from '../../contexts/WorkspaceContext';
 import RunBar from '../engine/RunBar';
 import Provenance from '../engine/Provenance';
+import { ResultFooter } from '../pins/PinButton';
 import { columnsFor, type Field, type GuideStep, type Method, type Values } from './methodKit';
 import { ENGINE_METHODS, GROUP_METHODS, GUIDES, type GroupId } from './methods';
 
@@ -48,7 +49,7 @@ const Guide: React.FC<{ guide: GuideStep; onPick: (id: string) => void }> = ({ g
 };
 
 // ------------------------------------------------------------------ the form
-function initialValues(fields: Field[], dataset: Dataset): Values {
+export function initialValues(fields: Field[], dataset: Dataset): Values {
   const v: Values = {};
   const used = new Set<string>();
   for (const f of fields) {
@@ -67,7 +68,7 @@ function initialValues(fields: Field[], dataset: Dataset): Values {
   return v;
 }
 
-function problems(fields: Field[], v: Values): string | null {
+export function problems(fields: Field[], v: Values): string | null {
   for (const f of fields) {
     if (f.kind === 'column' && !f.optional && !v[f.key]) return `Choose ${f.label.toLowerCase()}.`;
     if (f.kind === 'columns' && (v[f.key]?.length ?? 0) < (f.min ?? 0)) return `Choose at least ${f.min} for “${f.label}”.`;
@@ -79,7 +80,7 @@ function problems(fields: Field[], v: Values): string | null {
   return null;
 }
 
-function toParams(m: Method, fields: Field[], v: Values): Record<string, unknown> {
+export function toParams(m: Method, fields: Field[], v: Values): Record<string, unknown> {
   const clean: Values = {};
   for (const f of fields) {
     const x = v[f.key];
@@ -95,7 +96,7 @@ const FieldInput: React.FC<{ field: Field; dataset: Dataset; value: any; onChang
   const label = <label className="field-label" htmlFor={id}>{f.label}</label>;
   if (f.kind === 'column') {
     const cols = columnsFor(dataset, f.filter);
-    return <div>{label}<select id={id} className="input" value={value} onChange={e => onChange(e.target.value)}>
+    return <div>{label}<select id={id} data-agent={`field-${id}`} className="input" value={value} onChange={e => onChange(e.target.value)}>
       {f.optional && <option value="">None</option>}
       {cols.length === 0 && !f.optional && <option value="">No suitable column</option>}
       {cols.map(c => <option key={c} value={c}>{c}</option>)}
@@ -109,7 +110,7 @@ const FieldInput: React.FC<{ field: Field; dataset: Dataset; value: any; onChang
       <span className="field-label" id={id}>{f.label}{f.max ? ` (up to ${f.max})` : ''}</span>
       <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby={id}>
         {cols.map(c => (
-          <button key={c} type="button" aria-pressed={sel.includes(c)} onClick={() => toggle(c)}
+          <button key={c} type="button" aria-pressed={sel.includes(c)} onClick={() => toggle(c)} data-agent={`field-${id}-${c}`}
             className={`px-2.5 py-1 rounded-full text-sm border transition-colors ${sel.includes(c) ? 'bg-blue text-white border-blue' : 'border-separator text-label hover:bg-fill'}`}>
             {c}
           </button>
@@ -118,10 +119,10 @@ const FieldInput: React.FC<{ field: Field; dataset: Dataset; value: any; onChang
       </div>
     </div>;
   }
-  if (f.kind === 'select') return <div>{label}<select id={id} className="input" value={value} onChange={e => onChange(e.target.value)}>{f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>;
-  if (f.kind === 'number') return <div>{label}<input id={id} className="input" type="number" inputMode="decimal" value={value} min={f.min} max={f.max} step={f.step ?? 'any'} placeholder={f.optional ? 'Optional' : ''} onChange={e => onChange(e.target.value)} /></div>;
-  if (f.kind === 'toggle') return <label className="flex items-center gap-2 text-sm text-label self-end pb-2"><input type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} /> {f.label}</label>;
-  if (f.kind === 'text') return <div className="sm:col-span-2">{label}<input id={id} className="input" value={value} placeholder={f.placeholder} onChange={e => onChange(e.target.value)} /></div>;
+  if (f.kind === 'select') return <div>{label}<select id={id} data-agent={`field-${id}`} className="input" value={value} onChange={e => onChange(e.target.value)}>{f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>;
+  if (f.kind === 'number') return <div>{label}<input id={id} data-agent={`field-${id}`} className="input" type="number" inputMode="decimal" value={value} min={f.min} max={f.max} step={f.step ?? 'any'} placeholder={f.optional ? 'Optional' : ''} onChange={e => onChange(e.target.value)} /></div>;
+  if (f.kind === 'toggle') return <label className="flex items-center gap-2 text-sm text-label self-end pb-2"><input data-agent={`field-${id}`} type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} /> {f.label}</label>;
+  if (f.kind === 'text') return <div className="sm:col-span-2">{label}<input id={id} data-agent={`field-${id}`} className="input" value={value} placeholder={f.placeholder} onChange={e => onChange(e.target.value)} /></div>;
   if (f.kind === 'custom') { const Editor = f.editor; return <div className="sm:col-span-2 lg:col-span-4"><span className="field-label" id={id}>{f.label}</span><Editor value={value} onChange={onChange} id={id} /></div>; }
   // arms: results so far, one row per option
   const arms: any[] = value;
@@ -155,7 +156,7 @@ export const EngineMethod: React.FC<{ method: Method; dataset: Dataset }> = ({ m
     if (!r || !ran) return;
     let headline = '';
     try { headline = m.headline(r, ran); } catch { headline = m.title; }
-    logRun({ kind: 'engine', title: m.title, summary: headline, status: 'succeeded', params: { capability: m.cap, params: toParams(m, m.fields, ran), runId: r.runId }, result: r });
+    logRun({ kind: 'engine', title: m.title, summary: headline, status: 'succeeded', params: { capability: m.cap, params: toParams(m, m.fields, ran), runId: r.runId, view: { kind: 'method', methodId: m.id, values: ran } }, result: r });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r]);
 
@@ -185,7 +186,8 @@ export const EngineMethod: React.FC<{ method: Method; dataset: Dataset }> = ({ m
         <div className="card p-4 sm:p-5 space-y-5 animate-fade-in" role="region" aria-label="Result">
           <p className={`text-[17px] font-semibold ${TONE[tone]}`}>{headline}</p>
           {body}
-          <div className="border-t border-separator pt-3"><Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} /></div>
+          <ResultFooter agent={`pin-${m.id}`} provenance={<Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} />}
+            pin={{ title: m.title, headline, view: { kind: 'method', methodId: m.id, values: ran }, capability: m.cap, params: toParams(m, m.fields, ran), result: r }} />
         </div>
       )}
     </div>

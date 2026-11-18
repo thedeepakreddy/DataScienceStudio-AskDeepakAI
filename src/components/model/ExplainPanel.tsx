@@ -10,6 +10,7 @@ import { useCapability } from '../../engine/useCapability';
 import { useLogRun } from '../../contexts/WorkspaceContext';
 import RunBar from '../engine/RunBar';
 import Provenance from '../engine/Provenance';
+import { ResultFooter } from '../pins/PinButton';
 import { Note, Section, num, pct } from '../stats/methodKit';
 import { CHART_CURSOR } from '../../utils/chartTheme';
 import { Bars } from './charts';
@@ -17,6 +18,14 @@ import { ModelPicker, modelName, useSelectedModel } from './models';
 
 /** Midnight timestamps read as plain dates. */
 export const showValue = (v: unknown) => (typeof v === 'string' ? v.replace(/^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.0+)?(?:Z|[+-]00:?00)?$/, '$1') : String(v));
+
+/** One sentence on what drives a model, from an ml.explain result. */
+export function explainHeadline(r: any): string {
+  const shap = r?.shapGlobal ?? [];
+  const total = shap.reduce((a: number, x: any) => a + x.meanAbsShap, 0) || 1;
+  const name = r?.model?.name ? `${r.model.name}${r.model.version ? ` v${r.model.version}` : ''}` : 'the model';
+  return shap[0] ? `${shap[0].feature} drives ${pct(shap[0].meanAbsShap / total)} of what moves ${name}’s predictions${shap[1] ? `, then ${shap[1].feature} (${pct(shap[1].meanAbsShap / total)})` : ''}.` : 'Explanation ready.';
+}
 
 const axis = { tick: { fontSize: 11, fill: 'var(--label-2)' }, stroke: 'var(--separator)' };
 
@@ -76,11 +85,12 @@ export default function ExplainPanel({ dataset }: { dataset: Dataset }) {
   const issue = !model ? 'Train or choose a saved model first.' : missing.length ? `This data lacks columns the model needs: ${missing.join(', ')}.` : parsed === null ? 'Rows: use numbers like 1, 5, 10-12.' : null;
   const r = run.result as any;
   const cls = model?.task === 'classification';
+  const [ranParams, setRanParams] = useState<Record<string, unknown>>({});
 
   useEffect(() => {
     if (!r) return;
     const top = r.shapGlobal?.[0]?.feature;
-    logRun({ kind: 'engine', title: `Explain ${r.model?.name ?? 'model'}`, summary: top ? `${top} has the biggest influence on its predictions (SHAP); a ${r.surrogate?.depth}-level rule tree matches it ${pct(r.surrogate?.fidelity)} of the time.` : 'Model explained.', status: 'succeeded', params: { capability: 'ml.explain', params: { model_id: model?.id }, runId: r.runId }, result: r });
+    logRun({ kind: 'engine', title: `Explain ${r.model?.name ?? 'model'}`, summary: top ? `${top} has the biggest influence on its predictions (SHAP); a ${r.surrogate?.depth}-level rule tree matches it ${pct(r.surrogate?.fidelity)} of the time.` : 'Model explained.', status: 'succeeded', params: { capability: 'ml.explain', params: ranParams, runId: r.runId, view: { kind: 'explain' } }, result: r });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r]);
 
@@ -110,14 +120,14 @@ export default function ExplainPanel({ dataset }: { dataset: Dataset }) {
           </div>
         </div>
         <RunBar run={run} label="Explain" agent="explain-run" disabled={!!issue}
-          onRun={() => run.run({ model_id: model!.id, rows: parsed && parsed.length ? parsed : undefined, surrogate_depth: depth })} />
+          onRun={() => { const p = { model_id: model!.id, rows: parsed && parsed.length ? parsed : undefined, surrogate_depth: depth }; setRanParams(p); run.run(p); }} />
         {issue && run.phase === 'idle' && <p className="text-xs text-label-3">{issue}</p>}
       </div>
 
       {r && (
         <div className="card p-4 sm:p-5 space-y-6 animate-fade-in" role="region" aria-label="Explanation">
           <p className="text-[17px] font-semibold text-label">
-            {shap[0] ? `${shap[0].feature} drives ${pct(shap[0].meanAbsShap / total)} of what moves ${model ? modelName(model) : 'the model'}’s predictions${shap[1] ? `, then ${shap[1].feature} (${pct(shap[1].meanAbsShap / total)})` : ''}.` : 'Explanation ready.'}
+            {explainHeadline(r)}
           </p>
           <Section title="What matters overall (average size of each column’s effect)">
             <Bars rows={shap.slice(0, 15).map((s: any) => ({ label: s.feature, value: s.meanAbsShap }))} format={v => num(v, 2)} />
@@ -156,7 +166,8 @@ export default function ExplainPanel({ dataset }: { dataset: Dataset }) {
               <pre className="text-xs leading-relaxed bg-fill rounded-xl p-3 overflow-x-auto text-label">{r.surrogate.rules}</pre>
             </Section>
           )}
-          <div className="border-t border-separator pt-3"><Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} /></div>
+          <ResultFooter agent="pin-explain" provenance={<Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} />}
+            pin={{ title: `Why ${model ? modelName(model) : 'the model'} predicts what it does`, headline: explainHeadline(r), view: { kind: 'explain' }, capability: 'ml.explain', params: ranParams, result: r }} />
         </div>
       )}
     </div>

@@ -85,6 +85,11 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
       try { body = text ? JSON.parse(text) : null; } catch { /* host returned a non-JSON gateway page */ }
       if (!res.ok) throw new Error(body?.error || body?.hint || `EDA request failed (HTTP ${res.status}). The ML compute service may still be waking up from an idle sleep — try again in a moment.`);
       setDeepEdaResult(body);
+      // The numbers and the studio's summary are shown now; an AI summary replaces it if AI is available.
+      apiFetch('/api/eda/narrative', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eda: body }) })
+        .then(r => (r.ok ? r.json() : null))
+        .then(ai => { if (ai?.narrative) setDeepEdaResult(prev => (prev === body ? { ...body, narrative: ai.narrative, narrativeSource: 'ai' } as any : prev)); })
+        .catch(() => {});
       logRun({
         kind: 'deep-eda',
         title: 'Deep analysis (pandas, full data)',
@@ -1083,7 +1088,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
                     <Database className="w-5 h-5 text-blue" /> Deep analysis (Python / pandas)
                   </h3>
                   <p className="text-xs text-label max-w-xl leading-relaxed">
-                    Runs genuine pandas/numpy computation on your dataset — skewness, IQR outliers, Pearson correlation, and a missing-value report — then asks Gemini to narrate strictly those exact numbers, nothing invented.
+                    Runs real pandas/numpy computation on every row — skewness, IQR outliers, Pearson correlation and a missing-value report — and summarises those exact numbers. When AI is available it may rewrite the summary afterwards (it’s labelled); the numbers never come from AI.
                   </p>
                 </div>
                 <button
@@ -1134,7 +1139,7 @@ export default function EDAReport({ dataset, aiAnalysis, loadingAI, onTriggerAI,
                 {deepEdaResult.narrative && (
                   <div className="bg-gradient-to-r from-surface to-blue/40 rounded-2xl border border-blue/15 p-5 sm:p-6 shadow-sm">
                     <span className="text-[11px] tabular-nums font-medium text-blue bg-blue/10 px-2 py-0.5 rounded border border-blue/20">
-                      Real Numbers, AI-Narrated
+                      {(deepEdaResult as any).narrativeSource === 'ai' ? 'Real numbers · summary written by AI' : 'Real numbers · summary written by the studio'}
                     </span>
                     <p className="text-xs text-label leading-relaxed bg-well p-4 rounded-xl border border-separator mt-3">
                       {deepEdaResult.narrative.summary}

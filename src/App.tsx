@@ -48,6 +48,9 @@ import HistorySheet from './components/HistorySheet';
 import JobsButton from './components/JobsButton';
 import ExperimentsPanel from './components/ExperimentsPanel';
 import ModelStage from './components/model/ModelStage';
+import StageKeep from './components/StageKeep';
+import PinnedResults from './components/pins/PinnedResults';
+import { PinTargetContext } from './components/pins/PinButton';
 import DeployPanel from './components/DeployPanel';
 import SwarmPanel from './components/SwarmPanel';
 import MoreMenu from './components/MoreMenu';
@@ -556,6 +559,18 @@ export default function App() {
 
       setMlResult(parsed);
       mlResultRef.current = parsed; // agents read it straight after the run is logged
+      // The studio's own write-up comes with the model; an AI one replaces it later if AI is available.
+      if (parsed.narrativeKey) {
+        apiFetch('/api/model-narrative', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ narrativeKey: parsed.narrativeKey }) })
+          .then(r => (r.ok ? r.json() : null))
+          .then(ai => {
+            if (!ai || mlResultRef.current?.modelId !== parsed.modelId) return;
+            const next = { ...mlResultRef.current, ...ai };
+            mlResultRef.current = next;
+            setMlResult(next);
+          })
+          .catch(() => {});
+      }
       if (parsed.modelId) keepModelFile(parsed, targetCol);
       const m = parsed.metrics || {};
       const isClf = parsed.modelType === 'classification';
@@ -593,6 +608,14 @@ export default function App() {
   };
 
   const workspaceValue = React.useMemo(() => ({ logRun }), [logRun]);
+  // Steps opened since this dataset was loaded stay mounted (see StageKeep).
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set());
+  useEffect(() => { setVisitedTabs(v => (v.has(activeTab) ? v : new Set([...v, activeTab]))); }, [activeTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setVisitedTabs(new Set([activeTab])); }, [datasetId]);
+  // Charts and maps that were hidden measure themselves again when their step is shown.
+  useEffect(() => { const t = requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); return () => cancelAnimationFrame(t); }, [activeTab]);
+  const pinTarget = React.useMemo(() => ({ datasetId, versionId: activeVersionId }), [datasetId, activeVersionId]);
 
   // ---- Agent swarm --------------------------------------------------------
   // The studio lends the agents the same functions its own buttons use.
@@ -621,6 +644,8 @@ export default function App() {
       return datasetFromRecords(cols, out.rows.map((r: Record<string, unknown>) => ({ ...r })), ds.filename);
     },
     runAdvisory: async () => { await triggerAIScan(); return aiAnalysisRef.current; },
+    logRun,
+    getPinTarget: () => ({ datasetId, versionId: activeVersionRef.current }),
     settle: async () => { await saveQueue.current; return activeVersionRef.current; },
     findAppliedVersion: async (parentId, capability, params) => {
       if (!capability.startsWith('data.') || !datasetId) return null;
@@ -650,6 +675,7 @@ export default function App() {
 
   return (
     <WorkspaceContext.Provider value={workspaceValue}>
+    <PinTargetContext.Provider value={pinTarget}>
     <div className="min-h-screen flex flex-col bg-canvas text-label" id="workstation_app">
       <AnimatePresence>
         {showLoading && <LoadingScreen onComplete={handleLoadingComplete} />}
@@ -940,16 +966,22 @@ export default function App() {
             transition={{ duration: 0.2, ease: [0.28, 0.11, 0.32, 1] }}
           >
             <StageHeader activeTab={activeTab} />
+          </motion.div>
+        </AnimatePresence>
 
-            {activeTab === 'ingest' && (
-              <DataUploader
-                onDatasetLoaded={handleDatasetLoaded}
-                currentDataset={activeDataset}
-                onProceed={() => setActiveTab('clean')}
-              />
-            )}
+        {/* Each step stays mounted once opened (hidden while you're elsewhere), so its
+            results are still there when you come back. A new dataset starts them afresh. */}
+        <StageKeep tab="ingest" active={activeTab} visited={visitedTabs}>
+          <DataUploader
+            onDatasetLoaded={handleDatasetLoaded}
+            currentDataset={activeDataset}
+            onProceed={() => setActiveTab('clean')}
+          />
+        </StageKeep>
+        <div key={datasetId ?? 'none'}>
 
-            {activeTab === 'clean' && activeDataset && (
+            {activeDataset && (
+            <StageKeep tab="clean" active={activeTab} visited={visitedTabs}>
               <DataCleaning
                 dataset={activeDataset}
                 onUpdateDataset={handleUpdateDataset}
@@ -959,9 +991,11 @@ export default function App() {
                 onUndo={handleUndo}
                 canUndo={!!activeParentId}
               />
+            </StageKeep>
             )}
 
-            {activeTab === 'eda' && activeDataset && (
+            {activeDataset && (
+            <StageKeep tab="eda" active={activeTab} visited={visitedTabs}>
               <EDAReport
                 dataset={activeDataset}
                 aiAnalysis={aiAnalysis}
@@ -969,13 +1003,17 @@ export default function App() {
                 onTriggerAI={triggerAIScan}
                 onUseQueryResult={(ds, summary) => handleUpdateDataset(ds, undefined, summary)}
               />
+            </StageKeep>
             )}
 
-            {activeTab === 'stats' && activeDataset && (
+            {activeDataset && (
+            <StageKeep tab="stats" active={activeTab} visited={visitedTabs}>
               <StatisticsStage dataset={activeDataset} />
+            </StageKeep>
             )}
 
-            {activeTab === 'ml' && activeDataset && (
+            {activeDataset && (
+            <StageKeep tab="ml" active={activeTab} visited={visitedTabs}>
               <ModelStage
                 dataset={activeDataset}
                 onUseDataset={(ds, summary) => handleUpdateDataset(ds, undefined, summary)}
@@ -1003,6 +1041,7 @@ export default function App() {
                   </div>
                 }
               />
+            </StageKeep>
             )}
 
             {activeTab === 'dashboard' && activeDataset && loadingML && (
@@ -1017,7 +1056,9 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'dashboard' && activeDataset && (
+            {activeDataset && (
+            <StageKeep tab="dashboard" active={activeTab} visited={visitedTabs}>
+              <PinnedResults dataset={activeDataset} datasetId={datasetId} versionId={activeVersionId} />
               <StakeholderDashboard
                 dataset={activeDataset}
                 strategicSlicer={aiAnalysis?.strategicSlicer}
@@ -1025,9 +1066,11 @@ export default function App() {
                 aiAnalysis={aiAnalysis}
                 datasetId={datasetId}
               />
+            </StageKeep>
             )}
 
-            {activeTab === 'reports' && activeDataset && (
+            {activeDataset && (
+            <StageKeep tab="reports" active={activeTab} visited={visitedTabs}>
               <ReportsHub
                 dataset={activeDataset}
                 mlResult={mlResult}
@@ -1035,7 +1078,9 @@ export default function App() {
                 datasetId={datasetId}
                 activeVersionId={activeVersionId}
               />
+            </StageKeep>
             )}
+        </div>
 
             <StageNavigation
               activeTab={activeTab}
@@ -1043,8 +1088,6 @@ export default function App() {
               canContinue={!!activeDataset}
               stageComplete={stageComplete[activeTab]}
             />
-          </motion.div>
-        </AnimatePresence>
       </main>
 
       <footer className="border-t border-separator">
@@ -1205,6 +1248,7 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </PinTargetContext.Provider>
     </WorkspaceContext.Provider>
   );
 }

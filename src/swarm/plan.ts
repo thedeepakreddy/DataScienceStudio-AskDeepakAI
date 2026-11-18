@@ -118,15 +118,20 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
     drivers: has(text, 'drives?', 'drivers', 'what (affects|influences|explains|predicts)', 'which (factors|columns|features|variables)', 'key factors', 'why do'),
     test: has(text, 'test', 'significan', 'relationship', 'correlat', 'compare', 'differ', 'associat', 'hypothes'),
     regression: has(text, 'regress'),
-    train: everything || has(text, 'train', 'model', 'predict', 'classif'),
+    // “Monitor the model for drift” is about a saved model, not training a new one.
+    train: everything || (has(text, 'train', 'model', 'predict', 'classif') && !(has(text, 'drift', 'monitor') && !has(text, 'train'))),
     tune: has(text, 'tune', 'tuning', 'optimi[sz]e', 'improve the model', 'hyperparameter'),
     explain: has(text, 'explain', 'feature importance', 'shap', 'what did the model learn'),
     forecast: has(text, 'forecast', 'predict next', 'future', 'next (month|week|quarter|year)'),
     cluster: has(text, 'segment', 'cluster', 'personas', 'groups of (customers|users|people)'),
-    dashboard: everything || has(text, 'dashboard', 'visuali[sz]', 'charts?'),
+    // “Pin it to the dashboard” adds to the dashboard; it doesn't redesign it.
+    dashboard: everything || (has(text, 'dashboard', 'visuali[sz]', 'charts?') && !(has(text, '\\bpin') && !has(text, '(build|design|make|create) (a |the )?dashboard'))),
     report: everything || has(text, 'report', 'write.?up', 'findings'),
     pdf: everything || has(text, 'pdf'),
     pack: has(text, 'package', 'zip', 'reproducib'),
+    automl: has(text, 'automl', 'auto ml', 'best model', 'compare (all |every )?models', 'every model', 'all models'),
+    monitor: has(text, 'drift', 'monitor'),
+    pin: has(text, '\\bpin'),
   };
 
   // The outcome: only when the user names it or a column clearly is one —
@@ -163,7 +168,16 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
     if (dateCol && value) analyses.push(add('models.forecast', { dateColumn: dateCol.name, valueColumn: value, horizon: 6 }, `Forecast “${value}” from “${dateCol.name}” with backtested methods.`, afterClean));
     else if (wants.forecast) skipped.push('the forecast (it needs a date column and a number)');
   }
-  if ((wants.train || wants.tune || (wants.explain && !hasModel)) && !(wants.forecast && !everything && !wants.train)) {
+  // AutoML on the engine: every model family, tuned and compared; the winner is saved for explaining and monitoring.
+  if (wants.automl) {
+    if (target) {
+      trainId = add('models.automl', { target }, `Try every model family on the engine to predict “${target}”, compare them with intervals and save the best.`, afterClean);
+      analyses.push(trainId);
+      if (wants.explain) analyses.push(add('models.explain_engine', {}, 'Explain the saved model: what matters overall, per-row reasons and readable rules.', [trainId]));
+    } else skipped.push('AutoML (no column looks like an outcome — add “predict <column>”)');
+  }
+  if (wants.monitor) analyses.push(add('models.monitor', target ? { target } : {}, 'Check the newest saved model for drift on this data.', [...afterClean, ...analyses.filter(a => a === trainId)]));
+  if (!wants.automl && (wants.train || wants.tune || (wants.explain && !hasModel)) && !(wants.forecast && !everything && !wants.train)) {
     if (target) {
       const algorithm = /random forest/.test(text) ? 'random_forest' : /xgboost/.test(text) ? 'xgboost' : /gradient boost/.test(text) ? 'gradient_boosting' : /\b(linear|logistic)\b/.test(text) ? 'linear' : /\b(mlp|neural)\b/.test(text) ? 'mlp' : wants.tune ? 'random_forest' : undefined;
       trainId = add('models.train', { target, ...(algorithm ? { algorithm } : {}), ...(wants.tune ? { tune: true } : {}) },
@@ -174,7 +188,7 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
     }
   }
   // Training adds the explanation itself; explain on its own reads the current model.
-  if (wants.explain && !trainId && hasModel) analyses.push(add('models.explain', {}, 'Read what the current model learned and check for leakage.'));
+  if (wants.explain && !trainId && hasModel && !wants.automl) analyses.push(add('models.explain', {}, 'Read what the current model learned and check for leakage.'));
   if (wants.cluster || everything) {
     const ccols = clusterColumns(ds, numericMentioned.length >= 2 ? numericMentioned : undefined);
     if (ccols.length >= 2) analyses.push(add('models.cluster', numericMentioned.length >= 2 ? { columns: numericMentioned } : {}, `Find natural segments in ${ccols.slice(0, 4).join(', ')}${ccols.length > 4 ? '…' : ''}; the number is chosen by silhouette.`, afterClean));
@@ -190,6 +204,12 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
       last = add('dashboard.add_kpi', { name: `${target} rate`, formula: `AVG(${ref})`, format: 'percent' }, `Track the ${target} rate as a KPI.`, [design]);
     }
     if (everything || has(text, 'save')) add('dashboard.save', { name: `${titleCase(target ?? ds.filename.replace(/\.[^.]+$/, ''))} — agents` }, 'Save the dashboard so it reopens with this data.', [last]);
+  }
+
+  // Pin the engine analysis to the dashboard once it's done.
+  if (wants.pin) {
+    if (analyses.length) add('dashboard.pin', {}, 'Pin the result to the dashboard so it can be refreshed when the data changes.', [analyses[analyses.length - 1]]);
+    else add('dashboard.pin', {}, 'Pin the latest engine analysis to the dashboard.');
   }
 
   // Report.

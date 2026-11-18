@@ -10,6 +10,7 @@ import { useCapability } from '../../engine/useCapability';
 import { useLogRun } from '../../contexts/WorkspaceContext';
 import RunBar from '../engine/RunBar';
 import Provenance from '../engine/Provenance';
+import { ResultFooter } from '../pins/PinButton';
 import { DataTable, num, pct } from '../stats/methodKit';
 import { CHART_COLORS } from '../../utils/chartTheme';
 import { ModelPicker, modelName, useSelectedModel } from './models';
@@ -62,7 +63,7 @@ export default function ScenariosPanel({ dataset }: { dataset: Dataset }) {
     if (!r || !model) return;
     const vals = r.scenarios.map(valueOf).filter((v: any) => v != null) as number[];
     const range = vals.length ? `${cls ? pct(Math.min(...vals)) : num(Math.min(...vals), 4)} to ${cls ? pct(Math.max(...vals)) : num(Math.max(...vals), 4)}` : '';
-    logRun({ kind: 'engine', title: `What-if with ${modelName(model)}`, summary: `Changing ${keys.join(' and ')} moves the ${cls ? `chance of ${positive}` : `predicted ${model.target}`} from ${range}.`, status: 'succeeded', params: { capability: 'opt.scenarios', params, runId: r.runId }, result: r });
+    logRun({ kind: 'engine', title: `What-if with ${modelName(model)}`, summary: `Changing ${keys.join(' and ')} moves the ${cls ? `chance of ${positive}` : `predicted ${model.target}`} from ${range}.`, status: 'succeeded', params: { capability: 'opt.scenarios', params, runId: r.runId, view: { kind: 'scenarios' } }, result: r });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r]);
 
@@ -130,7 +131,8 @@ export default function ScenariosPanel({ dataset }: { dataset: Dataset }) {
           </div>
           <DataTable rows={r.scenarios.map((s: any) => ({ ...s.inputs, prediction: s.prediction, p: valueOf(s) }))} limit={30}
             columns={[...keys.map(k => ({ key: k, label: k })), { key: 'prediction', label: 'Prediction' }, ...(cls ? [{ key: 'p', label: `P(${positive})`, format: (v: number) => pct(v, 1) }] : [])]} />
-          <div className="border-t border-separator pt-3"><Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} /></div>
+          <ResultFooter agent="pin-scenarios" provenance={<Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} />}
+            pin={{ title: `What-if with ${model ? modelName(model) : 'a model'}`, headline: `${cls ? `Chance of ${positive}` : `Predicted ${model?.target}`} as ${chart.x} changes${keys[1] ? `, for each ${keys[1]}` : ''}.`, view: { kind: 'scenarios' }, capability: 'opt.scenarios', params: params as Record<string, unknown>, result: r }} />
         </div>
       )}
     </div>

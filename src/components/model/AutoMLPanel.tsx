@@ -10,6 +10,7 @@ import { useCapability } from '../../engine/useCapability';
 import { useLogRun } from '../../contexts/WorkspaceContext';
 import RunBar from '../engine/RunBar';
 import Provenance from '../engine/Provenance';
+import { ResultFooter } from '../pins/PinButton';
 import { DataTable, Note, Section, StatGrid, num, pValue, pct } from '../stats/methodKit';
 import { textColumns } from '../explore/TextAnalysis';
 import { Bars, CalibrationChart, ConfusionMatrix, LiftChart, PrChart, ResidualChart, RocChart } from './charts';
@@ -67,6 +68,7 @@ export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onO
 
   const others = cols.filter(c => c !== target);
   const r = run.result as any;
+  const [ranParams, setRanParams] = useState<Record<string, unknown>>({});
 
   const params = () => {
     const p: Record<string, unknown> = { target, time_budget_s: budget, metric, split, text_encoder: encoder, nested_cv: nested, interactions, calibrate };
@@ -87,7 +89,7 @@ export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onO
     if (!r) return;
     const champ = r.champion?.label ?? 'a model';
     const primary = r.task === 'classification' ? (r.test?.rocAuc != null ? `ROC AUC ${num(r.test.rocAuc)}` : `accuracy ${num(r.test?.accuracy)}`) : `R² ${num(r.test?.r2)}`;
-    logRun({ kind: 'engine', title: `AutoML: predict ${r.target}`, summary: `${champ} won (${primary} on held-out test data)${r.model?.name ? `, saved as ${r.model.name} v${r.model.version}` : ''}.`, status: 'succeeded', params: { capability: 'ml.automl', params: params(), runId: r.runId }, result: r });
+    logRun({ kind: 'engine', title: `AutoML: predict ${r.target}`, summary: `${champ} won (${primary} on held-out test data)${r.model?.name ? `, saved as ${r.model.name} v${r.model.version}` : ''}.`, status: 'succeeded', params: { capability: 'ml.automl', params: ranParams, runId: r.runId, view: { kind: 'automl' } }, result: r });
     if (r.model?.id) { select(r.model.id); refresh(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r]);
@@ -109,7 +111,7 @@ export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onO
           </div>
           <div>
             <label className="field-label" htmlFor="automl-budget">Search time</label>
-            <select id="automl-budget" className="input" value={budget} onChange={e => setBudget(Number(e.target.value))}>
+            <select id="automl-budget" data-agent="automl-budget" className="input" value={budget} onChange={e => setBudget(Number(e.target.value))}>
               {BUDGETS.map(b => <option key={b.s} value={b.s}>{b.label}</option>)}
             </select>
           </div>
@@ -121,7 +123,7 @@ export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onO
           </div>
           <div>
             <label className="field-label" htmlFor="automl-name">Save as (name)</label>
-            <input id="automl-name" className="input" value={name} placeholder={`e.g. ${target.toLowerCase().replace(/\W+/g, '-')}-model`} onChange={e => setName(e.target.value)} />
+            <input id="automl-name" data-agent="automl-name" className="input" value={name} placeholder={`e.g. ${target.toLowerCase().replace(/\W+/g, '-')}-model`} onChange={e => setName(e.target.value)} />
           </div>
           <div className="sm:col-span-2 lg:col-span-4">
             <Chips id="automl-features" label={`Use these columns (all others when none are chosen)`} options={others} value={features} onChange={setFeatures} />
@@ -184,16 +186,24 @@ export default function AutoMLPanel({ dataset, onOpen }: { dataset: Dataset; onO
           </div>
         )}
 
-        <RunBar run={run} label="Find the best model" agent="automl-run" disabled={!!issue} onRun={() => run.run(params())} />
+        <RunBar run={run} label="Find the best model" agent="automl-run" disabled={!!issue} onRun={() => { const p = params(); setRanParams(p); run.run(p); }} />
         {issue && run.phase === 'idle' && <p className="text-xs text-label-3">{issue}</p>}
       </div>
 
-      {r && <AutoMLResult r={r} onOpen={onOpen} />}
+      {r && <AutoMLResult r={r} params={ranParams} onOpen={onOpen} />}
     </div>
   );
 }
 
-function AutoMLResult({ r, onOpen }: { r: any; onOpen: (tab: 'explain' | 'predict' | 'registry', id: string) => void }) {
+/** The one-sentence summary of an AutoML result (also used by pinned results). */
+export function automlHeadline(r: any): string {
+  const test = r.test ?? {};
+  const key = r.task === 'classification' ? (test.rocAuc != null ? 'rocAuc' : 'accuracy') : 'r2';
+  const base = r.baseline?.test?.[key];
+  return `${r.champion?.label} predicts ${r.target} best: ${metricLabel(key)} ${num(test[key])} on rows it never saw${base != null ? ` (a no-skill baseline scores ${num(base)})` : ''}.`;
+}
+
+function AutoMLResult({ r, params, onOpen }: { r: any; params: Record<string, unknown>; onOpen: (tab: 'explain' | 'predict' | 'registry', id: string) => void }) {
   const cls = r.task === 'classification';
   const test = r.test ?? {};
   const scoring: string = r.scoring;
@@ -309,7 +319,8 @@ function AutoMLResult({ r, onOpen }: { r: any; onOpen: (tab: 'explain' | 'predic
         </Section>
       ))}
 
-      <div className="border-t border-separator pt-3"><Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} /></div>
+      <ResultFooter agent="pin-automl" provenance={<Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} />}
+        pin={{ title: `AutoML: predict ${r.target}`, headline: automlHeadline(r), view: { kind: 'automl' }, capability: 'ml.automl', params, result: r }} />
     </div>
   );
 }

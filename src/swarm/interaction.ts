@@ -69,7 +69,9 @@ export const interactions = new InteractionBus();
 export function findTarget(target: string): HTMLElement | null {
   if (typeof document === 'undefined') return null;
   const safe = target.replace(/["\\]/g, '\\$&');
-  return document.querySelector<HTMLElement>(`[data-agent="${safe}"]`);
+  // Steps you've left stay on the page (hidden): prefer the control you can see.
+  const all = [...document.querySelectorAll<HTMLElement>(`[data-agent="${safe}"]`)];
+  return all.find(el => !el.closest('[hidden]')) ?? all[0] ?? null;
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
