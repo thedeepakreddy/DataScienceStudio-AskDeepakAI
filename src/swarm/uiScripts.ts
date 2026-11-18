@@ -188,6 +188,7 @@ export const UI_SCRIPTS: Record<string, UiScript> = {
   'models.train': async (p, d, port, signal) => {
     if (p.features?.length) throw new UiError('Chosen features are set directly.');
     await d.navigate('ml', 'Opening Model');
+    await d.click('model-tab-train', 'Quick model');
     await d.select('ml-target', p.target, `Predict: ${p.target}`);
     if (p.algorithm && p.algorithm !== 'auto') await d.select('ml-algorithm', p.algorithm, `Algorithm: ${p.algorithm}`);
     // Tuning lives in the Expert settings; if it isn't on the page the task

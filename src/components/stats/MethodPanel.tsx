@@ -61,7 +61,8 @@ function initialValues(fields: Field[], dataset: Dataset): Values {
     else if (f.kind === 'number') v[f.key] = f.default ?? '';
     else if (f.kind === 'toggle') v[f.key] = f.default;
     else if (f.kind === 'arms') v[f.key] = [{ name: 'A', successes: '', trials: '' }, { name: 'B', successes: '', trials: '' }];
-    else v[f.key] = '';
+    else if (f.kind === 'custom') v[f.key] = f.initial();
+    else v[f.key] = f.default ?? '';
   }
   return v;
 }
@@ -72,6 +73,7 @@ function problems(fields: Field[], v: Values): string | null {
     if (f.kind === 'columns' && (v[f.key]?.length ?? 0) < (f.min ?? 0)) return `Choose at least ${f.min} for “${f.label}”.`;
     if (f.kind === 'number' && !f.optional && (v[f.key] === '' || Number.isNaN(Number(v[f.key])))) return `Enter ${f.label.toLowerCase()}.`;
     if (f.kind === 'text' && !f.optional && !String(v[f.key]).trim()) return `Enter ${f.label.toLowerCase()}.`;
+    if (f.kind === 'custom' && f.check) { const issue = f.check(v[f.key]); if (issue) return issue; }
     if (f.kind === 'arms' && (v[f.key] as any[]).some(a => !a.name || a.trials === '' || a.successes === '' || Number(a.successes) > Number(a.trials))) return 'Fill in each option’s successes and trials (successes ≤ trials).';
   }
   return null;
@@ -119,7 +121,8 @@ const FieldInput: React.FC<{ field: Field; dataset: Dataset; value: any; onChang
   if (f.kind === 'select') return <div>{label}<select id={id} className="input" value={value} onChange={e => onChange(e.target.value)}>{f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>;
   if (f.kind === 'number') return <div>{label}<input id={id} className="input" type="number" inputMode="decimal" value={value} min={f.min} max={f.max} step={f.step ?? 'any'} placeholder={f.optional ? 'Optional' : ''} onChange={e => onChange(e.target.value)} /></div>;
   if (f.kind === 'toggle') return <label className="flex items-center gap-2 text-sm text-label self-end pb-2"><input type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} /> {f.label}</label>;
-  if (f.kind === 'text') return <div>{label}<input id={id} className="input" value={value} placeholder={f.placeholder} onChange={e => onChange(e.target.value)} /></div>;
+  if (f.kind === 'text') return <div className="sm:col-span-2">{label}<input id={id} className="input" value={value} placeholder={f.placeholder} onChange={e => onChange(e.target.value)} /></div>;
+  if (f.kind === 'custom') { const Editor = f.editor; return <div className="sm:col-span-2 lg:col-span-4"><span className="field-label" id={id}>{f.label}</span><Editor value={value} onChange={onChange} id={id} /></div>; }
   // arms: results so far, one row per option
   const arms: any[] = value;
   const set = (i: number, k: string, x: string) => onChange(arms.map((a, j) => (j === i ? { ...a, [k]: x } : a)));
@@ -139,7 +142,7 @@ const FieldInput: React.FC<{ field: Field; dataset: Dataset; value: any; onChang
 
 const TONE = { good: 'text-green', warn: 'text-orange', plain: 'text-label' };
 
-const EngineMethod: React.FC<{ method: Method; dataset: Dataset }> = ({ method: m, dataset }) => {
+export const EngineMethod: React.FC<{ method: Method; dataset: Dataset }> = ({ method: m, dataset }) => {
   const run = useCapability(m.cap, dataset);
   const logRun = useLogRun();
   const [values, setValues] = useState<Values>(() => initialValues(m.fields, dataset));

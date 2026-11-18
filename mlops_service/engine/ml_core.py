@@ -2,6 +2,7 @@
 model families with search spaces, metrics, and conformal calibration."""
 from __future__ import annotations
 
+import re
 import warnings
 from typing import Any
 
@@ -200,6 +201,18 @@ def _looks_like_dates(s: pd.Series) -> bool:
     return pd.to_datetime(v, errors="coerce", format="mixed").notna().mean() >= 0.95
 
 
+_ID_NAME = re.compile(r"(^|[_\s-])(id|ids|uuid|guid|key|number|no|code)$|^id[_\s-]|^(id|index|row)$", re.IGNORECASE)
+
+
+def _numeric_id(name: str, s: pd.Series) -> bool:
+    """Whole numbers, (nearly) unique per row, in a column named like an identifier."""
+    v = pd.to_numeric(s, errors="coerce").dropna()
+    if len(v) < 20 or not _ID_NAME.search(name.strip()):
+        return False
+    whole = bool(np.all(np.isclose(v, np.round(v))))
+    return whole and v.nunique() >= 0.95 * len(v)
+
+
 def column_roles(X: pd.DataFrame, types: dict[str, str], text_columns: list[str] | None = None) -> dict[str, list[str]]:
     """Sorts feature columns into numeric, boolean, date, low/high-cardinality categorical and free text."""
     roles: dict[str, list[str]] = {"numeric": [], "date": [], "low_card": [], "high_card": [], "text": [], "dropped": []}
@@ -211,6 +224,8 @@ def column_roles(X: pd.DataFrame, types: dict[str, str], text_columns: list[str]
             roles["dropped"].append(c)
         elif text_columns and c in text_columns:
             roles["text"].append(c)
+        elif (t in ("integer", "number") or pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s)) and _numeric_id(c, s):
+            roles["dropped"].append(c)  # a numeric ID (customer_id 1001, 1002, …): unique per row and named like one
         elif t in ("integer", "number") or pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
             roles["numeric"].append(c)
         elif t in ("date", "datetime") or pd.api.types.is_datetime64_any_dtype(s) or _looks_like_dates(s):

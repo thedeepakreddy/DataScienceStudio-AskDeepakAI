@@ -1,5 +1,6 @@
 """Engine v2, phase 4: AutoML v2, batch prediction, explanations, fairness, feature selection."""
 import numpy as np
+import pandas as pd
 import pytest
 from conftest import run, upload_rows
 
@@ -62,11 +63,22 @@ def test_predict_batch_with_sets(client, churn, trained):
     assert ds["rows"] == 1200
     cols = {c["name"] for c in ds["columns"]}
     assert {"customer_id", "prediction", "probability_Yes", "probability_No", "prediction_set"} <= cols
+    # Batch scoring applies the model's chosen cut-off, exactly as the single-row endpoint does.
+    meta = client.get(f"/v2/models/{trained['model']['id']}").json()
+    assert meta["threshold"] is not None and "decision" in cols
+    rows = client.get(f"/v2/datasets/{ds['id']}/preview?limit=200").json()["rows"]
+    assert all(row["decision"] == ("Yes" if row["probability_Yes"] >= meta["threshold"] else "No") for row in rows)
 
 
 def test_explain_fairness_and_selection(client, churn, trained):
     e = run(client, "ml.explain", churn, model_id=trained["model"]["id"], sample=200)
     assert e["partialDependence"] and e["surrogate"]["fidelity"] > 0.6
+    # Integer columns get partial dependence too (scikit-learn refuses ints), and the surrogate's rules
+    # are in the data's own units and categories, not the model's scaled, one-hot space.
+    assert "tenure" in {x["feature"] for x in e["partialDependence"]}
+    rules = e["surrogate"]["rules"]
+    assert "tenure <=" in rules or "charges <=" in rules
+    assert not any(t in rules for t in ("num__", "cat__", "<= -"))
     if "shapGlobal" in e:
         assert e["shapGlobal"][0]["feature"] in ("contract", "tenure", "charges") and e["local"][0]["reasons"]
     f = run(client, "ml.fairness", churn, model_id=trained["model"]["id"], target="churn", sensitive_features=["gender"])
@@ -105,3 +117,20 @@ def test_automl_nested_cv_interactions_and_costs(client):
     assert cost["costPerRowTest"] < 0.5
     meta = client.get(f"/v2/models/{inter['model']['id']}").json()
     assert meta["threshold"] == cost["threshold"]
+
+
+def test_numeric_ids_left_out_and_date_rules_readable(client):
+    rng = np.random.default_rng(5)
+    rows = []
+    for i in range(400):
+        day = pd.Timestamp("2022-01-01") + pd.Timedelta(days=int(i * 2))
+        late = day >= pd.Timestamp("2022-09-01")
+        rows.append({"customer_id": 5000 + i, "signup": day.strftime("%Y-%m-%d"), "spend": float(rng.normal(50, 10)),
+                     "churn": "Yes" if (late and rng.random() < 0.85) or (not late and rng.random() < 0.1) else "No"})
+    ds = upload_rows(client, rows, "ids")
+    r = run(client, "ml.automl", ds, target="churn", models=["random_forest"], time_budget_s=10, max_trials_per_model=1, cv_folds=3, ensemble=False)
+    assert "customer_id" not in r["features"]["used"] and "signup" in r["features"]["used"]
+    e = run(client, "ml.explain", ds, model_id=r["model"]["id"], sample=200)
+    rules = e["surrogate"]["rules"]
+    assert "signup is before 2022-0" in rules or "signup is on or after 2022-0" in rules
+    assert "00:00:00" not in rules and "(date)" not in rules

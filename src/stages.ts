@@ -51,8 +51,8 @@ export const STAGES: Record<PipelineStage, StageMeta> = {
   },
   ml: {
     label: 'Model',
-    title: 'Train a model',
-    description: 'Pick what to predict and train real scikit-learn and XGBoost models on your data.',
+    title: 'Model and decide',
+    description: 'Predict an outcome with real machine-learning models, see why they predict what they do, put them to work, and forecast or optimise decisions.',
     icon: Cpu,
     hint: 'Modeling is optional — you can continue without training.',
   },

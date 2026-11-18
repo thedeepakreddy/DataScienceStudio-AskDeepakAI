@@ -523,7 +523,7 @@ async function callMlService(path: string, options: { method?: string; body?: an
         const openUrl = mlServiceOpenUrl(baseUrl);
         throw new Error(
           openUrl
-            ? `The ML engine at ${baseUrl} is not responding - it is probably asleep. Use "Wake ML Engine" in the toolbar, or open ${openUrl} in a new tab and keep it open, then try again.`
+            ? `The engine at ${baseUrl} is not responding yet - it may still be starting up. Please try again in a moment.`
             : `ML compute service is unreachable at ${baseUrl}. Start it with: cd mlops_service && pip install -r requirements.txt && uvicorn main:app --reload --port 8000`,
           { cause: err }
         );

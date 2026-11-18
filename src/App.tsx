@@ -33,7 +33,7 @@ import ReportsHub from './components/ReportsHub';
 import AssistiveTouchBot from './components/AssistiveTouchBot';
 import StageNavigation from './components/StageNavigation';
 import StageHeader from './components/StageHeader';
-import MLServiceWakeButton from './components/MLServiceWakeButton';
+import EngineStatus from './components/EngineStatus';
 import AppIcon from './components/AppIcon';
 import Orb from './components/Orb';
 import AiKeySheet from './components/AiKeySheet';
@@ -47,7 +47,7 @@ import StatisticsStage from './components/StatisticsStage';
 import HistorySheet from './components/HistorySheet';
 import JobsButton from './components/JobsButton';
 import ExperimentsPanel from './components/ExperimentsPanel';
-import ForecastPanel from './components/ForecastPanel';
+import ModelStage from './components/model/ModelStage';
 import DeployPanel from './components/DeployPanel';
 import SwarmPanel from './components/SwarmPanel';
 import MoreMenu from './components/MoreMenu';
@@ -698,7 +698,7 @@ export default function App() {
               </button>
             </div>
 
-            <MLServiceWakeButton />
+            <EngineStatus />
 
             <JobsButton />
 
@@ -976,29 +976,33 @@ export default function App() {
             )}
 
             {activeTab === 'ml' && activeDataset && (
-              <MLPipeline
+              <ModelStage
                 dataset={activeDataset}
-                aiSuggestedTarget={aiAnalysis?.recommendedTarget}
-                aiSuggestedType={aiAnalysis?.modelType}
-                aiSuggestedFeatures={aiAnalysis?.suggestedFeatures}
-                onTriggerPrediction={triggerPrediction}
-                mlResult={mlResult}
-                loadingML={loadingML}
+                onUseDataset={(ds, summary) => handleUpdateDataset(ds, undefined, summary)}
+                train={
+                  <div className="space-y-10">
+                    <MLPipeline
+                      dataset={activeDataset}
+                      aiSuggestedTarget={aiAnalysis?.recommendedTarget}
+                      aiSuggestedType={aiAnalysis?.modelType}
+                      aiSuggestedFeatures={aiAnalysis?.suggestedFeatures}
+                      onTriggerPrediction={triggerPrediction}
+                      mlResult={mlResult}
+                      loadingML={loadingML}
+                    />
+                    <div className="space-y-8">
+                      <ExperimentsPanel
+                        datasetId={datasetId}
+                        activeVersionId={activeVersionId}
+                        refreshKey={mlResult}
+                        onRerun={p => { triggerPrediction(p.target, p.features, p.modelType, p.hyperparameters).catch(() => {}); }}
+                        onOpenVersion={handleUseVersion}
+                      />
+                      <DeployPanel dataset={activeDataset} datasetId={datasetId} activeVersionId={activeVersionId} mlResult={mlResult} />
+                    </div>
+                  </div>
+                }
               />
-            )}
-
-            {activeTab === 'ml' && activeDataset && (
-              <div className="mt-10 space-y-8">
-                <ExperimentsPanel
-                  datasetId={datasetId}
-                  activeVersionId={activeVersionId}
-                  refreshKey={mlResult}
-                  onRerun={p => { triggerPrediction(p.target, p.features, p.modelType, p.hyperparameters).catch(() => {}); }}
-                  onOpenVersion={handleUseVersion}
-                />
-                <DeployPanel dataset={activeDataset} datasetId={datasetId} activeVersionId={activeVersionId} mlResult={mlResult} />
-                <ForecastPanel dataset={activeDataset} />
-              </div>
             )}
 
             {activeTab === 'dashboard' && activeDataset && loadingML && (

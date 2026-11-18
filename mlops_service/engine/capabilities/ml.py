@@ -505,6 +505,11 @@ def predict(ctx, p: PredictParams):
                 proba = pipeline.predict_proba(X)
                 for k, c in enumerate(classes):
                     res[f"probability_{c}"] = proba[:, k]
+                # The model's chosen cut-off (cost- or F1-optimal), as the single-row endpoint applies it.
+                if meta.get("threshold") is not None and meta.get("positiveClass") in classes and len(classes) == 2:
+                    k = classes.index(meta["positiveClass"])
+                    other = next(c for c in classes if c != meta["positiveClass"])
+                    res["decision"] = np.where(proba[:, k] >= meta["threshold"], meta["positiveClass"], other)
                 if conf and "threshold" in conf:
                     res["prediction_set"] = [" | ".join(c for c, keep_ in zip(classes, row) if keep_) for row in (1 - proba) <= conf["threshold"]]
             elif meta["task"] == "regression" and conf and "halfWidth" in conf:
@@ -521,6 +526,8 @@ def predict(ctx, p: PredictParams):
         os.unlink(out_path)
         raise EngineError("The dataset has no rows to score.")
     ds = ctx.datasets.ingest_parquet(out_path, p.name or f"{ctx.dataset['name']} – scored", {"kind": "scored", "model": p.model_id, "from": ctx.dataset_id})
+    if meta["task"] == "classification" and meta.get("threshold") is not None and classes and len(classes) == 2:
+        ctx.note(f"“decision” flags {meta.get('positiveClass')} when its probability is at least {meta['threshold']:.0%}, the cut-off chosen when the model was trained; “prediction” uses 50%.")
     if conf:
         ctx.note(f"Intervals/sets are calibrated to cover the truth {1 - conf['alpha']:.0%} of the time (test coverage {conf['testCoverage']:.1%}).")
     return {"dataset": ds, "model": {"id": p.model_id, "name": meta.get("name"), "version": meta.get("version")}, "rows": n}
@@ -594,6 +601,11 @@ def explain(ctx, p: ExplainParams):  # noqa: C901
     # Partial dependence and ICE.
     ctx.progress(0.6, "Partial dependence")
     top = p.pdp_features or [r["feature"] for r in out.get("shapGlobal", [])[:4]] or feats[:4]
+    # scikit-learn refuses partial dependence on integer columns; the model treats them as numbers anyway.
+    S_pdp = S.copy()
+    for f in feats:
+        if pd.api.types.is_integer_dtype(S_pdp[f]) and not pd.api.types.is_bool_dtype(S_pdp[f]):
+            S_pdp[f] = S_pdp[f].astype(float)
     pdp = []
     for f in top:
         if f not in feats:
@@ -601,7 +613,7 @@ def explain(ctx, p: ExplainParams):  # noqa: C901
         try:
             cat = meta["featureTypes"].get(f) not in NUMERIC
             kw = {"categorical_features": [f]} if cat else {}
-            res = partial_dependence(pipeline, S, [f], kind="both", grid_resolution=20, **kw)
+            res = partial_dependence(pipeline, S_pdp, [f], kind="both", grid_resolution=20, **kw)
             grid = res["grid_values"][0]
             avg = res["average"]
             k = (meta["classes"].index(meta["positiveClass"]) if meta.get("positiveClass") else 0) if task == "classification" and avg.shape[0] > 1 else 0
@@ -613,16 +625,50 @@ def explain(ctx, p: ExplainParams):  # noqa: C901
     # Surrogate tree.
     ctx.progress(0.85, "Surrogate tree")
     try:
-        prep = inner.named_steps["prep"]
-        Z = prep.transform(S)
+        # Fitted on the original columns (numbers in their own units, categories as yes/no tests), so the
+        # rules read like "tenure <= 12" rather than in the model's scaled, encoded space.
+        Z, names = _readable_design(S, feats, meta.get("featureTypes") or {})
         target = pipeline.predict(S)
         tree = (DecisionTreeClassifier if task == "classification" else DecisionTreeRegressor)(max_depth=p.surrogate_depth, random_state=ctx.seed).fit(Z, target)
         fidelity = float(tree.score(Z, target))
         out["surrogate"] = {"depth": p.surrogate_depth, "fidelity": fidelity, "fidelityMeaning": "accuracy" if task == "classification" else "R²",
-                            "rules": export_text(tree, feature_names=[n.split("__", 1)[-1] for n in prep.get_feature_names_out()], max_depth=p.surrogate_depth)}
+                            "rules": _readable_rules(export_text(tree, feature_names=names, max_depth=p.surrogate_depth))}
     except Exception as err:  # noqa: BLE001
         ctx.note(f"No surrogate tree ({str(err).splitlines()[0]}).")
     return out
+
+
+def _readable_design(S: pd.DataFrame, feats: list[str], types: dict) -> tuple[pd.DataFrame, list[str]]:
+    parts = []
+    for f in feats:
+        col = S[f]
+        if types.get(f) in NUMERIC or (pd.api.types.is_numeric_dtype(col) and not pd.api.types.is_bool_dtype(col)):
+            v = pd.to_numeric(col, errors="coerce")
+            parts.append(v.fillna(v.median()).rename(f).to_frame())
+        elif types.get(f) in ("date", "datetime") or pd.api.types.is_datetime64_any_dtype(col) or mc._looks_like_dates(col):
+            # Dates split by time ("before 12 Aug 2022"), not as one category per day.
+            d = pd.to_datetime(col, errors="coerce", utc=True, format="mixed")
+            days = (d - pd.Timestamp("1970-01-01", tz="UTC")).dt.total_seconds() / 86400
+            parts.append(days.fillna(days.median()).rename(f"{f} (date)").to_frame())
+        else:
+            top = col.astype(str).value_counts().head(15).index
+            parts.append(pd.DataFrame({f"{f} is “{c}”": (col.astype(str) == c).astype(float) for c in top}, index=S.index))
+    Z = pd.concat(parts, axis=1)
+    return Z, list(Z.columns)
+
+
+def _readable_rules(text: str) -> str:
+    """'contract is “M” <= 0.50' becomes 'contract is not “M”'; '> 0.50' becomes 'contract is “M”'."""
+    import re
+
+    text = re.sub(r"(\S[^|\n]*?) is (“[^”]*”) <= 0\.50", r"\1 is not \2", text)
+    text = re.sub(r"(\S[^|\n]*?) is (“[^”]*”) >  0\.50", r"\1 is \2", text)
+
+    # Date thresholds were days since 1970: show them as dates.
+    def as_date(m: re.Match) -> str:
+        day = pd.Timestamp("1970-01-01") + pd.Timedelta(days=float(m.group(3)))
+        return f"{m.group(1)} {'is before' if m.group(2) == '<=' else 'is on or after'} {day:%Y-%m-%d}"
+    return re.sub(r"(\S[^|\n]*?) \(date\) (<=|>)\s+(-?[\d.]+)", as_date, text)
 
 
 class FairnessParams(BaseModel):

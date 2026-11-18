@@ -12,7 +12,9 @@ import { STAGE_ORDER } from '../stages';
 
 const root = join(__dirname, '..');
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
-const componentFiles = readdirSync(join(root, 'components')).filter(f => f.endsWith('.tsx')).map(f => `components/${f}`);
+// Every component, including those in sub-folders (model/, stats/, explore/, engine/).
+const componentFiles = (readdirSync(join(root, 'components'), { recursive: true }) as string[])
+  .filter(f => f.endsWith('.tsx') && !f.endsWith('.test.tsx')).map(f => `components/${f.replace(/\\/g, '/')}`);
 const pageSources = [...componentFiles, 'App.tsx'].map(f => [f, read(f)] as const);
 
 // data-agent="x" (static) and data-agent={`x-${…}`} (template prefix). Column
@@ -56,7 +58,7 @@ describe('agents can operate every feature', () => {
     const features = componentFiles.filter(f => /logRun\(|onUpdateDataset\(|onDatasetChange\(/.test(read(f)));
     expect(features.length).toBeGreaterThan(5);
     const uncovered = features.filter(f => {
-      const name = f.replace('components/', '').replace('.tsx', '');
+      const name = f.replace(/^components\/(?:.*\/)?/, '').replace('.tsx', '');
       if (read(f).includes('data-agent')) return false;
       return !(FEATURES_WITHOUT_PAGE[name]?.every(id => CAPABILITIES[id]));
     });
