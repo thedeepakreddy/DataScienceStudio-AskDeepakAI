@@ -211,6 +211,7 @@ The agents work in both.
   - **Free tier (the default):** it tests the newest models with one tiny request each and keeps the newest ones that answer on the key **without billing**.
   - **Latest:** the newest models, paid or free.
   - It refreshes at start-up, daily, and on its own when a model stops working (then retries the call). **Update to latest free model** and **Update to latest model** buttons in the AI notice and the key sheet do it on demand; the sheet shows the model in use and which ones need billing.
+- **When AI is unavailable, the notice says why**: no key, a rejected key, a quota limit that resets on its own, or a key whose Google project has **run out of prepaid credits** (add credits in AI Studio, or use a key from a project without billing). Visitors can always add their own key.
 - **Without any key:** built-in rules still plan commands and analyses, simple questions are answered from the data, and narrations fall back to templates built from the real numbers. Engine results never depend on AI.
 
 ---

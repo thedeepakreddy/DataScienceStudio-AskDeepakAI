@@ -34,3 +34,27 @@ describe('finding free models', () => {
     expect(bad.results).toEqual([{ model: 'a', outcome: 'bad_key' }]);
   });
 });
+
+describe('a key whose project has no credits', () => {
+  const depleted = 'RESOURCE_EXHAUSTED: Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing.';
+  it('is reported as a billing problem, not a passing quota limit', async () => {
+    const { classifyGeminiError, describeGeminiFailure, mostTellingFailure } = await import('../../geminiHealth');
+    expect(classifyGeminiError(new Error(`429 ${depleted}`))).toBe('billing');
+    expect(mostTellingFailure(['busy', 'billing', 'quota'])).toBe('billing');
+    expect(describeGeminiFailure('billing', [])).toMatch(/prepaid credits/);
+    expect(classifyGeminiError(new Error('429 Too many requests'))).toBe('quota');
+  });
+  it('stops the free-model search at once and keeps the current list', async () => {
+    const { findFreeModels } = await import('../../geminiModels');
+    let calls = 0;
+    const r = await findFreeModels(['a', 'b', 'c'], async () => { calls++; throw new Error(depleted); });
+    expect(calls).toBe(1);
+    expect(r.free).toEqual([]);
+    expect(r.results).toEqual([{ model: 'a', outcome: 'no_credits' }]);
+  });
+  it('never replaces the list with models that only said “busy”', async () => {
+    const { findFreeModels } = await import('../../geminiModels');
+    const r = await findFreeModels(['a', 'b'], async () => { throw new Error('503 overloaded'); });
+    expect(r.free).toEqual([]);
+  });
+});

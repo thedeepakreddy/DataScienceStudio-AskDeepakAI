@@ -228,7 +228,11 @@ function refreshGeminiModels(force = false, key = ownerGeminiKey() || visitorGem
           await client.models.generateContent({ model, contents: 'Reply with OK', config: { maxOutputTokens: 4, abortSignal: AbortSignal.timeout(12_000) } as any });
         });
         tested = found.results;
-        if (!found.free.length) throw new Error(found.results.some(r => r.outcome === 'bad_key') ? 'Google rejected the key.' : 'No free-tier model answered on this key.');
+        if (!found.free.length) throw new Error(found.results.some(r => r.outcome === 'no_credits')
+          ? 'the key’s Google project has no prepaid credits left — add credits in AI Studio, or use a key from a project without billing'
+          : found.results.some(r => r.outcome === 'bad_key') ? 'Google rejected the key'
+            : found.results.every(r => r.outcome === 'busy') ? 'every model was busy or over quota just now; try again in a few minutes'
+              : 'no free-tier model answered on this key');
         next = found.free;
       } else {
         const ranked = rankGeminiModels(listed);
@@ -747,6 +751,8 @@ function describeVisitorKeyFailure(kind: GeminiFailureKind): string {
       return "The server could not reach Google's Gemini API.";
     case 'model_unavailable':
       return 'This key cannot use the Gemini models the app needs.';
+    case 'billing':
+      return 'This key’s Google project has run out of prepaid credits. Add credits in Google AI Studio, or create a key in a project without billing (free tier).';
     default:
       return 'Gemini returned an unexpected error with this key.';
   }

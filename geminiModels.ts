@@ -71,7 +71,10 @@ export function isTemporaryError(err: unknown): boolean {
   return !isPaidOnlyError(err) && /\b(429|500|503)\b|resource_exhausted|overloaded|unavailable|rate limit|high demand/.test(text);
 }
 
-export type ProbeOutcome = 'free' | 'paid' | 'busy' | 'unavailable' | 'bad_key';
+/** The key's Google project has no prepaid credits left. */
+const NO_CREDITS = /prepayment credits|credits are depleted|out of credits|insufficient (credits|funds|balance)/;
+
+export type ProbeOutcome = 'free' | 'paid' | 'busy' | 'unavailable' | 'bad_key' | 'no_credits';
 
 /**
  * Tries candidates newest first with one tiny request each and keeps the ones that
@@ -87,16 +90,18 @@ export async function findFreeModels(candidates: string[], probe: (model: string
       results.push({ model, outcome: 'free' });
     } catch (err) {
       const text = String((err as any)?.message ?? err).toLowerCase();
-      const outcome: ProbeOutcome = isPaidOnlyError(err) ? 'paid'
+      const outcome: ProbeOutcome = NO_CREDITS.test(text) ? 'no_credits' : isPaidOnlyError(err) ? 'paid'
         : /api key not valid|api_key_invalid|permission_denied|unauthenticated|\b40[13]\b/.test(text) ? 'bad_key'
           : isTemporaryError(err) ? 'busy' : 'unavailable';
       results.push({ model, outcome });
-      if (outcome === 'bad_key') break;
+      // A problem with the key itself (rejected, or its project out of credits) applies to every model.
+      if (outcome === 'bad_key' || outcome === 'no_credits') break;
     }
     if (results.filter(r => r.outcome === 'free').length >= keep) break;
   }
   const answered = results.filter(r => r.outcome === 'free').map(r => r.model);
-  // Free but busy or out of today's quota: still free, kept after the ones that answered.
+  // Busy models are kept as backups, but only behind at least one that really answered:
+  // with no answer at all nothing is proven free, so the list isn't replaced.
   const busy = results.filter(r => r.outcome === 'busy').map(r => r.model);
-  return { free: [...answered, ...busy].slice(0, keep + 2), results };
+  return { free: answered.length ? [...answered, ...busy].slice(0, keep + 2) : [], results };
 }
