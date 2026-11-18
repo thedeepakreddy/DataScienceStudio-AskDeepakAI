@@ -859,3 +859,33 @@
 @media (prefers-reduced-motion: reduce) {
   .agent-glow[data-state="live"] { animation: none; }
 }
+
+/* ---- The report document (ReportsHub) -------------------------------------
+   The report is a document: it is always set on white paper with the light
+   palette, whatever the studio's theme, so what you see is what prints. */
+.report-paper {
+  color-scheme: light;
+  --canvas: #f5f5f7; --surface: #ffffff; --raised: #ffffff;
+  --well: rgba(118, 118, 128, 0.08); --fill: rgba(118, 118, 128, 0.12); --fill-strong: rgba(118, 118, 128, 0.2);
+  --separator: rgba(0, 0, 0, 0.08); --separator-strong: rgba(0, 0, 0, 0.16);
+  --label: #1d1d1f; --label-2: #515154; --label-3: #6e6e73;
+  --blue: #0062c4; --green: #1f7a35; --red: #c00013; --orange: #a84800; --yellow: #8a4e00; --teal: #00707f; --purple: #7a3a99; --pink: #b80d3c;
+  --chart-1: #007aff; --chart-2: #34c759; --chart-3: #ff9500; --chart-4: #af52de; --chart-5: #ff2d55; --chart-6: #30b0c7; --chart-7: #5856d6; --chart-8: #ffcc00;
+  --chart-grid: rgba(0, 0, 0, 0.07); --chart-axis: #6e6e73;
+  background: #ffffff;
+  color: var(--label);
+}
+.report-paper .report-section { break-inside: auto; }
+.report-paper .report-block { break-inside: avoid; }
+.report-paper pre { white-space: pre-wrap; word-break: break-word; }
+
+@media print {
+  @page { size: A4; margin: 16mm 14mm; }
+  body.printing-report { background: #fff !important; }
+  body.printing-report * { visibility: hidden; }
+  body.printing-report #report-document, body.printing-report #report-document * { visibility: visible; }
+  body.printing-report #report-document { position: absolute; inset: 0 auto auto 0; width: 100%; box-shadow: none !important; border: 0 !important; padding: 0 !important; margin: 0 !important; }
+  body.printing-report .report-edit-only { display: none !important; }
+  body.printing-report .report-section { break-before: page; }
+  body.printing-report .report-section.report-first { break-before: auto; }
+}

@@ -59,6 +59,7 @@ function Runs() {
   const [open, setOpen] = useState<string | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [cmp, setCmp] = useState<any>(null);
+  const [shown, setShown] = useState(15);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {
     engine.runs.list({ limit: 100, ...(experiment ? { experiment } : {}) }).then(r => { setRuns(r); setError(null); }).catch(e => setError((e as Error).message));
@@ -87,7 +88,7 @@ function Runs() {
       {!runs && <p className="text-sm text-label-2">Loading…</p>}
       {runs && !runs.length && <p className="text-sm text-label-2">No engine runs yet.</p>}
       <ul className="divide-y divide-separator">
-        {(runs ?? []).map(r => (
+        {(runs ?? []).slice(0, shown).map(r => (
           <li key={r.id} className="py-2 space-y-2">
             <div className="flex items-center gap-3">
               <input type="checkbox" aria-label={`Compare ${r.capability}`} checked={picked.includes(r.id)} onChange={e => setPicked(p => (e.target.checked ? [...p, r.id] : p.filter(x => x !== r.id)))} />
@@ -101,6 +102,7 @@ function Runs() {
           </li>
         ))}
       </ul>
+      {(runs?.length ?? 0) > shown && <button type="button" className="btn btn-sm btn-plain -ml-2" onClick={() => setShown(n => n + 25)}>Show more ({(runs?.length ?? 0) - shown} older)</button>}
     </div>
   );
 }
