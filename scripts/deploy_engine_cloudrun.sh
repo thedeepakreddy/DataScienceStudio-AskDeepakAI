@@ -26,8 +26,16 @@ fi
 gcloud config set project "$PROJECT_ID" >/dev/null
 BILLING=$(gcloud billing projects describe "$PROJECT_ID" --format="value(billingAccountName)" 2>/dev/null || true)
 if [ -z "$BILLING" ]; then
-  echo "Couldn't confirm billing on $PROJECT_ID. Cloud Run needs a linked billing account even for the free tier"
-  echo "(Console → Billing). If the deploy fails with a billing error, link one and rerun."
+  echo "$PROJECT_ID has no billing account linked. Cloud Run needs one even for the free tier."
+  ACCOUNTS=$(gcloud billing accounts list --filter=open=true --format="value(name,displayName)" 2>/dev/null || true)
+  [ -n "$ACCOUNTS" ] || die "You have no open billing account. Create one at https://console.cloud.google.com/billing, then rerun."
+  echo "Your billing accounts:"; echo "$ACCOUNTS" | awk -F'\t' '{printf "  %d) %s  %s\n", NR, $1, $2}'
+  read -rp "Link which one to $PROJECT_ID? Number: " PICK_BILLING
+  ACCOUNT=$(echo "$ACCOUNTS" | awk -F'\t' -v n="$PICK_BILLING" 'NR==n {print $1}')
+  [ -n "$ACCOUNT" ] || die "No account number $PICK_BILLING."
+  gcloud billing projects link "$PROJECT_ID" --billing-account="${ACCOUNT#billingAccounts/}" >/dev/null
+  BILLING="billingAccounts/${ACCOUNT#billingAccounts/}"
+  echo "  linked ✓"
 fi
 say "Project $PROJECT_ID, region $REGION"
 
