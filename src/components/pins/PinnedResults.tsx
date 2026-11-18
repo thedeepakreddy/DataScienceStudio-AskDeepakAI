@@ -46,7 +46,7 @@ export function pinNeedsData(pin: Pick<PinRecord, 'view' | 'capability'>): boole
   return false;
 }
 
-function PinBody({ pin }: { pin: PinRecord }) {
+export function PinBody({ pin }: { pin: Pick<PinRecord, "view" | "result"> }) {
   const r: any = pin.result;
   try {
     switch (pin.view.kind) {

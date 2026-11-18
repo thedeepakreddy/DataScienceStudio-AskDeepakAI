@@ -65,7 +65,7 @@ export const STAGES: Record<PipelineStage, StageMeta> = {
   reports: {
     label: 'Report',
     title: 'Report',
-    description: 'A stakeholder-ready summary of findings, model results and recommendations. Export it as a PDF.',
+    description: 'A complete, editable report of everything you did — data, preparation code, analyses, models, KPIs and how to reproduce it. Export it as PDF, HTML or Markdown.',
     icon: FileText,
   },
 };
