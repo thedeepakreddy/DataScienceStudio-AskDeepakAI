@@ -30,10 +30,11 @@
 
 - **What it is:** a full-stack data science workstation in the browser. It covers seven steps: **Import, Clean, Explore, Statistics, Model, Dashboard and Report**.
 - **The agent team:** 23 specialist AI agents, led by an Orchestrator you talk to in the floating **Ask AI** chat.
-  - They plan your request, then carry it out on your own screen: you watch their cursors click, type and select real controls.
+  - They plan your request, then carry it out on your own screen, in workflow order: you watch their cursors open lists, type and press the real controls.
+  - By default they start at once and you watch (**Watch them work**); switch to **Ask me first** to approve changes before they happen.
   - Results are checked, risky ones are reviewed independently, and the whole run can be undone in one click.
 - **Real numbers only:**
-  - Statistics, models, forecasts and drift come from a Python service (scikit-learn, XGBoost, SHAP, SciPy, pandas, NumPy).
+  - Statistics, models, forecasts and drift come from a Python engine with **65 analyses** (scikit-learn, XGBoost, LightGBM, CatBoost, statsmodels, SciPy, SHAP, DuckDB, pandas, NumPy). Every one has a form in the studio.
   - Simple data work runs in the browser.
   - Gemini writes words, plans and code. It is never the source of a metric.
 - **Few AI calls:** common requests are planned by built-in rules with **zero** AI calls. Anything else takes one call.
@@ -85,16 +86,16 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
    - Only then is one AI call made. That call either returns a task plan or answers your question from the data's facts.
 
    Every plan, whatever produced it, is validated before it runs. The checks cover known capabilities, valid inputs, real columns, dependencies, no loops and size limits.
-2. **Approve what matters.** Your approval depends on the kind of task:
-   - Read-only tasks start at once.
-   - Data changes wait for **Approve and Run**.
-   - Critical actions, such as custom code or registering a model, need their own approval.
-   - Fixes the Data Quality Agent finds while working are added as new tasks, and they wait for approval too.
-3. **Watch them work on your page.**
-   - Each agent's cursor moves like a hand: curved paths, natural acceleration, a slight overshoot.
-   - Every agent works as a pair of cursors. Its partner darts to the centre of the panel the agent needs, touches it and explodes into fine dust that becomes a soft moving glow around the panel; then the worker moves in and does the real clicks, choices and typing.
-   - A thin branch grows from the **Orchestrator** node in the step bar to every panel worked on, so a run reads like a tree. Finished panels keep a steady violet glow until you press **Clear** (in the chat or the Agents panel).
-   - Only one agent holds the page at a time. A tap or key press of your own pauses the team ("Agents paused — you're in control"), and you can Resume or Stop.
+2. **Approve, or just watch.** A switch in the chat and the Agents panel sets how:
+   - **Watch them work** (the default): every allowed task starts at once. Each change is still a saved version you can undo, and you can pause or stop the team at any time.
+   - **Ask me first**: read-only tasks start at once, data changes wait for **Approve and Run**, and critical actions (custom code, registering or retraining a model) need their own approval.
+   - Actions only you may take (picking files, deleting all saved work) never run, in either mode.
+3. **Watch them work on your page, in order.**
+   - **Strict step order:** a task starts only when every task of an earlier step (collect → clean → explore → statistics → model → dashboard → report) has finished, whatever links the plan gave it. Tasks of the same step may run together; waiting tasks say which step they wait for.
+   - **Real actions, not mimes.** An agent choosing from a list opens it and runs down to the choice; typing goes in key by key and replaces the old text; buttons visibly press and the cursor then points at what appeared. If a value is already set, the agent glides past with *Already set: …* instead of pretending to act.
+   - Each agent's cursor moves like a hand: curved paths, natural acceleration, a slight overshoot. A partner cursor lights up each panel the agent works in, and a thin branch grows from the **Orchestrator** node in the step bar to it, so a run reads like a tree.
+   - Two agents never use the same control at once: the second waits nearby (*Waiting for …*). A tap or key press of your own pauses the team, and you can Resume or Stop.
+   - **Speed:** Natural, Fast or Instant (Agents panel). Reduced motion always means Instant.
 4. **Checked, not trusted.** Every task self-checks its own result (for example, no missing values left, or every kept row matches the filter). Risky results then get an **independent review** using a different method:
    - a permutation test for statistical tests,
    - the validation gate for models,
@@ -123,13 +124,14 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
 
 The **SQL** and **Code** tabs in the chat run a read-only query (results shown as a table) or your own JavaScript transform in a sandbox (always with its own approval). The **Agents** panel in the toolbar shows the details: task map, each task's check, messages between agents, incidents, telemetry and recent runs.
 
-**Welcome.** Each time the studio opens, the team introduces itself in about fifteen seconds:
-1. Cursors stream in from every edge.
-2. The Orchestrator types *Welcome to*, while three agents touch each word and it appears out of a burst of dust: **Data Science *Studio***.
-3. A tree grows from the Orchestrator to nine cards; each card forms out of a dust explosion with a soft glow, one thing the team can do.
-4. The tree fades, a line draws to the Ask AI button and the swarm flies into it.
+**Welcome.** Each time the studio opens, the team shows what it can do in about seventeen seconds. Beside four lines about how they work, five agents do real work on a 20-row sample, one after another:
+1. The **Data Engineer** fills two blank cells with each column's median.
+2. The **Statistician** drags across two columns and their correlation appears.
+3. The **ML Engineer** presses Train: a one-rule model is fitted on 14 rows and scored on the 6 it never saw.
+4. The **Dashboard Designer** drags a chart into a mini dashboard and widens it by its curved corner.
+5. The **Verification Agent** recomputes each result and ticks it off.
 
-The × in the top-left (with a ring showing the time left), Esc or a tap skips it. It adapts to desktops, tablets and phones, and has a still version for reduced motion.
+Every number shown is computed from the sample. Then the team flies into the Ask AI button. The × (with a ring showing the time left), Esc or a tap skips it; with reduced motion it shows the finished picture.
 
 > Agents can operate every feature that changes data or produces a result. A test (`src/swarm/coverage.test.ts`) fails if a new feature isn't registered for them. A few things are deliberately left to you, such as picking files from your computer or deleting all saved work. Details: [`docs/SWARM.md`](docs/SWARM.md).
 
@@ -138,68 +140,45 @@ The × in the top-left (with a ring showing the time left), Esc or a tap skips i
 ## The seven steps
 
 ### 1. Import
-- **File formats:** CSV/TSV (delimiter detected), Excel `.xlsx` (with a sheet picker), JSON / JSON Lines (nested objects flattened) and Parquet. Everything is parsed in the browser, up to 100 MB / 200,000 rows.
-- **Type detection:** numbers, categories, booleans, dates and ID-like columns.
-- **Sample datasets** to try things out.
-- **PostgreSQL:** a one-time copy of up to 2,000 rows from a table.
+The page puts the most-used actions first: add a file, try a sample, set a goal, then other sources.
+- **Files:** CSV/TSV (delimiter detected), Excel `.xlsx` (with a sheet picker), JSON / JSON Lines (nested objects flattened) and Parquet, parsed in the browser up to 100 MB. Larger files (several GB) go straight to the engine.
+- **Other sources, through the engine:** a web address; a **JSON API** (bearer token, key in a header or the address, or username and password; page numbers, offsets, *next* links or cursors; nested fields become columns; the key is never stored); PostgreSQL or MySQL (read-only `SELECT`); BigQuery; Google Cloud Storage. Every address is checked against private networks.
+- **Type detection** (numbers, categories, booleans, dates, ID-like columns) and **sample datasets**.
 
 ### 2. Clean
-- **Fixes:**
-  - Fill missing values (mean, median, mode, zero).
-  - Remove or add columns and rows, calculated columns, one-hot encoding.
-  - Remove duplicates, filter rows.
-- **More tools**, each with a preview before applying: tidy text, change type (understands `$1,200`, `(300)`, `1.234,5`), replace values, join or append a second file, group-and-summarise, pivot.
-- **Quality rules** (not empty, unique, range, allowed values, pattern), re-checked after every change, with "remove the rows that break it".
-- **Quality audit** with fixes, **Undo**, **Reset to original**, and **Workflows**: save the steps and replay them on a new file.
+- **Fixes:** fill missing values, remove or add columns and rows, calculated columns, **one-hot** and **label encoding** (one number per category, most common first or alphabetical), remove duplicates, filter rows.
+- **More tools**, each previewed before applying: tidy text, change type (understands `$1,200`, `(300)`, `1.234,5`), replace values, join or append a second file, group-and-summarise, pivot.
+- **On the full data, in the engine:** profile, data rules, outliers (IQR, isolation forest, LOF), personal-data scan and masking, and **recipes** — repeatable preparation steps (filter, derive, bin, date parts, label/one-hot encode, scale, clip, group, pivot, window, join, SQL) saved as a new dataset.
+- **Quality rules** re-checked after every change, the **quality audit** with fixes, **Undo**, **Reset to original**, and **Workflows** to replay the steps on a new file.
 
 ### 3. Explore
-- Overview, distributions, categories, outliers and correlations.
-- Deep analysis on the full data with pandas: skew, IQR outliers, missing-value report, correlation matrix.
-- **SQL editor** (Expert): write SQL or have AI write it. Every query passes a strict read-only check and runs in a fresh in-browser database. Any result can become the working data.
-- **AI advisory:** suggested target, risks and next steps, with a data-derived fallback when AI is unavailable.
+- Overview, distributions, categories, outliers and correlations; deep analysis on the full data with pandas.
+- **Engine analyses:** segments (k-means, GMM, HDBSCAN), maps of the data (PCA, UMAP, t-SNE), market basket rules, time series (decompose, anomalies, change points), text (overview, sentiment, entities, topics by meaning, duplicates, zero-shot labels, semantic search), correlation with p-values, normality.
+- **SQL editor** (Expert): read-only, in a fresh in-browser database; any result can become the working data.
 
 ### 4. Statistics
-- **Compare & relate:** the test is chosen from the column types.
-  - The tests: Welch's t-test, Welch's ANOVA with Tukey HSD, Pearson, paired t-test or chi-squared.
-  - With each: an effect size (Hedges' g, η²/ω², r, dz, Cramér's V), a confidence interval and assumption checks (Shapiro–Wilk, Levene, expected counts).
-  - The matching non-parametric test (Mann–Whitney, Kruskal–Wallis, Spearman, Wilcoxon, Fisher's exact), recommended when an assumption fails.
-  - One- or two-sided tests, at levels 0.01/0.05/0.10.
-- **Multiple-test correction:** Holm, Bonferroni, Benjamini–Hochberg.
-- **Regression:** linear (OLS) and logistic, with coefficients, CIs, p-values, odds ratios, R² / pseudo-R² and collinearity detection.
-- **Sample size & power:** two-group, paired, ANOVA, correlation and two-proportion designs.
-- **A/B test interpreter:** z-test on conversion rates with lift and minimum detectable effect.
-- **Hypothesis lab:** AI proposes testable hypotheses on your real columns; the real engine tests them.
+- **Compare & relate:** the right test from the column types (Welch t-test, Welch ANOVA + Tukey, Pearson, paired t, chi-squared), with effect sizes, confidence intervals, assumption checks and the matching non-parametric test; multiple-test correction.
+- **Models:** linear and logistic regression, GLMs, mixed-effects, robust and quantile regression, ANOVA/ANCOVA, bootstrap intervals.
+- **Causal inference:** matching/weighting, difference-in-differences, instrumental variables, regression discontinuity, synthetic control, uplift.
+- **Experiments:** A/B tests, sample size and power, sequential boundaries, bandits, sample-ratio-mismatch checks; **Bayesian** A/B tests, t-tests and regression; **survival** curves and Cox/AFT models.
 
 ### 5. Model
-- **AutoML:** five candidate models (Logistic/Linear Regression, Random Forest, Gradient Boosting, XGBoost, MLP), ranked by k-fold cross-validation, every one shown, with the reason the winner was chosen.
-- **Real preprocessing pipelines:** imputation, scaling and encoding, fitted on training rows only.
-- **Leakage-safe evaluation:** seeded runs (the same settings give identical scores), splits by time or by group, and leakage warnings.
-- **Hyperparameter tuning:** randomized search with cross-validation, showing every trial.
-- **Explainability:** SHAP feature importance (TreeExplainer / LinearExplainer).
-- **Experiments:** every run with its score, split, seed and data version. Re-run any one exactly.
-- **Forecasting:** naive, seasonal naive, moving average, drift, linear trend, Holt and Holt-Winters, scored by rolling-origin backtesting, with 80%/95% ranges from real backtest errors.
-- **Clustering** (k-means).
-- **Agentic analysis:** Gemini function-calling drives a reason → act → observe loop. It is limited to a fixed set of real ML-service functions (retrain with a transform, drop a feature, check multicollinearity via VIF), capped at 5 steps, with an explicit stop reason.
-- **Deploy & monitor:**
-  - A validation gate before registering: the model must beat the baseline, show no leakage and not rely on an ID column.
-  - A model registry with versions and instant rollback.
-  - Predictions from a form or a whole file.
-  - Drift monitoring: PSI, KS / chi-squared, out-of-range values and unseen categories.
-  - A model card.
+- **AutoML in the engine:** every suitable family (linear, random forest, extra trees, gradient boosting, XGBoost, LightGBM, CatBoost and more) tuned with Optuna under cross-validation, a stacked ensemble, a fair baseline, corrected confidence intervals and a significance test against the runner-up, leakage and fairness checks, calibration, cost-based thresholds and conformal prediction intervals.
+- **Split the rows** with one choice: train/test 80/20 (default) or train/validation/test 70/15/15 or 60/20/20. The model is still chosen by cross-validation; validation and test scores are shown side by side, with a warning when they differ.
+- **Explain** (SHAP, permutation importance, partial dependence), **predict** (a form, a file, or the whole dataset), **registry** with versions and stages (staging/production, approver, model card, download).
+- **Monitor** drift (PSI, KS/chi-squared, new categories) and accuracy decay, and **retrain when drift is found**: pick the model, the new data (this data, or a fresh re-import), when to retrain and where the new version goes; check now or on a schedule. Production only changes when the new version beats the current one on the new data.
+- **Forecast** (with backtesting and intervals, hierarchical), **decide** (optimisation, Monte Carlo, what-if scenarios), **checks** (fairness, feature selection) and **automate** (re-run past analyses as pipelines or on schedules).
+- The quick model in the browser-backed service is still there for a fast first look.
 
 ### 6. Dashboard
-- Charts built from your data. Click a bar or slice to filter every chart; active filters show as removable chips.
-- **KPI formulas** (e.g. `SUM(revenue) / COUNT()`), computed by a small dedicated parser. No code is executed.
-- Save, reopen, update and delete named dashboards per dataset.
+- Designed by the studio's chart rules from your columns (no AI call), the same designer the agents use. Click a bar or slice to filter every chart.
+- **Arrange it like a desktop:** every panel sits on a 12-column grid. Drag a panel's **curved bottom-left corner** to resize it (its right edge stays put), or the **three dots** on top to move it; the other panels slide out of the way and close up gaps. **Clean up** lines everything into tidy rows (KPIs, then charts, then wide panels and tables), **Keep arranged** tidies after every change, with **Undo** and **Reset**. The layout is saved per dataset; on phones panels stack.
+- **Pinned results:** pin any result from Statistics, Explore or Model and it appears here, ready to refresh when the data changes. **KPI formulas** (e.g. `SUM(revenue) / COUNT()`), saved dashboards per dataset.
 
 ### 7. Report
-- **Executive PDF:** built from the real dataset profile, tests and model metrics. Includes saved analyses and provenance (model seed, split and tuning).
-- **Reproducibility package (.zip):**
-  - the current and original data as CSV,
-  - lineage, workflows and saved analyses,
-  - a **Jupyter notebook** that reproduces the studio's exact accuracy and p-value (tested),
-  - the PDF and the model card.
-- **Data dictionary** and **ETL code** export.
+- A structured, editable report: executive summary, the data, quality, preparation (with the pandas code), exploration, statistics, models, forecasts, dashboard and KPIs, reproducibility and methods. Hide, reorder, rename sections and add your own commentary.
+- **PDF** with the charts and result panels as sharp pictures (as shown on screen), captions kept with their figures and the numbers behind them in an appendix; **HTML** (charts included), **Markdown**, print.
+- **Reproducibility package (.zip):** current and original data, lineage, workflows, saved analyses, a **Jupyter notebook** that reproduces the studio's numbers, the pandas script, the PDF and the model card.
 
 ---
 
@@ -227,13 +206,12 @@ The agents work in both.
 ## AI: Gemini, your own key, and working without AI
 
 - **Server key:** the server uses `GEMINI_API_KEY` when it's set.
-- **Your own key:** visitors can add their own free key from [Google AI Studio](https://aistudio.google.com/) (toolbar → key icon).
-  - Both classic keys (`AIza…`) and newer keys (`AQ.…`) are accepted. Spaces, quotes or a `GEMINI_API_KEY=` prefix picked up when pasting are removed automatically.
-  - The key is kept only in your browser and is sent only with your own requests. The server never stores it.
-- **Without any key:**
-  - Built-in rules still plan commands and analyses.
-  - Simple questions are answered from the data (row and column counts, missing values, a column's average, median, min, max or most common values).
-  - Narrations fall back to templates built from the real numbers.
+- **Your own key:** visitors can add their own free key from [Google AI Studio](https://aistudio.google.com/) (toolbar → key icon). It is kept only in your browser, sent only with your own requests and never stored on the server.
+- **The model keeps itself current.** Google retires models regularly, so the server asks Google which models exist (ListModels) instead of relying on a fixed list:
+  - **Free tier (the default):** it tests the newest models with one tiny request each and keeps the newest ones that answer on the key **without billing**.
+  - **Latest:** the newest models, paid or free.
+  - It refreshes at start-up, daily, and on its own when a model stops working (then retries the call). **Update to latest free model** and **Update to latest model** buttons in the AI notice and the key sheet do it on demand; the sheet shows the model in use and which ones need billing.
+- **Without any key:** built-in rules still plan commands and analyses, simple questions are answered from the data, and narrations fall back to templates built from the real numbers. Engine results never depend on AI.
 
 ---
 
@@ -261,9 +239,11 @@ The agents work in both.
                 │
                 ▼
 ┌──────────────────────── Python FastAPI (stateless) ─────────────────────┐
-│  /train /predict /eda /forecast /stats/{compare,regression,power}       │
-│  /monitor/drift /hypothesis-test /agent/* /download/{id} /health        │
-│  scikit-learn · XGBoost · SHAP · SciPy · pandas · NumPy                 │
+│  Engine v2: /v2/run/{capability} (65 analyses), datasets, jobs, runs,   │
+│  models (registry, serving, monitoring), pipelines and schedules        │
+│  Classic: /train /predict /eda /forecast /stats/* /monitor/drift        │
+│  scikit-learn · XGBoost · LightGBM · CatBoost · statsmodels · SciPy ·   │
+│  SHAP · Optuna · DuckDB · pandas · NumPy · sentence-transformers        │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -281,8 +261,8 @@ The agents work in both.
 | Storage | IndexedDB |
 | Server | Node.js, Express, esbuild bundle |
 | AI | Google Gemini via `@google/genai` (planning, narration, structured function-calling) |
-| Compute service | Python, FastAPI, scikit-learn, XGBoost, SHAP, SciPy, pandas, NumPy |
-| Reports | jsPDF, html2canvas, generated Jupyter notebooks |
+| Compute service | Python 3.13, FastAPI, scikit-learn, XGBoost, LightGBM, CatBoost, statsmodels, SciPy, SHAP, Optuna, DuckDB, pandas, NumPy; deployed on Google Cloud Run |
+| Reports | jsPDF, html-to-image (charts in the PDF), generated Jupyter notebooks |
 | Testing | Vitest (frontend), pytest (ML service) |
 | CI | GitHub Actions: typecheck, unit tests, ESLint, build, ruff, pytest |
 | Containers | Docker, docker-compose |
@@ -293,8 +273,8 @@ The agents work in both.
 
 | Suite | What it covers |
 |---|---|
-| **Vitest (~130 tests)** | Operations registry, parsers, SQL safety, KPI parser, statistics helpers, provenance notebook, and the agent swarm (described below) |
-| **pytest (81 tests)** | Real metric ranges, EDA cross-checked against independent pandas computation, statistics against reference values (Cohen's tables, SciPy, scikit-learn, pingouin), forecast backtests, same-seed reproducibility, agent functions |
+| **Vitest (~210 tests)** | Operations registry, parsers, SQL safety, KPI parser, statistics helpers, provenance notebook, and the agent swarm (described below) |
+| **pytest (~190 tests)** | Real metric ranges, EDA cross-checked against independent pandas computation, statistics against reference values (Cohen's tables, SciPy, scikit-learn, pingouin), forecast backtests, same-seed reproducibility, agent functions |
 
 The Vitest suite checks the agent swarm in detail:
 - the planner, runtime, approvals, reviews and self-healing,
@@ -358,7 +338,16 @@ The studio is at `http://localhost:3000` and the ML service at `http://localhost
 
 ---
 
-## Deploy on Render (free tier)
+## Deploy
+
+The studio runs on Render and the engine on Google Cloud Run. To redeploy the engine from Cloud Shell:
+
+```bash
+git clone https://github.com/thedeepakreddy/DataScienceStudio-AskDeepakAI.git && cd DataScienceStudio-AskDeepakAI
+SKIP_RENDER=1 PROJECT_ID=<your-project> bash scripts/deploy_engine_cloudrun.sh
+```
+
+Details: [`docs/DEPLOY_ENGINE.md`](docs/DEPLOY_ENGINE.md). Both can also run on Render's free tier:
 
 **1. ML service.** A **Web Service** from this repo:
 - Root directory: `mlops_service`
@@ -385,14 +374,18 @@ Free services sleep when idle. The studio wakes the ML service for you ("Wake ML
 │   ├── App.tsx               Steps, toolbar, workspace state, agent wiring
 │   ├── components/           Steps and panels (Clean, Statistics, Model, Deploy, …),
 │   │                         Ask AI chat, Agents panel, cursor layer, welcome
+│   ├── engine/               Engine client, generated contract (65 analyses), dataset sync
+│   ├── report/               Report builder, layout editor, PDF/HTML/Markdown exporters
 │   ├── swarm/                Agent team: catalog, planner, runtime, UI scripts,
 │   │                         interaction engine, review, recovery, human motion
 │   ├── operations/           Data operations registry (shared by UI and agents)
 │   ├── utils/                Parsers, SQL safety, statistics helpers, storage, AI key
 │   └── index.css             Tailwind v4 theme, agent colours, animations
-├── mlops_service/            Python FastAPI compute service + pytest suite
+├── mlops_service/            Python FastAPI engine (engine/capabilities/*) + pytest suite
 ├── docs/
 │   ├── SWARM.md              How the agent team works; how to add a feature for agents
+│   ├── ENGINE_CAPABILITIES.md  Every engine analysis and its parameters (generated)
+│   ├── ENGINE_API.md, DEPLOY_ENGINE.md
 │   ├── STUDIO_AUDIT.md       Feature audit (real / partial / fake) and phase log
 │   └── screenshots/
 ├── Dockerfile, docker-compose.yml
@@ -407,7 +400,7 @@ Tailwind CSS v4 is configured in `src/index.css`. There is no `tailwind.config.j
 
 - **Your work is stored in your browser.** It isn't synced across devices (use workspace export/import), and browser storage quotas apply.
 - **Free hosting:** the ML service sleeps when idle and has little memory, so very large datasets or training many models at once can be slow.
-- **PostgreSQL import** is a one-time copy of up to 2,000 rows. Scheduled sync isn't offered.
+- **Database and API imports** are copies taken when you import; to refresh them, re-import (Model → Automate can re-import on a schedule for public sources).
 - **AI features need a Gemini key** (the owner's or your own). Everything else works without one.
 
 ---
@@ -415,6 +408,7 @@ Tailwind CSS v4 is configured in `src/index.css`. There is no `tailwind.config.j
 ## Further reading
 
 - [`docs/SWARM.md`](docs/SWARM.md): the agent team in depth, and how to make a new feature usable by agents.
+- [`docs/ENGINE_CAPABILITIES.md`](docs/ENGINE_CAPABILITIES.md): all 65 engine analyses with their parameters.
 - [`docs/STUDIO_AUDIT.md`](docs/STUDIO_AUDIT.md): what was audited, removed and rebuilt, phase by phase.
 - [`CASE_STUDY.md`](CASE_STUDY.md): what was hard to build.
 
