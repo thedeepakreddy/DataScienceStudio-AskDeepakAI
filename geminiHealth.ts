@@ -6,11 +6,15 @@
 // Turns a failed Gemini call into a reason a person can act on. Kept free of
 // side effects (and of the server) so it can be exercised on its own.
 
-export type GeminiFailureKind = 'no_key' | 'bad_key' | 'quota' | 'model_unavailable' | 'busy' | 'network' | 'unknown';
+export type GeminiFailureKind = 'no_key' | 'bad_key' | 'billing' | 'quota' | 'model_unavailable' | 'busy' | 'network' | 'unknown';
+
+/** The key's Google project has no prepaid credits or no active billing: no model will answer until that's fixed. */
+export const BILLING_RE = /prepayment credits|credits are depleted|out of credits|insufficient (credits|funds|balance)|billing account (is )?(disabled|closed|not active|suspended)|billing (has been )?disabled/;
 
 export function classifyGeminiError(err: any): GeminiFailureKind {
   const text = `${err?.status ?? ''} ${err?.message || err}`.toLowerCase();
   if (/api key not valid|api_key_invalid|api key expired|permission_denied|unauthenticated|\b40[13]\b/.test(text)) return 'bad_key';
+  if (BILLING_RE.test(text)) return 'billing';
   if (/\b429\b|resource_exhausted|quota|rate limit/.test(text)) return 'quota';
   if (/\b404\b|not_found|is not found|not supported for generatecontent|no longer available/.test(text)) return 'model_unavailable';
   if (/\b50[03]\b|unavailable|overloaded|high demand/.test(text)) return 'busy';
@@ -21,7 +25,7 @@ export function classifyGeminiError(err: any): GeminiFailureKind {
 // Several models are tried in turn and can fail for different reasons. A key
 // or quota problem explains everything; "model unavailable" is only the story
 // when it is the reason every single model gave.
-const FAILURE_PRIORITY: GeminiFailureKind[] = ['no_key', 'bad_key', 'quota', 'busy', 'network', 'unknown'];
+const FAILURE_PRIORITY: GeminiFailureKind[] = ['no_key', 'bad_key', 'billing', 'quota', 'busy', 'network', 'unknown'];
 
 export function mostTellingFailure(kinds: GeminiFailureKind[]): GeminiFailureKind {
   if (kinds.length === 0) return 'unknown';
@@ -35,6 +39,8 @@ export function describeGeminiFailure(kind: GeminiFailureKind, models: string[])
       return 'No Gemini API key is set on the server. Add GEMINI_API_KEY in your hosting environment settings and redeploy.';
     case 'bad_key':
       return 'Google rejected the Gemini API key (invalid, expired or restricted). Create a new key in Google AI Studio and update GEMINI_API_KEY.';
+    case 'billing':
+      return 'The Google project behind this Gemini key has run out of prepaid credits, so no model will answer. Add credits in Google AI Studio (Projects → Billing), or create a key in a project without billing to use the free tier, then update GEMINI_API_KEY. Visitors can still use their own key.';
     case 'quota':
       return 'The Gemini quota for this API key is used up for now. Free-tier limits reset on their own; wait a little, or enable billing for the key.';
     case 'model_unavailable':
