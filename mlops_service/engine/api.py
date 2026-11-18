@@ -18,6 +18,7 @@ from . import ENGINE_VERSION
 from .core import EngineError, library_versions
 from .datasets import Datasets
 from .jobs import Jobs
+from .models import ModelStore
 from .registry import REGISTRY, Context, cache_key, execute, get, parse_params
 from .storage import make_storage
 
@@ -29,6 +30,7 @@ class EngineState:
         self.storage = make_storage(storage_uri)
         self.datasets = Datasets(self.storage)
         self.jobs = Jobs(self.storage)
+        self.models = ModelStore(self.storage)
 
 
 state = EngineState()
@@ -179,7 +181,7 @@ def run(name: str, body: RunBody) -> dict[str, Any]:
     as_job = body.mode == "job" or (body.mode == "auto" and cap.heavy)
 
     def work(progress=None, cancelled=None) -> dict[str, Any]:
-        ctx = Context(state.datasets, dataset, body.seed, progress, cancelled)
+        ctx = Context(state.datasets, dataset, body.seed, progress, cancelled, models=state.models)
         return execute(cap, ctx, params)
 
     if as_job:

@@ -23,8 +23,10 @@ class Context:
     """What a capability gets: its dataset, the seed, progress and cancellation."""
 
     def __init__(self, datasets: Datasets, dataset: dict[str, Any] | None, seed: int,
-                 progress: Callable[[float, str], None] | None = None, cancelled: Callable[[], bool] | None = None) -> None:
+                 progress: Callable[[float, str], None] | None = None, cancelled: Callable[[], bool] | None = None,
+                 models: Any = None) -> None:
         self.datasets = datasets
+        self.models = models
         self.dataset = dataset
         self.seed = seed
         self._progress = progress
