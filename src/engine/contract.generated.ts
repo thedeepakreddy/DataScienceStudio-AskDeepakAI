@@ -2,7 +2,7 @@
 // change the engine, then run `python mlops_service/scripts/gen_contract.py`.
 /* eslint-disable */
 
-export const CONTRACT_HASH = "a0485f6a7a381af5";
+export const CONTRACT_HASH = "0caca355a20af1d7";
 
 export const ENGINE_VERSION = "2.0.0";
 
@@ -667,6 +667,8 @@ export interface MlopsMonitorParams {
   max_performance_drop?: number;
   /** Default: 200000. (minimum 50, maximum 5000000) */
   max_rows?: number;
+  /** Fewer rows than this are too few to judge drift reliably. Default: 100. (minimum 10, maximum 100000) */
+  min_rows?: number;
   /** Keep the report in the model's monitoring history. Default: true. */
   save?: boolean;
 }

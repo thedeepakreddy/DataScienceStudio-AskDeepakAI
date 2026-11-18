@@ -32,6 +32,10 @@ _BLOCKED_SQL = re.compile(
 )
 
 
+def _qi(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
 def _lit(path: str) -> str:
     return "'" + path.replace("'", "''") + "'"
 
@@ -51,6 +55,25 @@ def _kind(duck_type: str) -> str:
     if t.startswith(("TIME", "INTERVAL")):
         return "duration"
     return "text"
+
+
+_TRUE_FALSE = {"true", "false", "t", "f"}
+
+
+def _csv_text_overrides(con, path: str, delim: str) -> str:
+    """DuckDB reads Yes/No (and Y/N, 1/0) columns as BOOLEAN. Keep those as the original text, so a
+    "churn: Yes/No" target stays Yes/No; only genuine true/false columns become booleans."""
+    cols = con.execute(f"DESCRIBE SELECT * FROM read_csv({_lit(path)}, auto_detect=true, sample_size=20480{delim})").fetchall()
+    keep_text = []
+    for name, kind, *_ in cols:
+        if kind == "BOOLEAN":
+            raw = con.execute(f"SELECT DISTINCT lower(trim({_qi(name)})) FROM read_csv({_lit(path)}, all_varchar=true{delim}) "
+                              f"WHERE {_qi(name)} IS NOT NULL AND trim({_qi(name)}) <> '' LIMIT 10").fetchall()
+            if not {r[0] for r in raw} <= _TRUE_FALSE:
+                keep_text.append(name)
+    if not keep_text:
+        return ""
+    return ", types={" + ", ".join(f"{_lit(n)}: 'VARCHAR'" for n in keep_text) + "}"
 
 
 class Datasets:
@@ -76,7 +99,9 @@ class Datasets:
             con.execute("SET preserve_insertion_order = true")
             if ext in (".csv", ".tsv", ".txt"):
                 delim = ", delim='\\t'" if ext == ".tsv" else ""
-                con.execute(f"COPY (SELECT * FROM read_csv({_lit(path)}, auto_detect=true, sample_size=20480{delim})) TO {_lit(out)} (FORMAT parquet, COMPRESSION zstd)")
+                types = _csv_text_overrides(con, path, delim)
+                con.execute(f"COPY (SELECT * FROM read_csv({_lit(path)}, auto_detect=true, sample_size=20480{delim}{types})) "
+                            f"TO {_lit(out)} (FORMAT parquet, COMPRESSION zstd)")
             elif ext in (".json", ".jsonl", ".ndjson"):
                 con.execute(f"COPY (SELECT * FROM read_json_auto({_lit(path)})) TO {_lit(out)} (FORMAT parquet, COMPRESSION zstd)")
             elif ext == ".parquet":

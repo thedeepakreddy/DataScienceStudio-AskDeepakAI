@@ -5,7 +5,8 @@
 #   git clone https://github.com/thedeepakreddy/DataScienceStudio-AskDeepakAI.git
 #   cd DataScienceStudio-AskDeepakAI && bash scripts/deploy_engine_cloudrun.sh
 #
-# It is safe to run again: every step reuses what already exists. Secrets never
+# It is safe to run again: every step reuses what already exists. To redeploy only the engine
+# after a code change: git pull && SKIP_RENDER=1 PROJECT_ID=<project> bash scripts/deploy_engine_cloudrun.sh Secrets never
 # appear on screen: the engine token is generated into Secret Manager, and the
 # Render API key is read with a hidden prompt and only sent to api.render.com.
 set -euo pipefail
@@ -97,6 +98,10 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/v2/info")
 [ "$code" = "401" ] && echo "  without the token: 401 (protected) ✓" || die "The engine answered $code without a token; it should refuse."
 
 # ---------------------------------------------------------------- Render
+if [ "${SKIP_RENDER:-}" = "1" ]; then
+  say "Done (engine updated; the Render studio already points at $URL)"
+  exit 0
+fi
 say "Connecting the Render studio"
 echo "Create a Render API key at https://dashboard.render.com/u/settings#api-keys (it isn't shown or stored here)."
 read -rsp "Render API key: " RENDER_KEY; echo

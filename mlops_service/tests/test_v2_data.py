@@ -125,3 +125,12 @@ def test_connectors_refuse_private_addresses(client):
     r = client.post("/v2/run/connect.sql", json={"params": {"engine": "postgresql", "host": "db.example.com", "database": "x", "user": "u",
                                                              "password": "pw", "query": "delete from t"}, "mode": "sync"})
     assert r.status_code == 400 and "SELECT" in r.json()["detail"]
+
+
+def test_yes_no_columns_stay_text_and_true_false_become_boolean(client):
+    csv = "churn,flag,yn,n\nYes,true,Y,1\nNo,false,N,2\nYes,TRUE,y,3\n"
+    r = client.post("/v2/datasets/upload", files={"file": ("yn.csv", csv.encode(), "text/csv")})
+    kinds = {c["name"]: c["type"] for c in r.json()["columns"]}
+    assert kinds == {"churn": "text", "flag": "boolean", "yn": "text", "n": "integer"}
+    rows = client.get(f"/v2/datasets/{r.json()['id']}/preview").json()["rows"]
+    assert rows[0]["churn"] == "Yes" and rows[0]["flag"] is True

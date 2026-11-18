@@ -96,6 +96,7 @@ class MonitorParams(BaseModel):
     psi_alert: float = Field(0.25, gt=0)
     max_performance_drop: float = Field(0.1, gt=0, lt=1, description="Relative drop in the primary metric that raises an alert.")
     max_rows: int = Field(200_000, ge=50, le=5_000_000)
+    min_rows: int = Field(100, ge=10, le=100_000, description="Fewer rows than this are too few to judge drift reliably.")
     save: bool = Field(True, description="Keep the report in the model's monitoring history.")
 
 
@@ -193,8 +194,13 @@ def monitor(ctx, p: MonitorParams):  # noqa: C901
                     alerts.append({"level": perf["status"], "kind": "performance", "message": f"{primary} fell from {a:.3f} to {b:.3f} ({drop:.0%} worse)."})
             out["performance"] = perf
     drifted = [f for f in features if f.get("status") in ("warning", "alert")]
+    status = "alert" if any(a["level"] == "alert" for a in alerts) else ("warning" if alerts else "ok")
+    if len(df) < p.min_rows and not any(a["kind"] in ("schema", "scoring") for a in alerts):
+        # A handful of rows makes PSI and the tests noise: report it rather than raise a false alarm.
+        status = "insufficient_data"
+        ctx.note(f"Only {len(df)} rows to compare (at least {p.min_rows} are needed for a reliable drift check); results are indicative.")
     out["summary"] = {"featuresChecked": len(features), "featuresDrifted": len(drifted), "driftShare": len(drifted) / max(1, len(features)),
-                      "status": "alert" if any(a["level"] == "alert" for a in alerts) else ("warning" if alerts else "ok")}
+                      "status": status, "rows": len(df)}
     out["alerts"] = alerts
     out["checkedAt"] = now_iso()
     if p.save:

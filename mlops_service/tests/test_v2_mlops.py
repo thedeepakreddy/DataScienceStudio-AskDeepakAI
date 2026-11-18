@@ -68,6 +68,8 @@ def test_online_predict_and_log(client, trained):
     client.post("/v2/models/mlops-churn@production/predict", json={"rows": churn_rows(200, seed=9)})
     m = run(client, "mlops.monitor", None, model="mlops-churn@production", source="prediction_log", save=False)
     assert m["source"]["rows"] >= 200 and m["summary"]["featuresChecked"] == 3
+    few = run(client, "mlops.monitor", None, model="mlops-churn@production", source="prediction_log", save=False, max_rows=50, min_rows=100)
+    assert few["summary"]["status"] == "insufficient_data" and few["summary"]["rows"] == 50
 
 
 def test_monitor_stable_drifted_and_decayed(client, trained):
