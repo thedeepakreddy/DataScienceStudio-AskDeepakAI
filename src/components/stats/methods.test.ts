@@ -29,7 +29,7 @@ describe('method kit', () => {
 describe('methods', () => {
   it('every method runs a real engine capability and every group/guide points at real methods', () => {
     for (const m of Object.values(ENGINE_METHODS)) expect(CAPABILITIES[m.cap], m.id).toBeDefined();
-    const builtin = new Set(['quick', 'interpret']);
+    const builtin = new Set(['quick', 'interpret', 'scenarios']);
     for (const ids of Object.values(GROUP_METHODS)) for (const id of ids) expect(builtin.has(id) || !!ENGINE_METHODS[id], id).toBe(true);
     const walk = (s: any): string[] => s.options.flatMap((o: any) => (o.method ? [o.method] : walk(o.next)));
     for (const g of Object.values(GUIDES)) for (const id of walk(g)) expect(builtin.has(id) || !!ENGINE_METHODS[id], id).toBe(true);

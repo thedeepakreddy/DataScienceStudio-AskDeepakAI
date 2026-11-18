@@ -7,6 +7,7 @@ import React from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from 'recharts';
 import { CHART_COLORS, CHART_CURSOR } from '../../utils/chartTheme';
 import { DataTable, EffectTable, Note, Section, StatGrid, ciText, num, pValue, pct, sig, signed, type GuideStep, type Method } from './methodKit';
+import { MODEL_METHODS } from '../model/modelMethods';
 
 const axis = { tick: { fontSize: 11, fill: 'var(--label-2)' } };
 const nonIntercept = (rows: any[] = []) => rows.filter(r => !/intercept/i.test(r.term));
@@ -414,10 +415,10 @@ const bayesReg: Method = {
 };
 
 // ================================================================== groups
-export type GroupId = 'compare' | 'regression' | 'causal' | 'power' | 'survival' | 'bayesian' | 'hypothesis';
+export type GroupId = 'compare' | 'regression' | 'causal' | 'power' | 'survival' | 'bayesian' | 'hypothesis' | 'forecast' | 'decide';
 
 export const ENGINE_METHODS: Record<string, Method> = Object.fromEntries(
-  [glm, anova, mixed, robust, bootstrap, propensity, did, synth, iv, rdd, uplift, abTest, sampleSize, sequential, bandit, km, cox, bayesAb, bayesT, bayesReg].map(m => [m.id, m]),
+  [glm, anova, mixed, robust, bootstrap, propensity, did, synth, iv, rdd, uplift, abTest, sampleSize, sequential, bandit, km, cox, bayesAb, bayesT, bayesReg, ...MODEL_METHODS].map(m => [m.id, m]),
 );
 
 export const GUIDES: Partial<Record<GroupId, GuideStep>> = {
@@ -448,4 +449,6 @@ export const GROUP_METHODS: Record<GroupId, string[]> = {
   survival: ['km', 'cox'],
   bayesian: ['bayes-ab', 'bayes-t', 'bayes-reg'],
   hypothesis: ['quick'],
+  forecast: ['forecast', 'hierarchical', 'quick'],
+  decide: ['montecarlo', 'optimize', 'scenarios'],
 };
