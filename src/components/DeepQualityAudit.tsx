@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Dataset } from '../types';
-import { Microscope, AlertTriangle, Download, Code, ShieldCheck } from 'lucide-react';
+import { Microscope, AlertTriangle, Download, Code, ShieldCheck, RotateCw } from 'lucide-react';
 import { usePipelineContext } from '../contexts/PipelineContext';
 import { buildQualityFixes } from '../utils/qualityAuditFixes';
 import Orb from './Orb';
@@ -21,11 +21,14 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
   const [loading, setLoading] = useState(false);
   const [issues, setIssues] = useState<Issue[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The data the last audit checked, so a change since then is pointed out.
+  const [auditedFor, setAuditedFor] = useState<Dataset | null>(null);
 
   // Everything is computed here, from every row, by fixed rules: no AI and no server round trip.
   const runAudit = () => {
     setLoading(true);
     setError(null);
+    setAuditedFor(dataset);
 
     try {
       // 1. Calculate Audit Summary locally
@@ -114,10 +117,18 @@ export default function DeepQualityAudit({ dataset }: DeepQualityAuditProps) {
             Checks every row for duplicates, missing values, constant and mixed-type columns, with a pandas fix for each. Done by the studio’s rules, instantly — no AI.
           </p>
         </div>
-        {issues && !loading && issues.length > 0 && (
-          <button type="button" onClick={downloadReport} className="btn btn-secondary">
-            <Download className="w-4 h-4" /> Download Report
-          </button>
+        {issues && !loading && (
+          <div className="flex flex-wrap items-center gap-2">
+            {auditedFor && auditedFor !== dataset && <span className="text-xs text-orange">The data changed since this audit.</span>}
+            <button type="button" onClick={runAudit} data-agent="audit-redo" className="btn btn-sm btn-plain" title="Run the audit again on the current data">
+              <RotateCw className="w-3.5 h-3.5" /> Run again
+            </button>
+            {issues.length > 0 && (
+              <button type="button" onClick={downloadReport} className="btn btn-secondary">
+                <Download className="w-4 h-4" /> Download Report
+              </button>
+            )}
+          </div>
         )}
       </div>
 
