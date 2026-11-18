@@ -23,7 +23,7 @@ because they change. When this guide was written (November 2026):
 | Cloud Run, instance-based billing | 240,000 vCPU-seconds, 450,000 GiB-seconds | You pay for the instance's whole life, including idle time before it scales down. |
 | Cloud Storage | 5 GB-months of Standard storage in us-central1, us-east1 or us-west1 | Datasets are kept as compressed Parquet: a 265 MB CSV of 5 million rows stored as 26 MB. |
 | Cloud Scheduler | 3 jobs per billing account | One job is enough (the schedule tick). |
-| Artifact Registry | 0.5 GB of storage | The engine image (about 2.7 GB with the text models) is larger than this, so expect a few cents a month. Delete old images. |
+| Artifact Registry | 0.5 GB of storage | The engine image (about 3.3 GB with the text models) is larger than this, so expect a few cents a month. Delete old images. |
 
 Billing must be enabled even to use the free tier. **Set a budget alert first**
 (step 1).
