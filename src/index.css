@@ -925,3 +925,7 @@
   .dash-grip, .dash-corner { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .dash-grip, .dash-corner { transition: none; } }
+
+/* An agent pressing a real control: a short squeeze, as under a finger. */
+.agent-pressing { transform: scale(0.96); filter: brightness(0.94); transition: transform 90ms ease, filter 90ms ease; }
+@media (prefers-reduced-motion: reduce) { .agent-pressing { transform: none; } }

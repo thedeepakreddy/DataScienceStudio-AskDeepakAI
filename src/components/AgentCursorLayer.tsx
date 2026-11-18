@@ -39,6 +39,9 @@ interface Pointer {
 }
 
 interface Ripple { id: string; x: number; y: number; color: string }
+/** A list an agent opened: drawn over the real select (whose own list can't be opened by a script). */
+interface OpenList { pointerId: string; target: string; options: string[]; index: number; color: string; rect: { left: number; top: number; width: number } }
+const OPTION_PX = 30;
 
 /** Longest move of the working cursor into a panel. */
 const WORKER_MS = 460;
@@ -49,9 +52,18 @@ const centre = (el: HTMLElement) => {
   return { x: r.left + Math.min(r.width / 2, 48), y: r.top + r.height / 2 };
 };
 
+/** At most eight rows, kept round the highlighted one. */
+function visibleOptions(l: OpenList) {
+  const all = l.options.map((text, i) => ({ text, i }));
+  if (all.length <= 8) return all;
+  const start = Math.max(0, Math.min(all.length - 8, l.index - 3));
+  return all.slice(start, start + 8);
+}
+
 export default function AgentCursorLayer() {
   const [pointers, setPointers] = useState<Record<string, Pointer>>({});
   const [ripples, setRipples] = useState<Ripple[]>([]);
+  const [lists, setLists] = useState<Record<string, OpenList>>({});
   const host = useRef<HTMLDivElement>(null);
   const stage = useRef<AgentStage | null>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -84,8 +96,23 @@ export default function AgentCursorLayer() {
   useEffect(() => interactions.subscribe(e => {
     const color = AGENTS[e.agent].color;
     const el = e.target ? findTarget(e.target) : null;
-    const pos = el ? centre(el) : undefined;
+    let pos = el ? centre(el) : undefined;
     const pointerId = e.pointerId;
+
+    // A list opens under the select, the pointer runs down to the choice, the pick closes it.
+    if ((e.action === 'open' || e.action === 'hover') && el && e.options) {
+      const r = el.getBoundingClientRect();
+      const list: OpenList = { pointerId, target: e.target!, options: e.options, index: e.index ?? 0, color, rect: { left: r.left, top: r.bottom + 4, width: Math.max(r.width, 180) } };
+      setLists(prev => ({ ...prev, [pointerId]: list }));
+      const shown = visibleOptions(list);
+      const row = shown.findIndex(o => o.i === list.index);
+      if (e.action === 'hover' && row >= 0) pos = { x: list.rect.left + Math.min(list.rect.width / 2, 60), y: list.rect.top + 6 + row * OPTION_PX + OPTION_PX / 2 };
+    }
+    if (e.action === 'select' || e.action === 'done' || e.action === 'error' || e.action === 'release') {
+      setLists(prev => { if (!prev[pointerId]) return prev; const n = { ...prev }; delete n[pointerId]; return n; });
+    }
+    // The result of a click: the pointer goes to what appeared.
+    if (e.action === 'point' && e.point) pos = e.point;
 
     // Reaching a control in a panel this task hasn't used yet lights that panel up first.
     let lighting: Promise<void> | null = null;
@@ -104,12 +131,12 @@ export default function AgentCursorLayer() {
       const base = old ?? { id: pointerId, agent: e.agent, x: window.innerWidth - 80, y: window.innerHeight - 120, waiting: false, clicks: 0 };
       const hold = !!lighting;
       // Rays flash on each click, and once when typing into a field starts.
-      const click = CLICKY.has(e.action) && !(e.action === 'type' && base.action === 'type');
+      const click = CLICKY.has(e.action) && !(e.action === 'type' && base.action === 'type') || e.action === 'open';
       return {
         ...prev,
         [pointerId]: {
           ...base, agent: e.agent, label: e.action === 'type' && e.value ? `${e.label}: “${e.value}”` : e.label, action: e.action,
-          target: hold ? base.target : e.target ?? base.target,
+          target: hold || e.action === 'hover' || e.action === 'point' ? (e.action === 'point' || e.action === 'hover' ? undefined : base.target) : e.target ?? base.target,
           x: hold ? base.x : pos?.x ?? base.x, y: hold ? base.y : pos?.y ?? base.y,
           at: e.at, waiting: e.action === 'release' || e.action === 'wait',
           clicks: (base.clicks ?? 0) + (click ? 1 : 0),
@@ -165,6 +192,17 @@ export default function AgentCursorLayer() {
 
       {ripples.map(r => (
         <span key={r.id} className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full border-2" style={{ left: r.x, top: r.y, borderColor: r.color, animation: 'agent-ripple 0.6s ease-out forwards' }} />
+      ))}
+
+      {(Object.values(lists) as OpenList[]).map(l => (
+        <ul key={l.pointerId} role="presentation" className="absolute rounded-xl bg-raised shadow-xl border border-separator py-1.5 text-sm animate-fade-in overflow-hidden"
+          style={{ left: l.rect.left, top: l.rect.top, width: l.rect.width, maxWidth: 320 }}>
+          {visibleOptions(l).map(o => (
+            <li key={o.i} className="px-3 truncate flex items-center" style={{ height: OPTION_PX, background: o.i === l.index ? `color-mix(in srgb, ${l.color} 18%, transparent)` : undefined, color: o.i === l.index ? 'var(--label)' : 'var(--label-2)', fontWeight: o.i === l.index ? 600 : 400 }}>
+              {o.text || '—'}
+            </li>
+          ))}
+        </ul>
       ))}
 
       {list.map(p => (

@@ -12,7 +12,7 @@ import type { AgentRole } from './agents';
 // and a run. Nothing is animated that didn't happen; the operation's result,
 // not the animation, decides success.
 
-export type InteractionAction = 'move' | 'navigate' | 'claim' | 'select' | 'type' | 'click' | 'check' | 'wait' | 'done' | 'error' | 'release';
+export type InteractionAction = 'move' | 'navigate' | 'claim' | 'open' | 'hover' | 'select' | 'type' | 'click' | 'check' | 'skip' | 'point' | 'wait' | 'done' | 'error' | 'release';
 
 export interface InteractionEvent {
   id: string;
@@ -29,6 +29,11 @@ export interface InteractionEvent {
   label: string;
   value?: string;
   outcome?: 'ok' | 'missing' | 'failed';
+  /** For 'open' and 'hover': the list's choices and which one the pointer is on. */
+  options?: string[];
+  index?: number;
+  /** For 'point': where on the page the result appeared. */
+  point?: { x: number; y: number };
 }
 
 type Listener = (e: InteractionEvent) => void;
@@ -89,6 +94,26 @@ function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectE
 
 export class UiError extends Error {}
 
+/** How fast agents move on the page: Natural (default), Fast, or Instant (also with reduced motion). */
+export type AgentSpeed = 'natural' | 'fast' | 'instant';
+export const AGENT_SPEED_KEY = 'agent-speed';
+export function agentSpeed(): AgentSpeed {
+  try {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return 'instant';
+    const v = localStorage.getItem(AGENT_SPEED_KEY);
+    return v === 'fast' || v === 'instant' ? v : 'natural';
+  } catch { return 'natural'; }
+}
+const SPEED_FACTOR: Record<AgentSpeed, number> = { natural: 1, fast: 0.45, instant: 0 };
+
+/** Which task is using which control right now: two agents never use one control at once. */
+const inUse = new Map<string, { taskId: string; agent: AgentRole; at: number }>();
+/** A control held longer than this (a task that died mid-action) is free again. */
+const LOCK_MS = 20_000;
+
+/** A small, human pause around `ms` (never negative). */
+const jitter = (ms: number) => Math.max(0, ms * (0.75 + Math.random() * 0.5));
+
 export interface DriverContext {
   runId: string;
   taskId: string;
@@ -114,7 +139,7 @@ export class Driver {
 
   // Long enough for the pointer to finish its curved, human-paced move, and
   // unhurried enough for a person to follow each step.
-  private get pace() { return this.ctx.pace ?? 760; }
+  private get pace() { return this.ctx.pace ?? 760 * SPEED_FACTOR[agentSpeed()]; }
 
   /** Waits for the pointer's travel and for the page to finish drawing the step. */
   private async hold(ev: InteractionEvent) {
@@ -138,18 +163,82 @@ export class Driver {
   private async approach(target: string, label: string) {
     await this.ctx.waitIfPaused?.();
     const el = await this.waitFor(target);
-    el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    await this.takeTurn(target);
+    el.scrollIntoView?.({ block: 'center', behavior: this.pace ? 'smooth' : 'auto' });
     // The partner cursor drags a box open round the control, then the working cursor moves in.
     await this.hold(this.emit('move', label, { target }));
     return el;
   }
 
+  /** Waits nearby while another agent uses the same control, then takes it. */
+  private async takeTurn(target: string) {
+    let said = false;
+    for (;;) {
+      const other = inUse.get(target);
+      if (!other || other.taskId === this.ctx.taskId || Date.now() - other.at > LOCK_MS) break;
+      if (!said) { this.emit('wait', `Waiting for ${other.agent.replace(/_/g, ' ')}`, { target }); said = true; }
+      await sleep(120, this.ctx.signal);
+    }
+    for (const [k, v] of inUse) if (v.taskId === this.ctx.taskId) inUse.delete(k);
+    inUse.set(target, { taskId: this.ctx.taskId, agent: this.ctx.agent, at: Date.now() });
+  }
+
+  /** Gives the control back once this action is over. */
+  private leave(target: string) {
+    if (inUse.get(target)?.taskId === this.ctx.taskId) inUse.delete(target);
+  }
+
+  /** The value is already what the agent wants: it glides past instead of pretending to act. */
+  private async skip(target: string, label: string, value?: string) {
+    const el = await this.waitFor(target);
+    this.emit('skip', `Already set: ${value ?? label}`, { target, value, outcome: 'ok' });
+    el.scrollIntoView?.({ block: 'nearest', behavior: this.pace ? 'smooth' : 'auto' });
+    await sleep(this.pace / 2, this.ctx.signal);
+  }
+
+  /** Presses the control visibly (a short squeeze), as a finger or mouse would. */
+  private async press(el: HTMLElement) {
+    if (!this.pace) return;
+    el.classList.add('agent-pressing');
+    await sleep(Math.min(140, this.pace / 5), this.ctx.signal);
+    el.classList.remove('agent-pressing');
+  }
+
+  /**
+   * After a click, waits for the page's real answer (something added or changed
+   * nearby, up to a second) and points at it, so every click shows its effect.
+   */
+  private async awaitResult(el: HTMLElement, label: string, target: string) {
+    if (!this.pace || typeof MutationObserver === 'undefined') return;
+    const scope = el.closest('[data-agent^="area-"], .card, section, main') ?? document.body;
+    const changed = await new Promise<HTMLElement | null>(resolve => {
+      const done = (x: HTMLElement | null) => { obs.disconnect(); clearTimeout(t); resolve(x); };
+      const obs = new MutationObserver(records => {
+        for (const r of records) {
+          const n = [...r.addedNodes].find((x): x is HTMLElement => x instanceof HTMLElement && x.getBoundingClientRect().height > 8);
+          if (n) return done(n);
+        }
+      });
+      obs.observe(scope, { childList: true, subtree: true });
+      const t = setTimeout(() => done(null), 1000);
+    });
+    if (changed && !changed.closest('[data-swarm-ui]')) {
+      const r = changed.getBoundingClientRect();
+      if (r.width && r.top < (window.innerHeight || 1e4) && r.bottom > 0) {
+        this.emit('point', label, { target, point: { x: r.left + Math.min(r.width / 2, 60), y: r.top + Math.min(r.height / 2, 24) }, outcome: 'ok' });
+        await sleep(this.pace / 2, this.ctx.signal);
+      }
+    }
+  }
+
   /** Opens a step by clicking its tab in the step bar. */
   async navigate(step: string, label: string) {
     const el = await this.approach(`nav-${step}`, label);
+    await this.press(el);
     el.click();
     this.emit('navigate', label, { target: `nav-${step}`, outcome: 'ok' });
     await sleep(this.pace / 2, this.ctx.signal);
+    this.leave(`nav-${step}`);
   }
 
   /** Drags a selection box over the area the agent is about to work in. */
@@ -159,57 +248,103 @@ export class Driver {
   }
 
   async select(target: string, value: string, label: string) {
+    const peek = findTarget(target);
+    if (peek instanceof HTMLSelectElement && peek.value === value) return this.skip(target, label, optionText(peek, value));
     const el = await this.approach(target, label);
     if (!(el instanceof HTMLSelectElement)) throw new UiError(`“${target}” isn’t a list.`);
-    if (![...el.options].some(o => o.value === value)) {
+    const options = [...el.options];
+    const index = options.findIndex(o => o.value === value);
+    if (index < 0) {
       this.emit('error', `“${value}” isn’t one of the choices`, { target, value, outcome: 'failed' });
+      this.leave(target);
       throw new UiError(`“${value}” isn’t a choice in “${target}”.`);
     }
+    // Open the list, run down it to the choice, then pick it.
+    await this.press(el);
+    const texts = options.map(o => o.text);
+    this.emit('open', label, { target, options: texts, index: el.selectedIndex });
+    await sleep(jitter(this.pace / 3), this.ctx.signal);
+    const from = Math.max(0, el.selectedIndex);
+    const steps = Math.min(4, Math.abs(index - from));
+    for (let k = 1; k <= steps; k++) {
+      this.emit('hover', label, { target, options: texts, index: Math.round(from + ((index - from) * k) / steps) });
+      await sleep(jitter(this.pace / 7), this.ctx.signal);
+    }
+    this.emit('hover', label, { target, options: texts, index });
+    await sleep(jitter(this.pace / 4), this.ctx.signal);
     setNativeValue(el, value);
-    this.emit('select', label, { target, value, outcome: el.value === value ? 'ok' : 'failed' });
+    this.emit('select', label, { target, value: texts[index], outcome: el.value === value ? 'ok' : 'failed' });
     await sleep(this.pace / 2, this.ctx.signal);
+    this.leave(target);
   }
 
   async type(target: string, value: string, label: string) {
+    const peek = findTarget(target);
+    if ((peek instanceof HTMLInputElement || peek instanceof HTMLTextAreaElement) && peek.value === value) return this.skip(target, label, value.length > 40 ? `${value.slice(0, 40)}…` : value);
     const el = await this.approach(target, label);
     if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) throw new UiError(`“${target}” isn’t a text field.`);
+    await this.press(el);
     el.focus();
-    // Typed in a few chunks so the text visibly appears.
-    const chunks = Math.min(6, Math.max(1, Math.ceil(value.length / 6)));
-    for (let i = 1; i <= chunks; i++) {
-      setNativeValue(el, value.slice(0, Math.ceil((value.length * i) / chunks)));
-      this.emit('type', label, { target, value: el.value, outcome: 'ok' });
-      await sleep(this.pace / 6, this.ctx.signal);
+    // Old text is selected and replaced, as when you click in and start typing.
+    if (el.value) { el.select?.(); await sleep(jitter(this.pace / 5), this.ctx.signal); }
+    if (!this.pace) {
+      setNativeValue(el, value);
+      this.emit('type', label, { target, value, outcome: 'ok' });
+    } else {
+      // Key by key at a typing rhythm (quicker for long text, so it never drags on), with small pauses between words.
+      const per = Math.max(8, Math.min(70, 2600 / Math.max(1, value.length))) * (this.pace / 760);
+      const batch = Math.max(1, Math.ceil(value.length / 160));
+      for (let i = batch; i < value.length + batch; i += batch) {
+        const text = value.slice(0, Math.min(i, value.length));
+        setNativeValue(el, text);
+        this.emit('type', label, { target, value: text, outcome: 'ok' });
+        const ch = value[Math.min(i, value.length) - 1];
+        await sleep(jitter(per * batch) + (ch === ' ' || ch === ',' ? jitter(per * 2) : 0), this.ctx.signal);
+      }
     }
+    await sleep(this.pace / 4, this.ctx.signal);
+    this.leave(target);
   }
 
   async check(target: string, checked: boolean, label: string) {
+    const peek = findTarget(target);
+    if (peek instanceof HTMLInputElement && peek.checked === checked) return this.skip(target, label, checked ? 'on' : 'off');
     const el = await this.approach(target, label);
     if (!(el instanceof HTMLInputElement)) throw new UiError(`“${target}” isn’t a checkbox.`);
+    await this.press(el);
     if (el.checked !== checked) el.click();
     this.emit('check', label, { target, value: String(checked), outcome: el.checked === checked ? 'ok' : 'failed' });
     await sleep(this.pace / 3, this.ctx.signal);
+    this.leave(target);
   }
 
   async click(target: string, label: string) {
     const el = await this.approach(target, label);
+    await this.press(el);
     el.click();
     this.emit('click', label, { target, outcome: 'ok' });
-    await sleep(this.pace / 3, this.ctx.signal);
+    await this.awaitResult(el, label, target);
+    await sleep(this.pace / 4, this.ctx.signal);
+    this.leave(target);
   }
 
   /** Lets other agents use the page while this one waits for a result. */
   release(label: string) {
+    this.leaveAll();
     this.emit('release', label);
     this.ctx.releasePage();
   }
 
   wait(label: string) { this.emit('wait', label); }
-  done(label: string) { this.emit('done', label, { outcome: 'ok' }); }
-  fail(label: string) { this.emit('error', label, { outcome: 'failed' }); }
+  done(label: string) { this.leaveAll(); this.emit('done', label, { outcome: 'ok' }); }
+  fail(label: string) { this.leaveAll(); this.emit('error', label, { outcome: 'failed' }); }
+
+  private leaveAll() { for (const [k, v] of inUse) if (v.taskId === this.ctx.taskId) inUse.delete(k); }
 }
 
 /** Resolves with the next run of `kind` the studio logs (results of UI actions). */
+const optionText = (el: HTMLSelectElement, value: string) => [...el.options].find(o => o.value === value)?.text ?? value;
+
 export function waitForLoggedRun<T = any>(kind: string, signal: AbortSignal, timeout = 120_000): Promise<T> {
   return new Promise((resolve, reject) => {
     const onRun = (e: Event) => {
