@@ -17,7 +17,7 @@ export interface CapabilityRun<T> {
   /** 0–1 while the engine reports progress, otherwise null. */
   progress: number | null;
   message: string;
-  run: (params: CapabilityParams[CapabilityName] | Record<string, unknown>, options?: { experiment?: string }) => Promise<void>;
+  run: (params: CapabilityParams[CapabilityName] | Record<string, unknown>, options?: { experiment?: string; withDataset?: boolean }) => Promise<void>;
   cancel: () => void;
   reset: () => void;
 }
@@ -47,7 +47,7 @@ export function useCapability<T = Record<string, any>>(name: CapabilityName, dat
 
   useEffect(() => () => controller.current?.abort(), []);
 
-  const run = useCallback<CapabilityRun<T>['run']>(async (params, options: { experiment?: string } = {}) => {
+  const run = useCallback<CapabilityRun<T>['run']>(async (params, options: { experiment?: string; withDataset?: boolean } = {}) => {
     controller.current?.abort();
     const ctl = new AbortController();
     controller.current = ctl;
@@ -55,7 +55,8 @@ export function useCapability<T = Record<string, any>>(name: CapabilityName, dat
     setProgress(null);
     try {
       let datasetId: string | null = null;
-      if (CAPABILITIES[name].needsDataset) {
+      // Some capabilities take a dataset optionally (or summary numbers instead): send it when the form uses columns.
+      if (CAPABILITIES[name].needsDataset || (options.withDataset && dataset)) {
         if (!dataset) throw new Error('Load a dataset first.');
         setPhase('syncing');
         setMessage('Sending your data to the engine');
