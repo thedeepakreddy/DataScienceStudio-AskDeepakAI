@@ -13,7 +13,11 @@ describe('rule planner', () => {
   });
 
   it('plans a full analysis with dependencies and no AI', () => {
-    const p = rulePlan('Do a full analysis and write a report', ds);
+    // With the engine up, the model is AutoML (plus its explanation); with it down, the quick model.
+    const up = rulePlan('Do a full analysis and write a report', ds, { engine: 'ready' });
+    expect(up.tasks.map(t => t.capability)).toEqual(['quality.check', 'explore.profile', 'explore.deep_eda', 'stats.screen', 'models.automl', 'models.explain_engine', 'dashboard.design', 'dashboard.add_kpi', 'dashboard.save', 'report.build', 'report.pdf']);
+    expect(validatePlan(up.tasks, ds)).toEqual([]);
+    const p = rulePlan('Do a full analysis and write a report', ds, { engine: 'error' });
     expect(p.tasks.map(t => t.capability)).toEqual(['quality.check', 'explore.profile', 'explore.deep_eda', 'stats.screen', 'models.train', 'dashboard.design', 'dashboard.add_kpi', 'dashboard.save', 'report.build', 'report.pdf']);
     const report = p.tasks.find(t => t.capability === 'report.build')!;
     expect(report.dependsOn).toEqual(['t1', 't3', 't4', 't5']);

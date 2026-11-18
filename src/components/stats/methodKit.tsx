@@ -8,7 +8,7 @@ import type { Dataset } from '../../types';
 import type { CapabilityName } from '../../engine/client';
 
 // ------------------------------------------------------------------ specs
-export type ColumnFilter = 'numeric' | 'categorical' | 'binary' | 'date' | 'group' | 'any';
+export type ColumnFilter = 'numeric' | 'categorical' | 'binary' | 'date' | 'group' | 'measure' | 'any';
 
 /** `when`: show (and require) the field only when it returns true for the current values. */
 export type Field = FieldSpec & { when?: (v: Values) => boolean };
@@ -57,6 +57,8 @@ export function columnsFor(dataset: Dataset, filter: ColumnFilter): string[] {
       case 'numeric': return c.type === 'numeric';
       case 'categorical': return c.type === 'categorical' || c.type === 'boolean' || (c.type === 'numeric' && c.distinctCount <= 12);
       case 'binary': return c.distinctCount === 2;
+      // A number, or a yes/no outcome (read as 0/1).
+      case 'measure': return c.type === 'numeric' || c.distinctCount === 2;
       // Grouping keys: categories, or ids stored as numbers (repeated across rows).
       case 'group': return c.type !== 'datetime' && c.distinctCount >= 2 && c.distinctCount <= Math.max(2, dataset.rowCount / 2);
       case 'date': return c.type === 'datetime' || (c.type === 'numeric' && c.distinctCount > 2 && c.distinctCount <= 400) || /date|time|period|week|month|year/i.test(c.name);

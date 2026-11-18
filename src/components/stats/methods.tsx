@@ -261,7 +261,7 @@ const abTest: Method = {
   answers: 'Did a variant beat control — with a sample-ratio check, multiple-variant correction, and CUPED variance reduction if you have a pre-period metric.',
   fields: [
     { key: 'variant', label: 'Variant column', kind: 'column', filter: 'categorical' },
-    { key: 'metric', label: 'Metric (conversion 0/1 or an amount)', kind: 'column', filter: 'numeric' },
+    { key: 'metric', label: 'Metric (yes/no, 0/1 or an amount)', kind: 'column', filter: 'measure' },
     { key: 'control', label: 'Control group name (optional)', kind: 'text', optional: true, placeholder: 'e.g. A' },
     { key: 'covariate', label: 'Pre-period metric for CUPED (optional)', kind: 'column', filter: 'numeric', optional: true },
   ],
@@ -371,7 +371,7 @@ const bayesAb: Method = {
   answers: 'The probability each variant is best and the expected cost of choosing it — answers people actually ask.',
   fields: [
     { key: 'variant', label: 'Variant column', kind: 'column', filter: 'categorical' },
-    { key: 'metric', label: 'Metric (0/1 or an amount)', kind: 'column', filter: 'numeric' },
+    { key: 'metric', label: 'Metric (yes/no, 0/1 or an amount)', kind: 'column', filter: 'measure' },
   ],
   headline: r => {
     const best = (r.variants ?? []).find((x: any) => x.name === r.leader);

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { setEngineState } from '../engine/engineState';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, RotateCw, X } from 'lucide-react';
 import Orb from './Orb';
@@ -37,7 +38,7 @@ export default function EngineStatus() {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-    setState('starting');
+    setState('starting'); setEngineState('starting');
     setElapsed(0);
     setDetail('');
     const started = Date.now();
@@ -48,12 +49,12 @@ export default function EngineStatus() {
       const res = await fetch('/api/ml-service/wake', { method: 'POST', signal: controller.signal });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error || `The engine didn’t answer (HTTP ${res.status}).`);
-      setState('ready');
+      setState('ready'); setEngineState('ready');
       setHelpOpen(false);
       setDetail(body?.coldStart ? `Started in ${Math.round((body.elapsedMs ?? 0) / 1000)}s.` : 'Ready.');
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
-      setState('error');
+      setState('error'); setEngineState('error');
       setDetail(err?.message || 'Could not reach the engine.');
     } finally {
       clearTimeout(showTimer);
