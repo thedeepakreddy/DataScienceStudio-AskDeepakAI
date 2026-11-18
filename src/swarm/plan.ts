@@ -91,7 +91,7 @@ export interface RulePlan { tasks: TaskSpec[]; reply: string }
  * Plans common requests from keywords and the data's columns. Returns no tasks
  * when it can't tell what is wanted, so the AI planner (or the user) decides.
  */
-export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?: boolean } = {}): RulePlan {
+export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?: boolean; engine?: 'starting' | 'ready' | 'error' } = {}): RulePlan {
   const hasModel = !!opts.hasModel;
   const text = request.toLowerCase();
   if (!ds) return { tasks: [], reply: 'Import a dataset first, then tell me what you need.' };
@@ -129,7 +129,8 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
     report: everything || has(text, 'report', 'write.?up', 'findings'),
     pdf: everything || has(text, 'pdf'),
     pack: has(text, 'package', 'zip', 'reproducib'),
-    automl: has(text, 'automl', 'auto ml', 'best model', 'compare (all |every )?models', 'every model', 'all models'),
+    // A full analysis uses AutoML on the engine; the quick model only when the engine is down.
+    automl: has(text, 'automl', 'auto ml', 'best model', 'compare (all |every )?models', 'every model', 'all models') || (everything && opts.engine !== 'error'),
     monitor: has(text, 'drift', 'monitor') && !has(text, 'retrain'),
     retrain: has(text, 'retrain'),
     pin: has(text, '\\bpin'),
@@ -174,7 +175,7 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
     if (target) {
       trainId = add('models.automl', { target }, `Try every model family on the engine to predict “${target}”, compare them with intervals and save the best.`, afterClean);
       analyses.push(trainId);
-      if (wants.explain) analyses.push(add('models.explain_engine', {}, 'Explain the saved model: what matters overall, per-row reasons and readable rules.', [trainId]));
+      if (wants.explain || everything) analyses.push(add('models.explain_engine', {}, 'Explain the saved model: what matters overall, per-row reasons and readable rules.', [trainId]));
     } else skipped.push('AutoML (no column looks like an outcome — add “predict <column>”)');
   }
   if (wants.retrain) analyses.push(add('models.retrain', {}, 'Check the newest saved model for drift on this data and retrain it if the data has drifted.', [...afterClean, ...analyses.filter(a => a === trainId)]));
@@ -196,6 +197,10 @@ export function rulePlan(request: string, ds: Dataset | null, opts: { hasModel?:
     if (ccols.length >= 2) analyses.push(add('models.cluster', numericMentioned.length >= 2 ? { columns: numericMentioned } : {}, `Find natural segments in ${ccols.slice(0, 4).join(', ')}${ccols.length > 4 ? '…' : ''}; the number is chosen by silhouette.`, afterClean));
     else if (wants.cluster) skipped.push('segments (they need at least two informative numeric columns)');
   }
+
+  // A full analysis adds the specialised methods the data clearly fits, each with its reason.
+  // They run on the engine, so only when it isn't known to be down.
+  if (everything && opts.engine !== 'error') for (const sp of specialisedAnalyses(ds, target)) analyses.push(add(sp.capability, sp.params, sp.why, afterClean));
 
   // Dashboard: designed from the user's words, after the analyses it can draw on.
   if (wants.dashboard) {
@@ -328,4 +333,47 @@ export function normaliseAiTasks(raw: unknown): TaskSpec[] {
     dependsOn: Array.isArray(t?.dependsOn) ? t.dependsOn.map(String) : [],
     why: typeof t?.why === 'string' ? t.why.slice(0, 200) : '',
   }));
+}
+
+const DURATION_RE = /(tenure|duration|days|weeks|months|years|lifetime|time[_ ]?to|survival|age_?at)/i;
+const EVENT_RE = /(churn|event|died|death|failed|failure|default|cancel|left|attrition|status|exited|outcome)/i;
+const VARIANT_RE = /(variant|group|arm|treatment|experiment|test|cohort|version|bucket|ab)/i;
+const METRIC_RE = /(convert|conversion|purchase|click|signup|sign_up|revenue|order|success|bought|subscribed)/i;
+
+/** Free-text columns: mostly distinct values with a typical length of several words. */
+export function textColumns(ds: Dataset): string[] {
+  return ds.columns.filter(c => {
+    if (c.type !== 'categorical' || c.distinctCount < Math.max(10, ds.rowCount * 0.3)) return false;
+    const sample = ds.rows.slice(0, 200).map(r => r[c.name]).filter(v => typeof v === 'string') as string[];
+    if (!sample.length) return false;
+    const words = sample.reduce((n, v) => n + v.trim().split(/\s+/).length, 0) / sample.length;
+    return words >= 4;
+  }).map(c => c.name);
+}
+
+/**
+ * The specialised analyses a full analysis adds when the data clearly fits them:
+ * text analysis for free-text columns, survival curves for a duration with an
+ * event, and an A/B comparison for a variant column with a measurable outcome.
+ */
+export function specialisedAnalyses(ds: Dataset, target?: string): { capability: string; params: Record<string, unknown>; why: string }[] {
+  const out: { capability: string; params: Record<string, unknown>; why: string }[] = [];
+  const usable = ds.columns.filter(c => !isIdentifierColumn(c, ds.rowCount));
+  const texts = textColumns(ds);
+  if (texts[0] && CAPABILITIES['analysis.text-overview']) {
+    out.push({ capability: 'analysis.text-overview', params: { column: texts[0] }, why: `“${texts[0]}” is free text: sentiment, keywords and topics.` });
+  }
+  const duration = usable.find(c => c.type === 'numeric' && DURATION_RE.test(c.name) && c.distinctCount > 5);
+  const event = usable.find(c => c.distinctCount === 2 && (c.name === target || EVENT_RE.test(c.name)));
+  if (duration && event && CAPABILITIES['analysis.km']) {
+    const group = usable.find(c => c.name !== event.name && (c.type === 'categorical' || c.type === 'boolean') && c.distinctCount >= 2 && c.distinctCount <= 6);
+    out.push({ capability: 'analysis.km', params: { duration: duration.name, event: event.name, ...(group ? { group: group.name } : {}) },
+      why: `“${duration.name}” is a time and “${event.name}” an event: how long until it happens${group ? `, by ${group.name}` : ''}.` });
+  }
+  const variant = usable.find(c => (c.type === 'categorical' || c.type === 'boolean') && c.distinctCount >= 2 && c.distinctCount <= 5 && VARIANT_RE.test(c.name));
+  const metric = variant && usable.find(c => c.name !== variant.name && (c.type === 'numeric' || c.distinctCount === 2) && METRIC_RE.test(c.name));
+  if (variant && metric && CAPABILITIES['analysis.ab']) {
+    out.push({ capability: 'analysis.ab', params: { variant: variant.name, metric: metric.name }, why: `“${variant.name}” looks like test groups and “${metric.name}” an outcome: compare them as an A/B test.` });
+  }
+  return out;
 }

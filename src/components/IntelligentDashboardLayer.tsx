@@ -18,6 +18,7 @@ import { isIdentifierColumn } from '../utils/csvParser';
 import { apiFetch } from '../utils/api';
 import Orb from './Orb';
 import DashboardToolbar from './DashboardToolbar';
+import DashGrid, { type GridItem } from './dashboard/DashGrid';
 import { designDashboard } from '../swarm/dashboardDesign';
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -354,6 +355,22 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
     );
   }
 
+  // Every panel on the dashboard, in the order the design gave them.
+  const HIDDEN = ['Filters Panel', 'Slicers Panel'];
+  const gridItems: GridItem[] = activeComponents.filter(c => !HIDDEN.includes(baseType(c))).map(comp => {
+    const type = baseType(comp);
+    const rec = config?.designedBy ? config.recommendedComponents?.find((c: any) => c.id === comp) : null;
+    const kind = type === 'KPI Cards' ? 'kpi' : type === 'Data Table' ? 'table' : type === 'Heatmap Correlation Matrix' ? 'wide' : 'chart';
+    const agent = type === 'KPI Cards' ? 'dash-chart-kpi-cards' : type === 'Data Table' ? 'dash-chart-data-table' : type === 'Heatmap Correlation Matrix' ? 'dash-chart-heatmap-correlation-matrix' : `dash-chart-${slug(comp)}`;
+    return {
+      id: comp, kind, agent, title: rec?.title || type,
+      node: <>
+        {rec?.questionAnswered && kind === 'chart' && <p className="text-xs text-label-2 mb-1.5 px-1 truncate" title={rec.questionAnswered}>{rec.questionAnswered}</p>}
+        {renderComponentWrapper(comp, comp)}
+      </>,
+    };
+  });
+
   const gridClass = layout === '2-col' ? 'grid-cols-1 lg:grid-cols-2' : layout === '3-col' ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1';
 
   return (
@@ -397,45 +414,8 @@ export default function IntelligentDashboardLayer({ dataset, mlResult, datasetId
       <div className="flex gap-7 items-start w-full transition-all">
         {/* Dynamic Charts Area */}
         <div className={`flex-1 transition-all ${(expertMode && sidebarOpen) ? 'w-[70%]' : 'w-full'}`}>
-          <div className="flex flex-col mb-4">
-            {/* Top row: KPI CARDS */}
-            {activeComponents.includes('KPI Cards') && (
-              <div className="w-full" data-agent="dash-chart-kpi-cards">
-                {renderComponentWrapper('KPI Cards', 'kpi')}
-              </div>
-            )}
-            
-            {/* Grid row: CHARTS via CSS Columns for Masonry layout */}
-            {activeComponents.filter(c => !['KPI Cards', 'Data Table', 'Filters Panel', 'Slicers Panel', 'Heatmap Correlation Matrix'].includes(baseType(c))).length > 0 && (
-              <div className={`gap-7 w-full z-0 px-1 ${layout === '2-col' ? 'columns-1 lg:columns-2' : layout === '3-col' ? 'columns-1 lg:columns-3' : 'columns-1'}`}>
-                {activeComponents
-                  .filter(c => !['KPI Cards', 'Data Table', 'Filters Panel', 'Slicers Panel', 'Heatmap Correlation Matrix'].includes(baseType(c)))
-                  .map((comp) => {
-                    const rec = config?.designedBy ? config.recommendedComponents?.find((c: any) => c.id === comp) : null;
-                    return (
-                      <div key={comp} className="block mb-7 break-inside-avoid w-full" data-agent={`dash-chart-${slug(comp)}`}>
-                        {rec?.questionAnswered && <p className="text-xs text-label-2 mb-1.5 px-1">{rec.questionAnswered}</p>}
-                        {renderComponentWrapper(comp, comp)}
-                      </div>
-                    );
-                })}
-              </div>
-            )}
-
-            {/* Heatmap Correlation Matrix */}
-            {activeComponents.includes('Heatmap Correlation Matrix') && (
-              <div className="col-span-full w-full mb-7" data-agent="dash-chart-heatmap-correlation-matrix">
-                 {renderComponentWrapper('Heatmap Correlation Matrix', 'heatmap')}
-              </div>
-            )}
-
-            {/* Bottom row: DATA TABLE */}
-            {activeComponents.includes('Data Table') && (
-              <div className="w-full mt-2" data-agent="dash-chart-data-table">
-                {renderComponentWrapper('Data Table', 'table')}
-              </div>
-            )}
-          </div>
+          <DashGrid storageKey={`dash-grid:${datasetId ?? dataset.filename}`} perRow={layout === '1-col' ? 1 : layout === '3-col' ? 3 : 2}
+            items={gridItems} />
         </div>
 
         {/* Sidebar Trigger */}

@@ -8,9 +8,10 @@ import { AGENTS, AgentRole } from './agents';
 import { CAPABILITIES, Capability, CapabilityResult, StudioPort } from './catalog';
 import { LIMITS, TaskSpec, TaskStatus } from './plan';
 import { Driver } from './interaction';
+import { STAGE_ORDER } from '../stages';
 import { needsReview } from './review';
 import { Incident, IncidentState, RECOVERY_LIMITS, diagnose, fingerprint } from './recovery';
-import { MAX_FIXES, OrchestratorReview, auditRun } from './orchestratorReview';
+import { MAX_FIXES, MAX_ROUNDS, OrchestratorReview, auditRun } from './orchestratorReview';
 
 // The swarm's durable runtime (blueprint 7). Every state change is saved, so
 // a run survives a page reload; tasks start only when their dependencies are
@@ -41,6 +42,10 @@ export interface TaskState extends TaskSpec {
   usedPage?: boolean;
   /** The task that redid this one after the Orchestrator's review. */
   supersededBy?: string;
+  /** The task that held this one up (an explicit dependency or an earlier step). */
+  blockedBy?: string;
+  /** A failed task the rest of the run carries on without. */
+  waived?: boolean;
 }
 
 export type BusMessageType = 'assignment' | 'status' | 'finding' | 'handoff' | 'approval_request' | 'failure' | 'recovery' | 'challenge';
@@ -104,6 +109,8 @@ export interface SwarmRun {
   /** Self-healing incidents opened during the run. */
   incidents?: Incident[];
   reviews?: number;
+  /** How many rounds of fixes the Orchestrator has run. */
+  reviewRounds?: number;
   /** The Orchestrator's final review: issues found and the fixes it ran. */
   orchestratorReview?: OrchestratorReview;
   report?: CompletionReport;
@@ -117,6 +124,7 @@ export interface RuntimePort extends StudioPort {
   findAppliedVersion: (parentId: string | null, capability: string, params: unknown) => Promise<string | null>;
 }
 
+const STEP_NAMES: Record<string, string> = { ingest: 'collect', clean: 'clean', eda: 'explore', stats: 'statistics', ml: 'model', dashboard: 'dashboard', reports: 'report' };
 const TERMINAL: TaskStatus[] = ['completed', 'failed', 'cancelled', 'blocked'];
 const TRANSIENT = /timed out|timeout|503|502|504|unavailable|waking|network|fetch failed|ECONN|restarted|Load failed|HTTP 5/i;
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
@@ -306,7 +314,45 @@ export class SwarmRuntime {
       if (dep.status === 'failed' || dep.status === 'cancelled' || dep.status === 'blocked') return { blockedBy: dep };
       if (dep.status !== 'completed') return 'waiting';
     }
+    const gate = this.stepGate(t);
+    if (gate) return gate.status === 'failed' ? { blockedBy: gate } : 'waiting';
     return 'ready';
+  }
+
+  private stepOf(t: TaskState): number {
+    const i = STAGE_ORDER.indexOf(this.cap(t)?.step as any);
+    return i < 0 ? 0 : i;
+  }
+
+  /** Whether `a` waits (directly or through others) for `b`. */
+  private dependsOn(a: TaskState, b: TaskState, seen = new Set<string>()): boolean {
+    for (const d of a.dependsOn) {
+      if (d === b.id) return true;
+      if (seen.has(d)) continue;
+      seen.add(d);
+      const dt = this.task(d);
+      if (dt && this.dependsOn(dt, b, seen)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Strict workflow order: a task starts only when every task of an earlier step
+   * (collect → clean → explore → statistics → model → dashboard → report) has ended,
+   * whatever links the plan gave it. Tasks of the same step may run together. A
+   * failed change to the data stops the later steps (they'd work on the wrong data);
+   * another failed task only has to end. Returns the earliest task holding `t`.
+   */
+  private stepGate(t: TaskState): TaskState | null {
+    const mine = this.stepOf(t);
+    let holder: TaskState | null = null;
+    for (const o of this.run.tasks) {
+      if (o.id === t.id || this.stepOf(o) >= mine || this.dependsOn(o, t)) continue;
+      const changedData = this.cap(o)?.sideEffect === 'new-version';
+      if (o.status === 'failed' && changedData && !o.supersededBy && !o.waived) return o;
+      if (!TERMINAL.includes(o.status) && (!holder || this.stepOf(o) < this.stepOf(holder))) holder = o;
+    }
+    return holder;
   }
 
   private async tick() {
@@ -321,7 +367,7 @@ export class SwarmRuntime {
           if (TERMINAL.includes(t.status) || t.status === 'running' || t.status === 'verifying') continue;
           const s = this.depsState(t);
           if (typeof s === 'object') {
-            this.patch(t.id, { status: 'blocked', note: `Needs “${this.cap(s.blockedBy)?.label(s.blockedBy.params) ?? s.blockedBy.id}”, which ${s.blockedBy.status === 'completed' ? 'finished' : s.blockedBy.status}.` });
+            this.patch(t.id, { status: 'blocked', blockedBy: s.blockedBy.id, note: `Needs “${this.cap(s.blockedBy)?.label(s.blockedBy.params) ?? s.blockedBy.id}”, which ${s.blockedBy.status === 'completed' ? 'finished' : s.blockedBy.status}.` });
             changed = true;
           }
         }
@@ -330,7 +376,13 @@ export class SwarmRuntime {
         let backendSlots = LIMITS.maxConcurrentBackend - runningBackend;
         for (const t of this.run.tasks) {
           if (t.status !== 'pending' && t.status !== 'ready' && t.status !== 'awaiting_approval') continue;
-          if (this.depsState(t) !== 'ready') continue;
+          if (this.depsState(t) !== 'ready') {
+            const gate = this.stepGate(t);
+            const note = gate ? `Waiting for step ${this.stepOf(gate) + 1} (${STEP_NAMES[STAGE_ORDER[this.stepOf(gate)]] ?? STAGE_ORDER[this.stepOf(gate)]}) to finish.` : undefined;
+            if (note && t.note !== note && t.status !== 'awaiting_approval') { this.patch(t.id, { note }); changed = true; }
+            continue;
+          }
+          if (t.note?.startsWith('Waiting for step ')) this.patch(t.id, { note: undefined });
           if (!t.approved) {
             if (t.status !== 'awaiting_approval') {
               this.patch(t.id, { status: 'awaiting_approval', note: this.cap(t).approval === 'separate' ? 'Needs its own approval.' : 'Waiting for your approval.' });
@@ -589,6 +641,9 @@ export class SwarmRuntime {
       const review = this.run.orchestratorReview;
       if (review?.verdict === 'fixing') {
         const failed = review.fixIds.filter(id => this.task(id)?.status !== 'completed');
+        // Something is still undone: another round tries other ways and carries on without what can't be fixed.
+        const undone = this.run.tasks.some(t => (t.status === 'failed' && !t.supersededBy && !t.waived) || (t.status === 'blocked' && !t.supersededBy));
+        if (undone && (this.run.reviewRounds ?? 1) < MAX_ROUNDS && this.opts.finalReview !== false) { void this.finalReview(); return; }
         // A fix only counts if its own independent review (if any) agrees.
         const stillContradicted = review.fixIds.filter(id => this.run.tasks.some(t => t.capability === 'verify.review' && t.dependsOn.includes(id) && t.status === 'completed' && !(t.result?.data as any)?.agrees));
         const ok = !failed.length && !stillContradicted.length;
@@ -617,17 +672,29 @@ export class SwarmRuntime {
 
   private reviewing = false;
 
+  /** Ends the run after the last review round (no further rounds). */
+  private maybeFinishAfterReview() {
+    const resolved = (t: TaskState) => t.status === 'completed' || (!!t.supersededBy && this.task(t.supersededBy)?.status === 'completed');
+    const anyDone = this.run.tasks.some(t => t.status === 'completed');
+    this.run.status = this.run.tasks.every(resolved) ? 'completed' : anyDone ? 'partial' : 'failed';
+    this.finish();
+    this.save();
+  }
+
   /** The Orchestrator's final review (orchestratorReview.ts): audit, optional AI check, one round of fixes. */
   private async finalReview() {
     if (this.reviewing) return;
     this.reviewing = true;
     try {
       const ds = this.port.getDataset();
-      const audit = auditRun(this.run, ds);
+      const round = (this.run.reviewRounds ?? 0) + 1;
+      this.run.reviewRounds = round;
+      const earlier = round > 1 ? this.run.orchestratorReview : undefined;
+      const audit = auditRun(this.run, ds, round);
       this.say('orchestrator', 'user', 'status', audit.issues.length ? `Reviewing the results: ${audit.issues.length} issue(s) found.` : 'Reviewing the results before reporting.');
       this.save();
       let ai: Awaited<ReturnType<NonNullable<RuntimeOptions['aiReview']>>> = null;
-      if (this.opts.aiReview && (this.run.tasks.length >= 3 || audit.issues.length)) {
+      if (round === 1 && this.opts.aiReview && (this.run.tasks.length >= 3 || audit.issues.length)) {
         ai = await this.opts.aiReview(this.run).catch(() => null);
         if (ai) this.run.telemetry = { ...this.run.telemetry, aiCalls: this.run.telemetry.aiCalls + 1, inputTokens: this.run.telemetry.inputTokens + (ai.inputTokens ?? 0), outputTokens: this.run.telemetry.outputTokens + (ai.outputTokens ?? 0) };
       }
@@ -643,23 +710,39 @@ export class SwarmRuntime {
       fixes.forEach((f, i) => {
         const cap = CAPABILITIES[f.capability];
         const redoOf = (f as { redoOf?: string }).redoOf;
-        const id = redoOf ? `${redoOf}.redo` : `review.${i + 1}`;
+        const id = redoOf ? `${redoOf.replace(/\.redo\d*$/, '')}.redo${round > 1 ? round : ''}` : round > 1 ? `review.${round}.${i + 1}` : `review.${i + 1}`;
         ids.push(id);
         const invalid = !cap ? `Unknown capability “${f.capability}”.` : cap.approval === 'prohibited' ? 'Not allowed.' : cap.validate(f.params, ds);
         if (invalid) { issues.push(`Couldn’t fix with “${cap?.label(f.params) ?? f.capability}”: ${invalid}`); return; }
         const deps = (f.dependsOn ?? []).map(d => (d.startsWith('fix:') ? ids[Number(d.slice(4))] ?? '' : d)).filter(d => d && (this.run.tasks.some(t => t.id === d) || added.some(t => t.id === d)));
         added.push({ id, capability: f.capability, params: f.params, role: cap.defaultRole, dependsOn: deps, why: f.reason, dynamic: true, status: 'pending', attempts: 0, approved: preApproved(f.capability, this.run.approvalMode) });
         if (redoOf) this.patch(redoOf, { supersededBy: id });
+        for (const w of (f as { waive?: string[] }).waive ?? []) this.patch(w, { waived: true });
       });
 
       if (added.length) {
-        this.run.orchestratorReview = { verdict: 'fixing', summary: ai?.summary ?? `Fixing ${added.length} issue(s).`, issues, fixes: added.map(t => this.cap(t).label(t.params)), fixIds: added.map(t => t.id), usedAi: !!ai };
+        this.run.orchestratorReview = {
+          verdict: 'fixing', summary: ai?.summary ?? (round > 1 ? `Round ${round}: ${added.length} more fix(es).` : `Fixing ${added.length} issue(s).`),
+          issues: [...(earlier?.issues ?? []), ...issues], fixes: [...(earlier?.fixes ?? []), ...added.map(t => this.cap(t).label(t.params))],
+          fixIds: [...(earlier?.fixIds ?? []), ...added.map(t => t.id)], usedAi: !!ai || !!earlier?.usedAi,
+        };
         this.run.tasks = [...this.run.tasks, ...added];
         this.run.dynamicAdded += added.length;
         this.say('orchestrator', 'user', 'recovery', `Redoing what went wrong: ${added.map(t => `${this.cap(t).label(t.params)} (${t.why})`).join('; ')}.`);
         this.save();
         // The review can run inside the scheduler's own loop; start the fixes after it.
         setTimeout(() => void this.tick(), 0);
+        return;
+      }
+      if (earlier) {
+        // A later round with nothing more to try: report what was fixed and what still needs you.
+        const left = this.run.tasks.filter(t => (t.status === 'failed' && !t.supersededBy) || (t.status === 'blocked' && !t.supersededBy));
+        this.run.orchestratorReview = {
+          ...earlier, issues: [...earlier.issues, ...issues], verdict: left.length ? 'needs_you' : 'fixed',
+          summary: left.length ? `Fixed what could be fixed in ${round - 1} round(s); ${left.length} step(s) still need you.` : `Fixed: ${earlier.fixes.join('; ')}.`,
+        };
+        this.run.status = 'running';
+        this.maybeFinishAfterReview();
         return;
       }
       this.run.orchestratorReview = {

@@ -25,6 +25,8 @@ for (const [, src] of pageSources) {
   // Shared controls (RunBar, PinButton) take their tag as an `agent` prop.
   for (const m of src.matchAll(/(?:data-agent|\bagent)="([^"]+)"/g)) staticTags.add(m[1]);
   for (const m of src.matchAll(/(?:data-agent|\bagent)=\{`([^`$]*)\$\{/g)) prefixes.add(m[1]);
+  // Tags handed to a shared layout (the dashboard grid) as a field: { agent: `x-${…}` }.
+  for (const m of src.matchAll(/\bagent\s*=[^;\n]*[?:]\s*`([^`$]+)\$\{/g)) prefixes.add(m[1]);
   if (/data-agent=\{id\}/.test(src)) for (const m of src.matchAll(/columnSelect\('([^']+)'/g)) staticTags.add(m[1]);
   for (const m of src.matchAll(/htmlFor="([^"]+)"[^>]*>[^<]*<\/label>\s*\{columnSelect/g)) staticTags.add(m[1]);
 }

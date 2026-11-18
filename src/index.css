@@ -889,3 +889,43 @@
   body.printing-report .report-section { break-before: page; }
   body.printing-report .report-section.report-first { break-before: auto; }
 }
+
+/* ---------------------------------------------------------------- dashboard grid */
+.dash-grid { display: grid; position: relative; }
+.dash-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.dash-panel > .card, .dash-panel > div > .card:only-child { flex: 1 1 auto; height: 100%; min-height: 0 !important; overflow: hidden; }
+.dash-panel > .card .h-\[280px\] { height: auto; flex: 1 1 0; min-height: 80px; }
+.dash-panel[data-kind="table"] > .card { overflow: auto; }
+.dash-panel[data-kind="kpi"] > div { height: 100%; margin-bottom: 0 !important; }
+.dash-panel[data-kind="kpi"] .card { min-height: 0 !important; height: 100%; }
+.dash-panel-active > .card { box-shadow: 0 18px 50px -12px rgb(0 0 0 / 0.28), 0 0 0 2px var(--color-blue, #0071e3); }
+.dash-grip {
+  position: absolute; top: 5px; left: 50%; transform: translateX(-50%); z-index: 10;
+  display: flex; gap: 3px; padding: 6px 10px; border-radius: 999px; cursor: grab; touch-action: none;
+  opacity: 0; transition: opacity .18s ease, background-color .18s ease;
+}
+.dash-grip span { width: 4px; height: 4px; border-radius: 999px; background: currentColor; color: var(--color-label-3, #86868b); }
+.dash-grip:hover, .dash-grip:focus-visible { background: rgb(127 127 127 / 0.14); }
+.dash-grip:active { cursor: grabbing; }
+.dash-corner {
+  position: absolute; left: 0; bottom: 0; z-index: 10; width: 30px; height: 30px; cursor: nesw-resize; touch-action: none;
+  opacity: 0; transition: opacity .18s ease;
+}
+.dash-corner svg { width: 100%; height: 100%; overflow: visible; }
+.dash-corner path { fill: none; stroke: var(--color-label-3, #86868b); stroke-width: 4; stroke-linecap: round; transition: stroke .15s ease; }
+.dash-corner:hover path, .dash-corner:focus-visible path, .dash-panel-active .dash-corner path { stroke: var(--color-label-2, #6e6e73); }
+.dash-panel:hover .dash-grip, .dash-panel:hover .dash-corner,
+.dash-panel:focus-within .dash-grip, .dash-panel:focus-within .dash-corner,
+.dash-panel-active .dash-grip, .dash-panel-active .dash-corner { opacity: 1; }
+@media (hover: none) { .dash-grip, .dash-corner { opacity: .7; } }
+@media (max-width: 767px) {
+  .dash-grid { display: flex !important; flex-direction: column; min-height: 0 !important; }
+  .dash-panel { min-height: 320px; }
+  .dash-panel[data-kind="kpi"] { min-height: 0; }
+  .dash-grip, .dash-corner { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .dash-grip, .dash-corner { transition: none; } }
+
+/* An agent pressing a real control: a short squeeze, as under a finger. */
+.agent-pressing { transform: scale(0.96); filter: brightness(0.94); transition: transform 90ms ease, filter 90ms ease; }
+@media (prefers-reduced-motion: reduce) { .agent-pressing { transform: none; } }

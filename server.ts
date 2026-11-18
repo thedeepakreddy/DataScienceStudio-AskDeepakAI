@@ -14,7 +14,7 @@ import { type GeminiFailureKind, classifyGeminiError, describeGeminiFailure, mos
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from '@google/genai';
-import { FALLBACK_GEMINI_MODELS, rankGeminiModels, withFallback, type ListedModel } from './geminiModels';
+import { FALLBACK_GEMINI_MODELS, findFreeModels, rankGeminiModels, withFallback, type ListedModel, type ProbeOutcome } from './geminiModels';
 
 const app = express();
 // Render (and most hosts) put the app behind one proxy; trust it so req.ip is the visitor's address.
@@ -184,9 +184,14 @@ const geminiHealth: {
 // model never needs a code change: discovery runs at start-up, again on its
 // own when a model stops working, and from the "Update to latest model" button.
 let GEMINI_MODELS = [...FALLBACK_GEMINI_MODELS];
-const geminiModelInfo: { source: 'built-in' | 'google'; updatedAt: number | null; models: string[]; error: string | null } = {
-  source: 'built-in', updatedAt: null, models: GEMINI_MODELS, error: null,
-};
+// 'free' (the default): only models that answer on the key without billing,
+// found by one tiny test call each. 'latest': the newest models, paid or free.
+type GeminiTier = 'free' | 'latest';
+let geminiTier: GeminiTier = process.env.GEMINI_MODEL_TIER === 'latest' ? 'latest' : 'free';
+const geminiModelInfo: {
+  source: 'built-in' | 'google'; tier: GeminiTier; updatedAt: number | null; models: string[]; error: string | null;
+  tested: { model: string; outcome: ProbeOutcome }[];
+} = { source: 'built-in', tier: geminiTier, updatedAt: null, models: GEMINI_MODELS, error: null, tested: [] };
 const MODEL_REFRESH_MIN_MS = 10 * 60 * 1000;
 let modelRefresh: Promise<boolean> | null = null;
 
@@ -206,18 +211,34 @@ async function listGeminiModels(apiKey: string): Promise<ListedModel[]> {
 }
 
 /** Asks Google for the newest usable models; true when the list changed. `force` skips the 10-minute limit. */
-function refreshGeminiModels(force = false, key = ownerGeminiKey() || visitorGeminiKey()): Promise<boolean> {
+function refreshGeminiModels(force = false, key = ownerGeminiKey() || visitorGeminiKey(), tier: GeminiTier = geminiTier): Promise<boolean> {
   if (!key) return Promise.resolve(false);
   if (modelRefresh) return modelRefresh;
   if (!force && geminiModelInfo.updatedAt && Date.now() - geminiModelInfo.updatedAt < MODEL_REFRESH_MIN_MS) return Promise.resolve(false);
   modelRefresh = (async () => {
     try {
-      const ranked = rankGeminiModels(await listGeminiModels(key));
-      if (!ranked.length) throw new Error('Google listed no text models this key can use.');
-      const next = withFallback(ranked);
+      const listed = await listGeminiModels(key);
+      let next: string[];
+      let tested: { model: string; outcome: ProbeOutcome }[] = [];
+      if (tier === 'free') {
+        // Flash and Flash-Lite first: they're the ones with a free tier.
+        const candidates = rankGeminiModels(listed, 12).sort((a, b) => Number(/pro/.test(a)) - Number(/pro/.test(b)));
+        const client = new GoogleGenAI({ apiKey: key });
+        const found = await findFreeModels(candidates, async model => {
+          await client.models.generateContent({ model, contents: 'Reply with OK', config: { maxOutputTokens: 4, abortSignal: AbortSignal.timeout(12_000) } as any });
+        });
+        tested = found.results;
+        if (!found.free.length) throw new Error(found.results.some(r => r.outcome === 'bad_key') ? 'Google rejected the key.' : 'No free-tier model answered on this key.');
+        next = found.free;
+      } else {
+        const ranked = rankGeminiModels(listed);
+        if (!ranked.length) throw new Error('Google listed no text models this key can use.');
+        next = withFallback(ranked);
+      }
       const changed = next.join() !== GEMINI_MODELS.join();
       GEMINI_MODELS = next;
-      Object.assign(geminiModelInfo, { source: 'google', updatedAt: Date.now(), models: next, error: null });
+      geminiTier = tier;
+      Object.assign(geminiModelInfo, { source: 'google', tier, updatedAt: Date.now(), models: next, error: null, tested });
       console.log(`[AskDeepakAI Gemini Client] Models from Google: ${next.join(', ')}`);
       return changed;
     } catch (err: any) {
@@ -691,13 +712,14 @@ app.get('/api/ai/status', async (req, res) => {
 // newest suitable ones, and tries them at once. Uses the app's key, or the
 // visitor's own key when the app has none. Limited so it can't hammer Google.
 let lastModelUpdateAt = 0;
-app.post('/api/ai/refresh-models', async (_req, res) => {
+app.post('/api/ai/refresh-models', async (req, res) => {
+  const tier: GeminiTier = req.body?.tier === 'latest' ? 'latest' : req.body?.tier === 'free' ? 'free' : geminiTier;
   res.set('Cache-Control', 'no-store');
   if (!aiKeyAvailable()) return res.status(400).json({ ok: false, message: 'There is no Gemini key to ask Google with; add your own key first.', models: geminiModelInfo });
   if (Date.now() - lastModelUpdateAt < 15_000) return res.status(429).json({ ok: false, message: 'Updated a moment ago; try again in a few seconds.', models: geminiModelInfo });
   lastModelUpdateAt = Date.now();
   const before = GEMINI_MODELS[0];
-  await refreshGeminiModels(true);
+  await refreshGeminiModels(true, undefined, tier);
   ownerKeyRestingUntil = 0;
   try {
     await generateContentWithRetry(getGeminiClient(), { contents: 'Reply with the single word: OK' });
@@ -708,7 +730,7 @@ app.post('/api/ai/refresh-models', async (_req, res) => {
     message: geminiModelInfo.error
       ? `Couldn't ask Google for new models (${geminiModelInfo.error}); still using ${GEMINI_MODELS[0]}.`
       : status.state === 'ok'
-        ? `Using ${status.model ?? GEMINI_MODELS[0]}${GEMINI_MODELS[0] !== before ? ` (was ${before})` : ' — already the latest'}.`
+        ? `Using ${status.model ?? GEMINI_MODELS[0]}${tier === 'free' ? ' (free tier, tested)' : ''}${GEMINI_MODELS[0] !== before ? ` — was ${before}` : ' — already the latest'}.`
         : `Updated to ${GEMINI_MODELS[0]}, but Gemini still isn't answering: ${status.message}`,
   });
 });

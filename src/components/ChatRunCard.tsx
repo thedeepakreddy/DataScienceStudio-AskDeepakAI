@@ -48,7 +48,8 @@ export default function ChatRunCard({ run, live, ...on }: ChatRunCardProps) {
                 <p className="text-label-2 leading-snug">
                   <span className="font-medium" style={{ color: agent.color }}>{agent.name}</span>
                   {t.dynamic && ' · added while working'}
-                  {CAPABILITIES[t.capability]?.approval === 'separate' && t.status !== 'completed' && ' · needs its own approval'}
+                  {CAPABILITIES[t.capability]?.approval === 'separate' && !t.approved && t.status !== 'completed' && ' · needs its own approval'}
+                  {t.note?.startsWith('Waiting for step ') && t.status === 'pending' && ` · ${t.note.replace(/\.$/, '').toLowerCase()}`}
                 </p>
                 {t.result?.summary && t.status === 'completed' && <p className="text-label-2 leading-snug">{t.result.summary}</p>}
                 {t.capability === 'sql.query' && t.status === 'completed' && <SqlPreview data={t.result?.data} />}

@@ -82,8 +82,28 @@ describe('dashboard designer (chart grammar)', () => {
 });
 
 describe('planner: smarter and longer', () => {
+  it('adds the specialised analyses the data fits, each with its reason', async () => {
+    const { specialisedAnalyses, textColumns } = await import('./plan');
+    const rows = Array.from({ length: 60 }, (_, i) => ({
+      id: i, variant: i % 2 ? 'B' : 'A', converted: i % 3 ? 'No' : 'Yes', tenure: 1 + (i * 7) % 50, churned: i % 4 ? 'No' : 'Yes',
+      review: `The service was ${['great and fast', 'slow and buggy today', 'fine but too expensive', 'helpful staff every time'][i % 4]} number ${i}`,
+    }));
+    const { parseCSV } = await import('../utils/csvParser');
+    const head = Object.keys(rows[0]);
+    const d = parseCSV([head.join(','), ...rows.map(r => head.map(h => (r as any)[h]).join(','))].join('\n'), 'x.csv');
+    expect(textColumns(d)).toEqual(['review']);
+    const sp = specialisedAnalyses(d, 'churned');
+    expect(sp.map(s => s.capability)).toEqual(['analysis.text-overview', 'analysis.km', 'analysis.ab']);
+    expect(sp.find(s => s.capability === 'analysis.km')!.params).toMatchObject({ duration: 'tenure', event: 'churned' });
+    expect(sp.find(s => s.capability === 'analysis.ab')!.params).toEqual({ variant: 'variant', metric: 'converted' });
+    expect(validatePlan(sp.map((s, i) => ({ id: `t${i}`, ...s, role: CAPABILITIES[s.capability].defaultRole, dependsOn: [] })), d)).toEqual([]);
+    expect(sp.every(s => s.why.length > 10)).toBe(true);
+    // Nothing is added when the data doesn't fit.
+    expect(specialisedAnalyses(ds())).toEqual(specialisedAnalyses(ds()).filter(s => s.capability !== 'analysis.text-overview'));
+  });
+
   it('runs a full analysis through all seven steps’ worth of specialists', () => {
-    const p = rulePlan('Do a full analysis of this data end to end', ds());
+    const p = rulePlan('Do a full analysis of this data end to end', ds(), { engine: 'error' });
     const caps = p.tasks.map(t => t.capability);
     expect(caps).toEqual(expect.arrayContaining(['quality.check', 'explore.profile', 'explore.deep_eda', 'stats.screen', 'models.train', 'models.forecast', 'models.cluster', 'dashboard.design', 'dashboard.add_kpi', 'dashboard.save', 'report.build', 'report.pdf']));
     expect(new Set(p.tasks.map(t => t.role)).size).toBeGreaterThanOrEqual(9);
@@ -192,7 +212,7 @@ describe('the Orchestrator’s final review', () => {
 
 describe('a long run', () => {
   it('completes a full analysis of ~20 tasks with the fake studio (page-only steps excluded)', async () => {
-    const plan = rulePlan('Do a full analysis of this data end to end', ds()).tasks
+    const plan = rulePlan('Do a full analysis of this data end to end', ds(), { engine: 'error' }).tasks
       // Dashboard and PDF steps need the page; everything else runs directly here.
       .filter(t => !CAPABILITIES[t.capability].uiOnly);
     const port = fakePort(ds(), {

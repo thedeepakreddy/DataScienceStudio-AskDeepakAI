@@ -49,7 +49,7 @@ export const NOT_FOR_AGENT_GROUPS: GroupId[] = ['import'];
 
 const groupOf = (id: string): GroupId | undefined => (Object.keys(GROUP_METHODS) as GroupId[]).find(g => GROUP_METHODS[g].includes(id));
 
-const FILTER_WORDS: Record<string, string> = { numeric: 'numeric column', categorical: 'category column', binary: 'yes/no column', date: 'date column', group: 'group column', any: 'column' };
+const FILTER_WORDS: Record<string, string> = { numeric: 'numeric column', categorical: 'category column', binary: 'yes/no column', measure: 'numeric or yes/no column', date: 'date column', group: 'group column', any: 'column' };
 
 /** The parameters of a method, described for the AI planner. */
 export function describeFields(fields: Field[]): string {

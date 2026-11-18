@@ -55,3 +55,48 @@ export function rankGeminiModels(listed: ListedModel[], limit = 3): string[] {
 export function withFallback(discovered: string[], fallback = FALLBACK_GEMINI_MODELS, max = 5): string[] {
   return [...new Set([...discovered, ...fallback])].slice(0, max);
 }
+
+/**
+ * Whether a failed test call means the model needs billing on this key. A
+ * free-tier key asking for a paid-only model gets a quota error whose limit is 0.
+ */
+export function isPaidOnlyError(err: unknown): boolean {
+  const text = `${(err as any)?.status ?? ''} ${(err as any)?.message ?? err}`.toLowerCase();
+  return /limit:\s*0\b|"limit":\s*0\b|free[_ -]?tier.*(not|unavailable)|requires? (billing|a paid)|billing (is )?(not )?enabled|only available (on|for) paid/.test(text);
+}
+
+/** A temporary or quota-for-today error: the model is free but busy or used up for now. */
+export function isTemporaryError(err: unknown): boolean {
+  const text = `${(err as any)?.status ?? ''} ${(err as any)?.message ?? err}`.toLowerCase();
+  return !isPaidOnlyError(err) && /\b(429|500|503)\b|resource_exhausted|overloaded|unavailable|rate limit|high demand/.test(text);
+}
+
+export type ProbeOutcome = 'free' | 'paid' | 'busy' | 'unavailable' | 'bad_key';
+
+/**
+ * Tries candidates newest first with one tiny request each and keeps the ones that
+ * answer on this key (free tier). Stops early on a rejected key, after `keep` free
+ * models, or after `maxProbes` calls, so it costs almost no quota.
+ */
+export async function findFreeModels(candidates: string[], probe: (model: string) => Promise<void>, keep = 3, maxProbes = 6):
+  Promise<{ free: string[]; results: { model: string; outcome: ProbeOutcome }[] }> {
+  const results: { model: string; outcome: ProbeOutcome }[] = [];
+  for (const model of candidates.slice(0, maxProbes)) {
+    try {
+      await probe(model);
+      results.push({ model, outcome: 'free' });
+    } catch (err) {
+      const text = String((err as any)?.message ?? err).toLowerCase();
+      const outcome: ProbeOutcome = isPaidOnlyError(err) ? 'paid'
+        : /api key not valid|api_key_invalid|permission_denied|unauthenticated|\b40[13]\b/.test(text) ? 'bad_key'
+          : isTemporaryError(err) ? 'busy' : 'unavailable';
+      results.push({ model, outcome });
+      if (outcome === 'bad_key') break;
+    }
+    if (results.filter(r => r.outcome === 'free').length >= keep) break;
+  }
+  const answered = results.filter(r => r.outcome === 'free').map(r => r.model);
+  // Free but busy or out of today's quota: still free, kept after the ones that answered.
+  const busy = results.filter(r => r.outcome === 'busy').map(r => r.model);
+  return { free: [...answered, ...busy].slice(0, keep + 2), results };
+}

@@ -9,7 +9,7 @@ import { Pause, Play, Square, Users, X } from 'lucide-react';
 import { AGENTS } from '../swarm/agents';
 import { CAPABILITIES } from '../swarm/catalog';
 import type { ApprovalMode, SwarmRun, TaskState } from '../swarm/runtime';
-import { ApprovalSwitch, STATUS_TEXT, TaskIcon, canUndo, plannedByText, taskLabel } from './swarmBits';
+import { ApprovalSwitch, SpeedSwitch, STATUS_TEXT, TaskIcon, canUndo, plannedByText, taskLabel } from './swarmBits';
 import { SKILLS } from '../swarm/skills';
 import type { AgentRole } from '../swarm/agents';
 
@@ -90,6 +90,7 @@ export default function SwarmPanel(props: SwarmPanelProps) {
         </div>
 
         <ApprovalSwitch mode={props.approvalMode} onChange={props.onApprovalMode} />
+        <SpeedSwitch />
 
         <div className="segmented w-full" role="tablist" aria-label="Agents view">
           <button type="button" role="tab" className="flex-1" aria-selected={view === 'work'} onClick={() => setView('work')}>Work</button>
@@ -175,7 +176,8 @@ export default function SwarmPanel(props: SwarmPanelProps) {
                           <span className="font-medium" style={{ color: agent.color }}>{agent.name}</span>
                           {task.dynamic && ' · added while running'}
                           {task.dependsOn.length > 0 && ` · after ${task.dependsOn.join(', ')}`}
-                          {cap?.approval === 'separate' && ' · needs its own approval'}
+                          {cap?.approval === 'separate' && !task.approved && ' · needs its own approval'}
+                          {task.note?.startsWith('Waiting for step ') && ` · ${task.note}`}
                         </p>
                         {task.why && task.status === 'pending' && <p className="mt-1 text-xs text-label-3">{task.why}</p>}
                         {task.result?.summary && <p className="mt-1 text-xs text-label">{task.result.summary}</p>}

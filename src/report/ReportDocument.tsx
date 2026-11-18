@@ -66,7 +66,7 @@ function BlockView({ b, n }: { b: Block; n: number }) {
       return (
         <figure className="space-y-1.5">
           <figcaption className="text-[13px] font-semibold text-label">Figure {n}. {b.caption}</figcaption>
-          <div style={{ height: horizontal ? Math.max(140, b.data.length * 24 + 30) : 200 }} className="border border-black/10 rounded-lg p-2">
+          <div data-report-visual={b.id} style={{ height: horizontal ? Math.max(140, b.data.length * 24 + 30) : 200 }} className="border border-black/10 rounded-lg p-2 bg-white">
             <ResponsiveContainer>
               {horizontal ? (
                 <BarChart data={b.data} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
@@ -91,7 +91,7 @@ function BlockView({ b, n }: { b: Block; n: number }) {
         <figure className="space-y-1.5">
           <figcaption className="text-[13px] font-semibold text-label">Figure {n}. {b.caption}</figcaption>
           <div className="overflow-x-auto">
-            <table className="text-[11px] tabular-nums border-separate border-spacing-0.5">
+            <table data-report-visual={b.id} className="text-[11px] tabular-nums border-separate border-spacing-0.5 bg-white">
               <thead><tr><th />{b.columns.map(c => <th key={c} className="px-1 font-medium text-label-2 max-w-[5.5rem] truncate">{c}</th>)}</tr></thead>
               <tbody>{b.matrix.map((row, i) => (
                 <tr key={i}><th className="pr-2 text-left font-medium text-label-2 max-w-[8rem] truncate">{b.columns[i]}</th>
@@ -117,7 +117,7 @@ function BlockView({ b, n }: { b: Block; n: number }) {
         </header>
         <p className="text-[14px] font-medium text-label leading-relaxed">{b.headline}</p>
         {b.lines.length > 0 && <ul className="list-disc pl-5 text-[13px] text-label-2 space-y-0.5">{b.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}
-        {b.view && b.result != null && <div className="pt-1"><PinBody pin={{ view: b.view, result: b.result }} /></div>}
+        {b.view && b.result != null && <div className="pt-1 bg-white" data-report-visual={b.id}><PinBody pin={{ view: b.view, result: b.result }} /></div>}
       </article>
     );
   }

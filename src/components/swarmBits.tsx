@@ -8,6 +8,7 @@ import { AlertTriangle, CheckCircle2, CircleSlash, XCircle } from 'lucide-react'
 import Orb from './Orb';
 import { CAPABILITIES } from '../swarm/catalog';
 import type { ApprovalMode, RunStatus, SwarmRun, TaskState } from '../swarm/runtime';
+import { AGENT_SPEED_KEY, agentSpeed, type AgentSpeed } from '../swarm/interaction';
 
 // Shared pieces of the agent views (the chat's run card and the Agents panel).
 
@@ -55,6 +56,22 @@ export function ApprovalSwitch({ mode, onChange, compact = false }: { mode: Appr
             : 'Agents plan first. Changes to your data, models and dashboards wait for you to approve them.'}
         </p>
       )}
+    </div>
+  );
+}
+
+/** How fast agents move on the page. Reduced motion always means Instant. */
+export function SpeedSwitch() {
+  const [speed, setSpeed] = React.useState<AgentSpeed>(() => agentSpeed());
+  const pick = (v: AgentSpeed) => { setSpeed(v); try { localStorage.setItem(AGENT_SPEED_KEY, v); } catch { /* private window */ } };
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-label-2 shrink-0">Speed</span>
+      <div className="segmented flex-1" role="group" aria-label="Agent speed">
+        {(['natural', 'fast', 'instant'] as AgentSpeed[]).map(v => (
+          <button key={v} type="button" className="flex-1" aria-pressed={speed === v} onClick={() => pick(v)}>{v[0].toUpperCase() + v.slice(1)}</button>
+        ))}
+      </div>
     </div>
   );
 }

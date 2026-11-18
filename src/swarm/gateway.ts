@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { getEngineState } from '../engine/engineState';
 import type { Dataset } from '../types';
 import { apiFetch } from '../utils/api';
 import { getCachedPlan, setCachedPlan } from '../utils/workspaceStore';
@@ -91,7 +92,7 @@ export function planCacheKey(request: string, ds: Dataset) {
 
 export async function planRequest(request: string, ds: Dataset | null, opts: { allowAi?: boolean; history?: ChatTurn[]; hasModel?: boolean } = {}): Promise<PlanOutcome> {
   const empty = { aiCalls: 0, inputTokens: 0, outputTokens: 0, cacheHit: false };
-  const rules = rulePlan(request, ds, { hasModel: opts.hasModel });
+  const rules = rulePlan(request, ds, { hasModel: opts.hasModel, engine: getEngineState() });
   if (rules.tasks.length || !ds) {
     return { ...empty, tasks: rules.tasks, reply: rules.reply, plannedBy: 'rules', problems: rules.tasks.length ? validatePlan(rules.tasks, ds) : [], answer: !rules.tasks.length };
   }

@@ -211,6 +211,9 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
 
   return (
     <div className="space-y-10" id="uploader_module">
+      {/* Most used first: with no data, adding it; with data, what it is and what to do next. */}
+      {currentDataset ? (
+        <>
       {/* Loaded dataset summary — the first thing you see once data is in. */}
       {currentDataset && (
         <section className="card p-4 sm:p-5 animate-fade-in" aria-label="Current dataset">
@@ -341,6 +344,63 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
         )}
       </section>
 
+      {/* Columns */}
+      {currentDataset && (
+        <section aria-labelledby="columns-heading" className="animate-fade-in">
+          <h2 id="columns-heading" className="text-xl font-semibold tracking-tight text-label">Columns</h2>
+          <p className="mt-1 text-sm text-label-2">
+            {currentDataset.columns.length} columns detected in {currentDataset.filename}.
+          </p>
+
+          <div className="card mt-4 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-separator text-xs">
+                  <th className="px-5 py-3">Name</th>
+                  <th className="px-5 py-3">Type</th>
+                  <th className="px-5 py-3 text-right">Distinct</th>
+                  <th className="px-5 py-3 text-right">Missing</th>
+                  <th className="px-5 py-3">Summary</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-separator">
+                {currentDataset.columns.map((col) => {
+                  const missingRate = ((col.missingCount / currentDataset.rowCount) * 100).toFixed(1);
+                  return (
+                    <tr key={col.name}>
+                      <td className="px-5 py-3 font-medium text-label">{col.name}</td>
+                      <td className="px-5 py-3">
+                        <span className={`tag capitalize ${TYPE_TAG[col.type] ?? ''}`}>{col.type}</span>
+                      </td>
+                      <td className="px-5 py-3 text-right text-label-2">{col.distinctCount.toLocaleString()}</td>
+                      <td className={`px-5 py-3 text-right ${col.missingCount > 0 ? 'text-red font-medium' : 'text-label-3'}`}>
+                        {col.missingCount > 0 ? `${col.missingCount.toLocaleString()} (${missingRate}%)` : 'None'}
+                      </td>
+                      <td className="px-5 py-3 text-label-2 max-w-sm truncate">
+                        {col.type === 'numeric' ? (
+                          <>
+                            Mean <span className="text-label">{col.statistics.mean}</span>
+                            <span className="text-label-3"> · </span>
+                            Range {col.statistics.min} – {col.statistics.max}
+                          </>
+                        ) : col.statistics.mostCommon?.[0] ? (
+                          <>
+                            Most common <span className="text-label">{String(col.statistics.mostCommon[0].value)}</span>
+                            <span className="text-label-3"> · </span>
+                            {col.statistics.mostCommon[0].count}×
+                          </>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
       {/* Data source */}
       <section aria-labelledby="source-heading">
         <h2 id="source-heading" className="text-xl font-semibold tracking-tight text-label">
@@ -414,64 +474,128 @@ export default function DataUploader({ onDatasetLoaded, currentDataset, onProcee
         </div>
       </section>
 
-      {/* Columns */}
-      {currentDataset && (
-        <section aria-labelledby="columns-heading" className="animate-fade-in">
-          <h2 id="columns-heading" className="text-xl font-semibold tracking-tight text-label">Columns</h2>
-          <p className="mt-1 text-sm text-label-2">
-            {currentDataset.columns.length} columns detected in {currentDataset.filename}.
-          </p>
+        </>
+      ) : (
+        <>
+      {/* Data source */}
+      <section aria-labelledby="source-heading">
+        <h2 id="source-heading" className="text-xl font-semibold tracking-tight text-label">
+          {currentDataset ? 'Use a different dataset' : 'Add your data'}
+        </h2>
+        <p className="mt-1 text-sm text-label-2">
+          {expertMode
+            ? 'Upload a file or connect a database. Your data stays in this session.'
+            : 'Upload a file from your computer. Your data stays in this session.'}
+        </p>
 
-          <div className="card mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-separator text-xs">
-                  <th className="px-5 py-3">Name</th>
-                  <th className="px-5 py-3">Type</th>
-                  <th className="px-5 py-3 text-right">Distinct</th>
-                  <th className="px-5 py-3 text-right">Missing</th>
-                  <th className="px-5 py-3">Summary</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-separator">
-                {currentDataset.columns.map((col) => {
-                  const missingRate = ((col.missingCount / currentDataset.rowCount) * 100).toFixed(1);
-                  return (
-                    <tr key={col.name}>
-                      <td className="px-5 py-3 font-medium text-label">{col.name}</td>
-                      <td className="px-5 py-3">
-                        <span className={`tag capitalize ${TYPE_TAG[col.type] ?? ''}`}>{col.type}</span>
-                      </td>
-                      <td className="px-5 py-3 text-right text-label-2">{col.distinctCount.toLocaleString()}</td>
-                      <td className={`px-5 py-3 text-right ${col.missingCount > 0 ? 'text-red font-medium' : 'text-label-3'}`}>
-                        {col.missingCount > 0 ? `${col.missingCount.toLocaleString()} (${missingRate}%)` : 'None'}
-                      </td>
-                      <td className="px-5 py-3 text-label-2 max-w-sm truncate">
-                        {col.type === 'numeric' ? (
-                          <>
-                            Mean <span className="text-label">{col.statistics.mean}</span>
-                            <span className="text-label-3"> · </span>
-                            Range {col.statistics.min} – {col.statistics.max}
-                          </>
-                        ) : col.statistics.mostCommon?.[0] ? (
-                          <>
-                            Most common <span className="text-label">{String(col.statistics.mostCommon[0].value)}</span>
-                            <span className="text-label-3"> · </span>
-                            {col.statistics.mostCommon[0].count}×
-                          </>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <div className={`mt-4 grid grid-cols-1 gap-5 ${expertMode ? 'lg:grid-cols-2' : ''}`}>
+          <div className="card p-3 flex flex-col">{dropZone(!!currentDataset)}</div>
+
+          {expertMode && (
+            <div className="animate-fade-in">
+              <PipelineBuilder onDatasetLoaded={(dataset) => {
+                onDatasetLoaded(dataset);
+                fetchPipelineIntelligence(dataset, problemInput);
+              }} />
+            </div>
+          )}
+        </div>
+
+        {errorLine && (
+          <div role="alert" className="mt-4 flex items-start gap-3 rounded-2xl bg-red/10 px-4 py-3 text-sm animate-fade-in">
+            <AlertTriangle className="w-[18px] h-[18px] text-red shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-label">This file couldn’t be imported</p>
+              <p className="mt-0.5 text-label-2">{errorLine}</p>
+            </div>
           </div>
-        </section>
+        )}
+      </section>
+
+      {/* Samples */}
+      <section aria-labelledby="samples-heading" data-agent="area-samples">
+        <h2 id="samples-heading" className="text-xl font-semibold tracking-tight text-label">
+          {currentDataset ? 'Or switch to a sample' : 'Or start with a sample'}
+        </h2>
+        <p className="mt-1 text-sm text-label-2">Ready-made datasets for trying the full workflow.</p>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          {SAMPLES.map(({ key, match, title, description, icon: Icon, tint }) => {
+            const isActive = !!currentDataset?.filename.includes(match);
+            return (
+              <button
+                key={key}
+                type="button"
+                data-agent={`sample-${key}`}
+                onClick={() => loadSample(key)}
+                aria-pressed={isActive}
+                className={`card group text-left p-4 flex items-start gap-4 hover:shadow-md ${
+                  isActive ? 'ring-2 ring-blue' : ''
+                }`}
+              >
+                <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${tint}`}>
+                  <Icon className="w-5 h-5" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="flex items-center gap-2">
+                    <span className="text-base font-semibold tracking-tight text-label">{title}</span>
+                    {isActive && <span className="tag bg-blue/12 text-blue">In use</span>}
+                  </span>
+                  <span className="mt-1 block text-sm text-label-2 leading-snug">{description}</span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-label-3 shrink-0 mt-1 group-hover:text-label-2" />
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Goal — optional, and editable at any time. */}
+      <section aria-labelledby="goal-heading">
+        <h2 id="goal-heading" className="text-xl font-semibold tracking-tight text-label">
+          What do you want to find out? <span className="font-normal text-label-3">Optional</span>
+        </h2>
+        <p className="mt-1 text-sm text-label-2">
+          A goal helps the AI suggest what to predict and how to approach your data.
+        </p>
+        <form
+          className="mt-4 flex flex-col sm:flex-row gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSetContext();
+          }}
+        >
+          <input
+            type="text"
+            value={problemInput}
+            onChange={(e) => setProblemInput(e.target.value)}
+            placeholder="For example: predict which customers are likely to churn"
+            aria-labelledby="goal-heading"
+            className="field flex-1"
+          />
+          {currentDataset && (
+            <button type="submit" disabled={isGeneratingIntel} className="btn btn-secondary btn-lg shrink-0">
+              {isGeneratingIntel ? (
+                <>
+                  <Orb state="weaving" label="Building a recommendation" /> Analyzing…
+                </>
+              ) : (
+                'Update Recommendation'
+              )}
+            </button>
+          )}
+        </form>
+        {intelError && (
+          <p role="alert" className="mt-3 flex items-start gap-2 text-sm text-red">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            {intelError}
+          </p>
+        )}
+      </section>
+
+        </>
       )}
-      <div className="mt-10"><EngineImport /></div>
+      <EngineImport />
     </div>
   );
 }
