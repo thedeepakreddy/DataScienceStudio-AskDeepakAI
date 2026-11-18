@@ -15,6 +15,28 @@ def client():
     return TestClient(ml_service_main.app)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _engine_storage(tmp_path_factory):
+    # Engine v2 keeps datasets, jobs and results in a throwaway folder during tests.
+    from engine import api as engine_api
+
+    engine_api.configure(str(tmp_path_factory.mktemp("engine-storage")))
+    yield
+
+
+def upload_rows(client, rows, name="test"):
+    r = client.post("/v2/datasets", json={"name": name, "rows": rows})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def run(client, cap, dataset_id=None, mode="sync", **params):
+    r = client.post(f"/v2/run/{cap}", json={"dataset_id": dataset_id, "params": params, "mode": mode, "use_cache": False})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    return body["result"] if mode == "sync" else body
+
+
 @pytest.fixture
 def classification_rows():
     """Deterministic synthetic churn-style dataset with a real, learnable
