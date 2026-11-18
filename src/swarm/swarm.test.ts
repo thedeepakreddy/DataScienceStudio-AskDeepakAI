@@ -93,7 +93,7 @@ describe('swarm runtime', () => {
     expect(calls).toBe(2);
   });
 
-  it('blocks dependents of a failed task and reports a partial result', async () => {
+  it('carries on without a failed task that later work doesn’t need, and reports a partial result', async () => {
     const port = fakePort(parseCSV(csv, 'c.csv'), { api: vi.fn(async () => { throw new Error('There is no column called “x”.'); }) });
     const { rt } = make([
       { id: 't1', capability: 'stats.compare', params: { columnA: 'MonthlyCharges', columnB: 'Churn' }, role: 'statistician', dependsOn: [], why: '' },
@@ -103,8 +103,12 @@ describe('swarm runtime', () => {
     rt.start();
     const run = await runToEnd(rt);
     expect(run.status).toBe('partial');
-    expect(run.tasks.find(t => t.id === 't2')!.status).toBe('blocked');
-    expect(run.report!.problems.map(p => p.status)).toEqual(['failed', 'blocked']);
+    // The report was held up, then written without the failed test (an input error can't be redone).
+    expect(run.tasks.find(t => t.id === 't2')).toMatchObject({ status: 'blocked', supersededBy: 't2.redo' });
+    expect(run.tasks.find(t => t.id === 't2.redo')).toMatchObject({ status: 'completed', dependsOn: [] });
+    expect(run.tasks.find(t => t.id === 't1')).toMatchObject({ status: 'failed', waived: true });
+    expect(run.report!.problems.map(p => p.status)).toEqual(['failed']);
+    expect(run.orchestratorReview!.issues.join(' ')).toMatch(/continues without/);
   });
 
   it('pauses before new work and cancels the rest', async () => {
@@ -186,5 +190,31 @@ describe('strict step order', () => {
     expect(order).toContain('train');
     expect(order.indexOf('stats')).toBeLessThan(order.indexOf('train'));
     expect(order.indexOf('clean')).toBeLessThan(order.indexOf('stats'));
+  });
+});
+
+describe('carrying on to the end', () => {
+  it('tries another way when AutoML fails, explains that model, then finishes the report', async () => {
+    const calls: string[] = [];
+    const port = fakePort(parseCSV(csv, 'c.csv'));
+    const rt = new SwarmRuntime(newRun({ approvalMode: 'auto', request: 'x', reply: '', plannedBy: 'rules', datasetId: 'd', startVersionId: 'v0', tasks: [
+      { id: 'a', capability: 'models.automl', params: { target: 'Churn' }, role: 'ml_engineer', dependsOn: [], why: '' },
+      { id: 'e', capability: 'models.explain_engine', params: {}, role: 'explainability_analyst', dependsOn: ['a'], why: '' },
+      { id: 'r', capability: 'report.build', params: {}, role: 'research_analyst', dependsOn: ['a', 'e'], why: '' },
+    ] }), port, async () => {}, () => {}, {});
+    // The engine is away: every engine call fails as unreachable.
+    (globalThis as any).fetch = vi.fn(async () => { calls.push('engine'); throw new Error('Engine unreachable (503)'); });
+    rt.start();
+    const run = await runToEnd(rt);
+    const find = (id: string) => run.tasks.find(t => t.id === id)!;
+    // AutoML → the quick model; the engine explanation → explaining the quick model; the report after both.
+    expect(find('a').supersededBy).toBeTruthy();
+    expect(find(find('a').supersededBy!)).toMatchObject({ capability: 'models.train', status: 'completed' });
+    expect(find(find('e').supersededBy!)).toMatchObject({ capability: 'models.explain', status: 'completed' });
+    const report = run.tasks.filter(t => t.capability === 'report.build').at(-1)!;
+    expect(report.status).toBe('completed');
+    expect(report.dependsOn).toEqual(expect.arrayContaining([find('a').supersededBy, find('e').supersededBy]));
+    expect(run.status).toBe('completed');
+    expect(run.reviewRounds).toBeGreaterThanOrEqual(1);
   });
 });

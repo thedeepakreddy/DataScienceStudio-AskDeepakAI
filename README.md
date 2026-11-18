@@ -85,6 +85,8 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
    - A verified, cached plan for the same request and columns comes next.
    - Only then is one AI call made. That call either returns a task plan or answers your question from the data's facts.
 
+   A **full analysis** ("analyse my data", "end to end") is shaped by the data: clean, profile, deep analysis, drivers of the outcome, **AutoML** with its explanation (the quick model when the engine is down), forecast (with a date and a number), segments, then dashboard and report. It also adds the specialised methods the data clearly fits, each with its reason: **text analysis** for a free-text column, **survival curves** for a duration with an event, and an **A/B comparison** for a test-group column with an outcome. With no clear outcome to predict, it skips modelling and says how to name one.
+
    Every plan, whatever produced it, is validated before it runs. The checks cover known capabilities, valid inputs, real columns, dependencies, no loops and size limits.
 2. **Approve, or just watch.** A switch in the chat and the Agents panel sets how:
    - **Watch them work** (the default): every allowed task starts at once. Each change is still a saved version you can undo, and you can pause or stop the team at any time.
@@ -108,13 +110,11 @@ Each agent has a written skill sheet (what it knows, how it decides, its quality
    - try once more with more time.
 
    The incident only closes if the re-run succeeds. Anything else is escalated to you, and no AI call is involved.
-6. **The Orchestrator reviews before reporting.** When the work ends it audits the run and redoes what went wrong:
-   - leakage → retrain without the leaky columns;
-   - a model that fails the validation gate → a tuned model;
-   - a dashboard that didn't render → a redesign;
-   - blocked work → rerun after the fix.
-
-   With a Gemini key, one more AI call checks that the results answer your request. One round, at most six fixes, normal approvals.
+6. **The Orchestrator finishes the job.** When the work ends it audits the run and keeps going until everything that can be done is done:
+   - leakage → retrain without the leaky columns; a model that fails the validation gate → a tuned model; a dashboard that didn't render → a redesign;
+   - a step that fails again gets **a different method** where one exists (AutoML → the quick model, and its explanation follows; a long forecast → a shorter one), never the same thing again;
+   - work held up by a failure **carries on without it** when it doesn't need that step's result (a report, a dashboard, other analyses), and says what it ran without; work that does need it (explaining a model that was never trained) is reported to you instead;
+   - up to three rounds while progress is being made. With a Gemini key, one AI call also checks that the results answer your request. Normal approvals apply.
 7. **A truthful report.** At the end you get a summary in the chat:
    - what was done, and each task's check,
    - reviews, contradictions and incidents,
