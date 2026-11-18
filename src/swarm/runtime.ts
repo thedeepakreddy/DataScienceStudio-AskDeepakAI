@@ -94,6 +94,8 @@ export interface SwarmRun {
   createdAt: number;
   updatedAt: number;
   status: RunStatus;
+  /** How tasks were approved for this run (older runs: 'ask'). */
+  approvalMode?: ApprovalMode;
   startVersionId: string | null;
   tasks: TaskState[];
   messages: BusMessage[];
@@ -120,12 +122,24 @@ const TRANSIENT = /timed out|timeout|503|502|504|unavailable|waking|network|fetc
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-export function newRun(opts: { request: string; reply: string; plannedBy: SwarmRun['plannedBy']; tasks: TaskSpec[]; datasetId: string | null; startVersionId: string | null; aiCalls?: number; inputTokens?: number; outputTokens?: number; cacheHit?: boolean }): SwarmRun {
+/**
+ * How agents' work is approved. 'auto' (the studio's default): every allowed task runs
+ * at once and you watch — each change is still a saved version you can undo.
+ * 'ask': changes wait for you, as each capability's own approval rule says.
+ */
+export type ApprovalMode = 'auto' | 'ask';
+export const preApproved = (capability: string, mode: ApprovalMode = 'ask') => {
+  const rule = CAPABILITIES[capability]?.approval;
+  return mode === 'auto' ? !!rule && rule !== 'prohibited' : rule === 'autonomous';
+};
+
+export function newRun(opts: { approvalMode?: ApprovalMode; request: string; reply: string; plannedBy: SwarmRun['plannedBy']; tasks: TaskSpec[]; datasetId: string | null; startVersionId: string | null; aiCalls?: number; inputTokens?: number; outputTokens?: number; cacheHit?: boolean }): SwarmRun {
   const now = Date.now();
   return {
     id: newId(), datasetId: opts.datasetId, request: opts.request, reply: opts.reply, plannedBy: opts.plannedBy,
     createdAt: now, updatedAt: now, status: 'awaiting_approval', startVersionId: opts.startVersionId,
-    tasks: opts.tasks.map(t => ({ ...t, status: 'pending', attempts: 0, approved: CAPABILITIES[t.capability]?.approval === 'autonomous' })),
+    approvalMode: opts.approvalMode ?? 'ask',
+    tasks: opts.tasks.map(t => ({ ...t, status: 'pending', attempts: 0, approved: preApproved(t.capability, opts.approvalMode) })),
     messages: [],
     telemetry: { aiCalls: opts.aiCalls ?? 0, inputTokens: opts.inputTokens ?? 0, outputTokens: opts.outputTokens ?? 0, cacheHits: opts.cacheHit ? 1 : 0, deterministicOps: 0, retries: 0, failures: 0 },
     dynamicAdded: 0,
@@ -553,7 +567,7 @@ export class SwarmRuntime {
       const cap = CAPABILITIES[f.capability];
       const id = `${t.id}.${added.length + 1}`;
       // Fixes run one after another (each changes the data).
-      added.push({ id, capability: f.capability, params: f.params, role: cap.defaultRole, dependsOn: [prev], why: f.reason, dynamic: true, status: 'pending', attempts: 0, approved: cap.approval === 'autonomous' });
+      added.push({ id, capability: f.capability, params: f.params, role: cap.defaultRole, dependsOn: [prev], why: f.reason, dynamic: true, status: 'pending', attempts: 0, approved: preApproved(f.capability, this.run.approvalMode) });
       prev = id;
     }
     // Work that waited for the check now also waits for the fixes.
@@ -634,7 +648,7 @@ export class SwarmRuntime {
         const invalid = !cap ? `Unknown capability “${f.capability}”.` : cap.approval === 'prohibited' ? 'Not allowed.' : cap.validate(f.params, ds);
         if (invalid) { issues.push(`Couldn’t fix with “${cap?.label(f.params) ?? f.capability}”: ${invalid}`); return; }
         const deps = (f.dependsOn ?? []).map(d => (d.startsWith('fix:') ? ids[Number(d.slice(4))] ?? '' : d)).filter(d => d && (this.run.tasks.some(t => t.id === d) || added.some(t => t.id === d)));
-        added.push({ id, capability: f.capability, params: f.params, role: cap.defaultRole, dependsOn: deps, why: f.reason, dynamic: true, status: 'pending', attempts: 0, approved: cap.approval === 'autonomous' });
+        added.push({ id, capability: f.capability, params: f.params, role: cap.defaultRole, dependsOn: deps, why: f.reason, dynamic: true, status: 'pending', attempts: 0, approved: preApproved(f.capability, this.run.approvalMode) });
         if (redoOf) this.patch(redoOf, { supersededBy: id });
       });
 

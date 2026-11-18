@@ -8,8 +8,8 @@ import { motion } from 'motion/react';
 import { Pause, Play, Square, Users, X } from 'lucide-react';
 import { AGENTS } from '../swarm/agents';
 import { CAPABILITIES } from '../swarm/catalog';
-import type { SwarmRun, TaskState } from '../swarm/runtime';
-import { STATUS_TEXT, TaskIcon, canUndo, plannedByText, taskLabel } from './swarmBits';
+import type { ApprovalMode, SwarmRun, TaskState } from '../swarm/runtime';
+import { ApprovalSwitch, STATUS_TEXT, TaskIcon, canUndo, plannedByText, taskLabel } from './swarmBits';
 import { SKILLS } from '../swarm/skills';
 import type { AgentRole } from '../swarm/agents';
 
@@ -26,6 +26,8 @@ interface SwarmPanelProps {
   onCancelTask: (id: string) => void;
   onDiscard: () => void;
   onUndoAll: (versionId: string) => void;
+  approvalMode: ApprovalMode;
+  onApprovalMode: (m: ApprovalMode) => void;
 }
 
 /** Groups tasks into levels: a task sits one level after the last task it waits for. */
@@ -86,6 +88,8 @@ export default function SwarmPanel(props: SwarmPanelProps) {
           </div>
           <button type="button" onClick={props.onClose} className="btn btn-icon" aria-label="Close agents"><X className="w-4 h-4" /></button>
         </div>
+
+        <ApprovalSwitch mode={props.approvalMode} onChange={props.onApprovalMode} />
 
         <div className="segmented w-full" role="tablist" aria-label="Agents view">
           <button type="button" role="tab" className="flex-1" aria-selected={view === 'work'} onClick={() => setView('work')}>Work</button>

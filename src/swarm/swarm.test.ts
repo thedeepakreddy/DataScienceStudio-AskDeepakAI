@@ -136,3 +136,18 @@ describe('swarm runtime', () => {
     expect(rt.run.messages.filter(m => m.type === 'recovery')).toHaveLength(2);
   });
 });
+
+describe('approval mode', () => {
+  it('auto pre-approves every allowed task; ask keeps each capability’s rule', async () => {
+    const { preApproved } = await import('./runtime');
+    const { CAPABILITIES } = await import('./catalog');
+    const ids = Object.keys(CAPABILITIES);
+    const pick = (rule: string) => ids.find(id => CAPABILITIES[id].approval === rule)!;
+    const tasks = ['batch', 'separate'].map((rule, i) => ({ id: `t${i}`, capability: pick(rule), params: {}, role: CAPABILITIES[pick(rule)].defaultRole, dependsOn: [], why: '' }));
+    const auto = newRun({ approvalMode: 'auto', request: 'x', reply: '', plannedBy: 'rules', tasks, datasetId: null, startVersionId: null });
+    expect(auto.tasks.map(t => t.approved)).toEqual([true, true]);
+    const ask = newRun({ approvalMode: 'ask', request: 'x', reply: '', plannedBy: 'rules', tasks, datasetId: null, startVersionId: null });
+    expect(ask.tasks.map(t => t.approved)).toEqual([false, false]);
+    expect(preApproved('no.such.capability', 'auto')).toBe(false);
+  });
+});

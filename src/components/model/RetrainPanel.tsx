@@ -9,7 +9,7 @@ import { engine, type CapabilityName, type EngineJob, type PipelineStep, type Ru
 import { syncDataset } from '../../engine/datasetSync';
 import type { Dataset } from '../../types';
 import Orb from '../Orb';
-import { ModelPicker, modelName, useModels, useSelectedModel } from './models';
+import { ModelPicker, metricLabel, modelName, useModels, useSelectedModel } from './models';
 
 const EVERY = [{ label: 'Every day', minutes: 1440 }, { label: 'Every week', minutes: 10080 }, { label: 'Every hour', minutes: 60 }, { label: 'Every 6 hours', minutes: 360 }];
 
@@ -126,7 +126,7 @@ export default function RetrainPanel({ dataset, onScheduled }: { dataset: Datase
           </p>
           {result.retrained && result.comparison?.metric && (
             <p className="mt-1 text-xs text-label-2">
-              {result.comparison.metric}: current model {fmt(result.comparison.currentModelOnNewData)} on the new data · new version {fmt(result.comparison.newModelOnTest)} on held-out rows
+              {metricLabel(result.comparison.metric)}: current model {fmt(result.comparison.currentModelOnNewData)} on the new data · new version {fmt(result.comparison.newModelOnTest)} on held-out rows
               {result.comparison.newIsBetter != null ? (result.comparison.newIsBetter ? ' — the new version is better.' : ' — the new version is not better, so production is unchanged.') : '.'}
             </p>
           )}

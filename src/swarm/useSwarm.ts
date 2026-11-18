@@ -9,9 +9,10 @@ import { listSwarmRuns, saveSwarmRun } from '../utils/workspaceStore';
 import { apiFetch } from '../utils/api';
 import { ChatTurn, aiReviewRun, planRequest, PlanOutcome } from './gateway';
 import { TaskSpec, validatePlan } from './plan';
-import { RuntimeOptions, RuntimePort, SwarmRun, SwarmRuntime, newRun } from './runtime';
+import { ApprovalMode, RuntimeOptions, RuntimePort, SwarmRun, SwarmRuntime, newRun } from './runtime';
 import { SWARM_CLEARED_EVENT } from './interaction';
 
+const APPROVAL_KEY = 'swarm-approval-mode';
 const ACTIVE: SwarmRun['status'][] = ['running', 'paused', 'cancelling', 'awaiting_approval'];
 
 // Agents work through the controls on the user's page, so the user can see
@@ -36,6 +37,14 @@ const RUNTIME_OPTIONS: RuntimeOptions = {
 export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; activeVersionId: string | null }, dataset: Dataset | null) {
   const [run, setRun] = useState<SwarmRun | null>(null);
   const [planning, setPlanning] = useState(false);
+  // Agents run on their own by default and you watch; "ask" makes changes wait for you.
+  const [approvalMode, setMode] = useState<ApprovalMode>(() => {
+    try { return localStorage.getItem(APPROVAL_KEY) === 'ask' ? 'ask' : 'auto'; } catch { return 'auto'; }
+  });
+  const setApprovalMode = useCallback((m: ApprovalMode) => {
+    setMode(m);
+    try { localStorage.setItem(APPROVAL_KEY, m); } catch { /* private window */ }
+  }, []);
   const [lastPlan, setLastPlan] = useState<PlanOutcome | null>(null);
   const [history, setHistory] = useState<SwarmRun[]>([]);
   const runtime = useRef<SwarmRuntime | null>(null);
@@ -106,7 +115,7 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
       setLastPlan(outcome);
       if (outcome.tasks.length && outcome.problems.length === 0) {
         const r = newRun({
-          request, reply: outcome.reply, plannedBy: outcome.plannedBy, tasks: outcome.tasks,
+          approvalMode: approvalMode, request, reply: outcome.reply, plannedBy: outcome.plannedBy, tasks: outcome.tasks,
           datasetId: ids.datasetId, startVersionId: ids.activeVersionId,
           aiCalls: outcome.aiCalls, inputTokens: outcome.inputTokens, outputTokens: outcome.outputTokens, cacheHit: outcome.cacheHit,
         });
@@ -117,7 +126,7 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
     } finally {
       setPlanning(false);
     }
-  }, [dataset, ids.datasetId, ids.activeVersionId, attach]);
+  }, [dataset, ids.datasetId, ids.activeVersionId, attach, approvalMode]);
 
   /** A plan the chat already knows (SQL and Code modes), checked like any other. */
   const planFromTasks = useCallback(async (request: string, tasks: TaskSpec[], reply: string): Promise<PlanOutcome> => {
@@ -126,12 +135,12 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
     const outcome: PlanOutcome = { tasks, reply, plannedBy: 'rules', problems, aiCalls: 0, inputTokens: 0, outputTokens: 0, cacheHit: false };
     setLastPlan(outcome);
     if (!problems.length) {
-      const r = newRun({ request, reply, plannedBy: 'rules', tasks, datasetId: ids.datasetId, startVersionId: ids.activeVersionId });
+      const r = newRun({ approvalMode, request, reply, plannedBy: 'rules', tasks, datasetId: ids.datasetId, startVersionId: ids.activeVersionId });
       attach(r);
       await saveSwarmRun(r).catch(() => {});
     }
     return outcome;
-  }, [dataset, ids.datasetId, ids.activeVersionId, attach]);
+  }, [dataset, ids.datasetId, ids.activeVersionId, attach, approvalMode]);
 
   const controls = {
     /** The run the last plan created (read right after planning, before React re-renders). */
@@ -151,5 +160,5 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
     refreshHistory: () => listSwarmRuns(20).then(setHistory).catch(() => {}),
   };
 
-  return { run, planning, lastPlan, history, plan, planFromTasks, busy, ...controls };
+  return { run, planning, lastPlan, history, plan, planFromTasks, busy, approvalMode, setApprovalMode, ...controls };
 }
