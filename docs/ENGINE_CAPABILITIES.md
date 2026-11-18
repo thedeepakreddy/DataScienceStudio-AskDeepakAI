@@ -472,6 +472,7 @@ Dataset: not needed · quick · not cached
 | `psi_alert` | `number` |  | 0.25 |  |
 | `max_performance_drop` | `number` |  | 0.1 | Relative drop in the primary metric that raises an alert. |
 | `max_rows` | `number` |  | 200000 |  |
+| `min_rows` | `number` |  | 100 | Fewer rows than this are too few to judge drift reliably. |
 | `save` | `boolean` |  | true | Keep the report in the model's monitoring history. |
 
 ## optimize

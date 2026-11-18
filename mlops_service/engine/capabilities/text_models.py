@@ -124,8 +124,22 @@ def semantic_search(ctx, p: SearchParams):
         queries = [p.query] if isinstance(p.query, str) else p.query
         qv = tm.runtime(tm.get_model(p.model, "embedding")).embed(queries)
         sims = qv @ vec.T
+        # Identical texts are one match (with how many rows share it), so repeats don't crowd out the rest.
+        counts = Counter(texts)
+
+        def matches(s: np.ndarray) -> list[dict[str, Any]]:
+            seen, out = set(), []
+            for i in np.argsort(-s):
+                if texts[i] in seen:
+                    continue
+                seen.add(texts[i])
+                out.append({**row(int(i), s[i]), "count": counts[texts[i]]})
+                if len(out) >= p.top:
+                    break
+            return out
+
         return {"model": _model_info(tm.get_model(p.model, "embedding")),
-                "results": [{"query": q, "matches": [row(i, s[i]) for i in np.argsort(-s)[: p.top]]} for q, s in zip(queries, sims)]}
+                "results": [{"query": q, "matches": matches(s)} for q, s in zip(queries, sims)]}
     need(len(vec) <= 50_000, "Near-duplicate search is limited to 50,000 rows.")
     pairs = []
     for start in range(0, len(vec), 2048):

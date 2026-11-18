@@ -48,6 +48,30 @@ Billing must be enabled even to use the free tier. **Set a budget alert first**
      jobs (`"mode": "job"`) then run at full speed, but idle instance time counts
      against the allowance.
 
+## Quick deploy (one script)
+
+In [Google Cloud Shell](https://shell.cloud.google.com), which is already
+logged in to `gcloud`, run:
+
+```bash
+git clone https://github.com/thedeepakreddy/DataScienceStudio-AskDeepakAI.git
+cd DataScienceStudio-AskDeepakAI && bash scripts/deploy_engine_cloudrun.sh
+```
+
+The script does steps 1–5 and 7 below:
+
+- the APIs and a $5 budget alert;
+- the bucket;
+- the service account;
+- the token, generated in Secret Manager;
+- the build and deploy;
+- checks that the engine answers and refuses requests without the token.
+
+It then asks for a Render API key at a hidden prompt, sets `ML_SERVICE_URL`
+and `ENGINE_TOKEN` on the studio service you pick, and redeploys it.
+
+The script is safe to rerun. Secrets are never printed.
+
 ## Steps
 
 The commands use the `gcloud` CLI. Replace `PROJECT_ID`, and keep `us-central1`

@@ -34,6 +34,10 @@ def test_semantic_search_finds_meaning_not_words(client):
     assert {m["row"] for m in first["matches"]} <= {0, 1, 6}
     assert {m["row"] for m in second["matches"]} == {2, 3}
     assert "id" in first["matches"][0]
+    texts = [m["text"] for m in first["matches"]]
+    assert len(texts) == len(set(texts))  # identical texts are one match…
+    pw = next(m for m in first["matches"] if m["text"] == "How do I reset my password?")
+    assert pw["count"] == 2  # …with how many rows share it
     d = run(client, "text.semantic_search", ds, column="t", duplicate_threshold=0.95)
     assert d["duplicateGroups"][0]["rows"] == [0, 6]
 
