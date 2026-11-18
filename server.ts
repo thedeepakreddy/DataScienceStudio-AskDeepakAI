@@ -311,6 +311,14 @@ const ML_SERVICE_LOCAL_URL = 'http://127.0.0.1:8000';
 const ML_SERVICE_PUBLIC_URL = 'https://askdeepakai-datascientist-mlservice.onrender.com';
 const ML_SERVICE_CONFIGURED_URL = (process.env.ML_SERVICE_URL || '').replace(/\/+$/, '') || null;
 
+// Shared secret for the engine (Cloud Run): when ENGINE_TOKEN is set here and on the
+// engine, every call carries it in X-Engine-Token. It stays on the server; the
+// browser only ever talks to this app.
+const ENGINE_TOKEN = (process.env.ENGINE_TOKEN || '').trim();
+function mlHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return ENGINE_TOKEN ? { ...extra, 'X-Engine-Token': ENGINE_TOKEN } : extra;
+}
+
 // Re-check which service to use now and then, so starting (or stopping) a local
 // uvicorn mid-session is picked up without restarting this server.
 const ML_SERVICE_RESOLVE_TTL_MS = 30000;
@@ -455,7 +463,7 @@ async function callMlService(path: string, options: { method?: string; body?: an
     try {
       const response = await fetch(`${baseUrl}${path}`, {
         method: options.method || 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: mlHeaders({ 'Content-Type': 'application/json' }),
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
       });
@@ -2155,7 +2163,7 @@ app.post('/api/drift-metrics', async (req, res) => {
 // Streams the real, genuinely-fitted joblib artifact back from the Python service.
 app.get('/api/ml/download/:modelId', async (req, res) => {
   try {
-    const upstream = await fetch(`${await getMlServiceUrl()}/download/${encodeURIComponent(req.params.modelId)}`);
+    const upstream = await fetch(`${await getMlServiceUrl()}/download/${encodeURIComponent(req.params.modelId)}`, { headers: mlHeaders() });
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => '');
       return res.status(upstream.status).json({ error: text || 'Model not found or expired. Train again.' });
@@ -2168,6 +2176,46 @@ app.get('/api/ml/download/:modelId', async (req, res) => {
   } catch (err: any) {
     console.error('[AskDeepakAI] /api/ml/download proxy failed:', err);
     return res.status(503).json({ error: 'ML compute service is unavailable, so the model artifact cannot be downloaded.' });
+  }
+});
+
+// Engine v2 (datasets, analyses, jobs, models, monitoring, runs, schedules):
+// /api/engine/<path> is passed through to <engine>/v2/<path> with the token added.
+// JSON bodies are re-sent as JSON; anything else (file uploads) is streamed as is.
+const ENGINE_PROXY_TIMEOUT_MS = 30 * 60 * 1000; // matches how long a background studio job may live
+const ENGINE_FORWARD_RESPONSE_HEADERS = ['content-type', 'content-disposition'];
+app.all('/api/engine/*', async (req, res) => {
+  const tail = req.originalUrl.replace(/^\/api\/engine\/?/, '');
+  if (tail.split('?')[0].split('/').some(part => part === '..')) {
+    return res.status(400).json({ error: 'Invalid engine path.' });
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ENGINE_PROXY_TIMEOUT_MS);
+  try {
+    const baseUrl = await getMlServiceUrl();
+    const hasBody = !['GET', 'HEAD'].includes(req.method);
+    const isJson = req.is('application/json');
+    const headers = mlHeaders(hasBody && req.get('content-type') ? { 'Content-Type': req.get('content-type') as string } : {});
+    const init: any = { method: req.method, headers, signal: controller.signal };
+    if (hasBody) {
+      if (isJson) init.body = JSON.stringify(req.body ?? {});
+      else { init.body = req; init.duplex = 'half'; }
+    }
+    const upstream = await fetch(`${baseUrl}/v2/${tail}`, init);
+    res.status(upstream.status);
+    for (const name of ENGINE_FORWARD_RESPONSE_HEADERS) {
+      const value = upstream.headers.get(name);
+      if (value) res.setHeader(name, value);
+    }
+    return res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (err: any) {
+    console.error('[AskDeepakAI] /api/engine proxy failed:', err);
+    const timedOut = err?.name === 'AbortError';
+    return res.status(timedOut ? 504 : 503).json({
+      error: timedOut ? 'The engine took too long to answer.' : 'The analysis engine is unavailable right now.',
+    });
+  } finally {
+    clearTimeout(timeoutId);
   }
 });
 

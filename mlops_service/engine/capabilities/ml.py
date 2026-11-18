@@ -19,7 +19,7 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, Stac
 from sklearn.feature_selection import f_classif, f_regression, mutual_info_classif, mutual_info_regression
 from sklearn.inspection import partial_dependence, permutation_importance
 from sklearn.linear_model import LogisticRegression, RidgeCV
-from sklearn.metrics import confusion_matrix, precision_recall_curve, roc_curve
+from sklearn.metrics import confusion_matrix, get_scorer, precision_recall_curve, roc_curve
 from sklearn.model_selection import (
     GroupKFold,
     GroupShuffleSplit,
@@ -62,9 +62,23 @@ class AutoMLParams(BaseModel):
     conformal_alpha: float = Field(0.1, gt=0.001, lt=0.5, description="Prediction intervals/sets cover the truth (1 − alpha) of the time.")
     sensitive_features: list[str] | None = Field(None, description="Columns to check fairness across (not used as features unless listed).")
     positive_class: str | None = None
+    interactions: bool = Field(False, description="Add pairwise products of numeric features (up to 15 of them) for interaction effects.")
+    nested_cv: bool = Field(False, description="Also estimate the whole tuning procedure's performance with nested cross-validation (slower, unbiased).")
+    cost_false_positive: float | None = Field(None, gt=0, description="Binary tasks: cost of a false alarm, to choose the decision threshold.")
+    cost_false_negative: float | None = Field(None, gt=0, description="Binary tasks: cost of a missed positive.")
     refit_full: bool = Field(True, description="Refit the champion on all rows for deployment after it's been evaluated.")
     max_rows: int = Field(300_000, ge=100, le=5_000_000)
     name: str | None = Field(None, description="Register the model under this name (versions are numbered).")
+
+
+def _make_cv(split: str, task: str, folds: int, repeats: int, seed: int, groups: pd.Series | None):
+    if split == "time":
+        return TimeSeriesSplit(n_splits=folds)
+    if split == "group":
+        return GroupKFold(n_splits=max(2, min(folds, groups.nunique())))
+    if task == "classification":
+        return RepeatedStratifiedKFold(n_splits=folds, n_repeats=repeats, random_state=seed) if repeats > 1 else StratifiedKFold(folds, shuffle=True, random_state=seed)
+    return RepeatedKFold(n_splits=folds, n_repeats=repeats, random_state=seed) if repeats > 1 else KFold(folds, shuffle=True, random_state=seed)
 
 
 def _task(y: pd.Series, requested: str) -> str:
@@ -134,14 +148,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
         tr, te = train_test_split(np.arange(len(X)), test_size=p.test_size, random_state=ctx.seed, stratify=y if task == "classification" else None)
     Xtr, Xte, ytr, yte = X.iloc[tr], X.iloc[te], y.iloc[tr], y.iloc[te]
     need(len(Xtr) >= 20 and len(Xte) >= 5, "Too few rows to split into training and test sets.")
-    if split == "time":
-        cv = TimeSeriesSplit(n_splits=p.cv_folds)
-    elif split == "group":
-        cv = GroupKFold(n_splits=min(p.cv_folds, groups.iloc[tr].nunique()))
-    elif task == "classification":
-        cv = RepeatedStratifiedKFold(n_splits=p.cv_folds, n_repeats=p.cv_repeats, random_state=ctx.seed) if p.cv_repeats > 1 else StratifiedKFold(p.cv_folds, shuffle=True, random_state=ctx.seed)
-    else:
-        cv = RepeatedKFold(n_splits=p.cv_folds, n_repeats=p.cv_repeats, random_state=ctx.seed) if p.cv_repeats > 1 else KFold(p.cv_folds, shuffle=True, random_state=ctx.seed)
+    cv = _make_cv(split, task, p.cv_folds, p.cv_repeats, ctx.seed, groups.iloc[tr] if groups is not None else None)
     gtr = groups.iloc[tr] if groups is not None else None
     scoring = mc.scorer_name(task, binary, p.metric)
     if scoring == "roc_auc" and not binary:
@@ -157,44 +164,73 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
     # ---- search ----
     families = [f for f in (p.models or mc.available(task, len(Xtr))) if f in mc.available(task, len(Xtr))]
     need(bool(families), "None of the chosen model families can be used for this task.")
-    budget = p.time_budget_s / len(families)
-    board = []
-    for i, fam in enumerate(families):
-        ctx.progress(0.05 + 0.6 * i / len(families), f"Tuning {mc.LABELS[fam]}")
-        study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=ctx.seed))
+    def tune(Xa, ya, ga, cv_a, budget_s: float, trials: int, lo: float, hi: float, label: str = "") -> list[dict[str, Any]]:
+        n_fold = len(Xa) // max(2, cv_a.get_n_splits())
+        out_board = []
+        per_family = budget_s / len(families)
+        for i, fam in enumerate(families):
+            ctx.progress(lo + (hi - lo) * i / len(families), f"{label}Tuning {mc.LABELS[fam]}")
+            study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=ctx.seed))
 
-        def objective(trial, fam=fam):
-            ctx.check()
-            params = {} if trial.number == 0 else mc.suggest(trial, fam, task)
-            s = cv_scores(mc.pipeline(roles, fam, task, params, ctx.seed, balanced))
-            trial.set_user_attr("scores", s.tolist())
-            trial.set_user_attr("params", params)
-            return float(s.mean())
+            def objective(trial, fam=fam):
+                ctx.check()
+                params = {} if trial.number == 0 else mc.suggest(trial, fam, task)
+                s_ = cross_val_score(mc.pipeline(roles, fam, task, params, ctx.seed, balanced, p.interactions), Xa, ya, cv=cv_a,
+                                     scoring=scoring, groups=ga, error_score="raise")
+                trial.set_user_attr("scores", s_.tolist())
+                trial.set_user_attr("params", params)
+                return float(s_.mean())
 
-        t0 = time.monotonic()
-        try:
-            study.optimize(objective, n_trials=p.max_trials_per_model, timeout=budget, catch=(ValueError, np.linalg.LinAlgError))
-        except EngineError:
-            raise
-        except Exception as err:  # noqa: BLE001 - one family failing mustn't stop the others
-            board.append({"family": fam, "label": mc.LABELS[fam], "error": str(err).splitlines()[0]})
-            continue
-        done = [t for t in study.trials if t.value is not None]
-        if not done:
-            board.append({"family": fam, "label": mc.LABELS[fam], "error": "no trial finished"})
-            continue
-        best = max(done, key=lambda t: t.value)
-        s = np.array(best.user_attrs["scores"])
-        board.append({"family": fam, "label": mc.LABELS[fam], "cvMean": float(s.mean()), "cvSd": float(s.std(ddof=1)) if len(s) > 1 else 0.0,
-                      "cvCi": mc.ci_from_folds(s, len(Xtr) - n_test_fold, n_test_fold), "foldScores": s.tolist(),
-                      "params": best.user_attrs["params"], "trials": len(done), "seconds": round(time.monotonic() - t0, 1)})
+            t0 = time.monotonic()
+            try:
+                study.optimize(objective, n_trials=trials, timeout=per_family, catch=(ValueError, np.linalg.LinAlgError))
+            except EngineError:
+                raise
+            except Exception as err:  # noqa: BLE001 - one family failing mustn't stop the others
+                out_board.append({"family": fam, "label": mc.LABELS[fam], "error": str(err).splitlines()[0]})
+                continue
+            done = [t for t in study.trials if t.value is not None]
+            if not done:
+                out_board.append({"family": fam, "label": mc.LABELS[fam], "error": "no trial finished"})
+                continue
+            best = max(done, key=lambda t: t.value)
+            s_ = np.array(best.user_attrs["scores"])
+            out_board.append({"family": fam, "label": mc.LABELS[fam], "cvMean": float(s_.mean()), "cvSd": float(s_.std(ddof=1)) if len(s_) > 1 else 0.0,
+                              "cvCi": mc.ci_from_folds(s_, len(Xa) - n_fold, n_fold), "foldScores": s_.tolist(),
+                              "params": best.user_attrs["params"], "trials": len(done), "seconds": round(time.monotonic() - t0, 1)})
+        return out_board
+
+    board = tune(Xtr, ytr, gtr, cv, p.time_budget_s, p.max_trials_per_model, 0.05, 0.6 if p.nested_cv else 0.65)
     ranked = sorted([b for b in board if "cvMean" in b], key=lambda b: -b["cvMean"])
     need(bool(ranked), "Every model family failed: " + "; ".join(f"{b['label']}: {b.get('error')}" for b in board))
+
+    nested = None
+    if p.nested_cv:
+        # Outer folds score the whole procedure (tuning + choosing a family), so the estimate isn't flattered by the search.
+        outer_scores, winners = [], []
+        splits = list(cv.split(Xtr, ytr, gtr))[: p.cv_folds]
+        for k, (otr, ote) in enumerate(splits):
+            Xa, ya = Xtr.iloc[otr], ytr.iloc[otr]
+            ga = gtr.iloc[otr] if gtr is not None else None
+            inner = _make_cv(split, task, max(2, p.cv_folds - 1), 1, ctx.seed + k + 1, ga)
+            ib = [b for b in tune(Xa, ya, ga, inner, p.time_budget_s / (2 * len(splits)), max(2, p.max_trials_per_model // 3),
+                                  0.6 + 0.08 * k / len(splits), 0.6 + 0.08 * (k + 1) / len(splits), f"Nested fold {k + 1}: ") if "cvMean" in b]
+            if not ib:
+                continue
+            w = max(ib, key=lambda b: b["cvMean"])
+            est = mc.pipeline(roles, w["family"], task, w["params"], ctx.seed, balanced, p.interactions).fit(Xa, ya)
+            outer_scores.append(float(get_scorer(scoring)(est, Xtr.iloc[ote], ytr.iloc[ote])))
+            winners.append(w["family"])
+        if outer_scores:
+            o = np.array(outer_scores)
+            nf = len(Xtr) // max(2, len(o))
+            nested = {"scores": outer_scores, "mean": float(o.mean()), "ci": mc.ci_from_folds(o, len(Xtr) - nf, nf), "familiesChosen": winners,
+                      "optimism": float(ranked[0]["cvMean"] - o.mean())}
 
     if p.ensemble and len(ranked) >= 3:
         ctx.progress(0.7, "Building a stacked ensemble")
         top = ranked[:3]
-        est = [(b["family"], mc.pipeline(roles, b["family"], task, b["params"], ctx.seed, balanced)) for b in top]
+        est = [(b["family"], mc.pipeline(roles, b["family"], task, b["params"], ctx.seed, balanced, p.interactions)) for b in top]
         stack = (StackingClassifier(est, final_estimator=LogisticRegression(max_iter=2000), cv=3, stack_method="auto")
                  if task == "classification" else StackingRegressor(est, final_estimator=RidgeCV(), cv=3))
         try:
@@ -207,7 +243,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
             ctx.note(f"The stacked ensemble couldn't be built ({str(err).splitlines()[0]}).")
 
     champ = ranked[0]
-    model = champ.pop("estimator", None) or mc.pipeline(roles, champ["family"], task, champ["params"], ctx.seed, balanced)
+    model = champ.pop("estimator", None) or mc.pipeline(roles, champ["family"], task, champ["params"], ctx.seed, balanced, p.interactions)
     for b in ranked:
         b.pop("estimator", None)
     comparison = None
@@ -233,7 +269,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
         "leaderboard": ranked + [b for b in board if "error" in b], "baseline": {"cvMean": float(base_scores.mean()), "test": baseline_test},
         "champion": {"family": champ["family"], "label": champ["label"], "params": champ["params"], "cvMean": champ["cvMean"], "cvCi": champ["cvCi"],
                      "calibrated": p.calibrate if task == "classification" else None},
-        "comparison": comparison, "test": test,
+        "comparison": comparison, "test": test, "nestedCv": nested,
     }
     # ---- curves ----
     if task == "classification":
@@ -263,7 +299,40 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
                 pr_, rc_ = (tp / (tp + fp) if tp + fp else 0.0), (tp / (tp + fn) if tp + fn else 0.0)
                 thresholds.append({"threshold": float(th), "precision": pr_, "recall": rc_, "f1": 2 * pr_ * rc_ / (pr_ + rc_) if pr_ + rc_ else 0.0, "flagged": int(pb.sum())})
             out["thresholds"] = thresholds
-            out["bestF1Threshold"] = max(thresholds, key=lambda t: t["f1"])["threshold"]
+            # Decision thresholds are chosen on out-of-fold training predictions, never on the test set,
+            # and then reported on the test set.
+            try:
+                oof_proba = cross_val_predict(clone(model), Xtr, ytr, cv=StratifiedKFold(5, shuffle=True, random_state=ctx.seed), method="predict_proba")
+            except Exception as err:  # noqa: BLE001
+                oof_proba = None
+                ctx.note(f"Out-of-fold probabilities couldn't be computed, so the 0.5 threshold is kept ({str(err).splitlines()[0]}).")
+            grid = np.round(np.arange(0.01, 1.0, 0.01), 2)
+
+            def counts(th, sc, yy):
+                pb = sc >= th
+                return int((pb & (yy == 1)).sum()), int((pb & (yy == 0)).sum()), int((~pb & (yy == 1)).sum())
+
+            def f1_at(th, sc, yy):
+                tp, fp, fn = counts(th, sc, yy)
+                return 2 * tp / (2 * tp + fp + fn) if tp else 0.0
+
+            if oof_proba is not None:
+                so, yo = oof_proba[:, pidx], (ytr.to_numpy() == positive).astype(int)
+                best = float(grid[int(np.argmax([f1_at(t, so, yo) for t in grid]))])
+                out["bestF1Threshold"] = best
+                out["bestF1ThresholdTest"] = {"f1": f1_at(best, score, yb), "f1AtHalf": f1_at(0.5, score, yb)}
+                if p.cost_false_positive and p.cost_false_negative:
+                    def cost(th, sc, yy):
+                        _, fp, fn = counts(th, sc, yy)
+                        return (p.cost_false_positive * fp + p.cost_false_negative * fn) / len(yy)
+
+                    th = float(grid[int(np.argmin([cost(t, so, yo) for t in grid]))])
+                    out["costThreshold"] = {"threshold": th, "costPerRowTrain": cost(th, so, yo), "costPerRowTrainAtHalf": cost(0.5, so, yo),
+                                            "costPerRowTest": cost(th, score, yb),
+                                            "costPerRowTestAtHalf": cost(0.5, score, yb), "costFalsePositive": p.cost_false_positive,
+                                            "costFalseNegative": p.cost_false_negative}
+            elif p.cost_false_positive or p.cost_false_negative:
+                ctx.note("Cost-based thresholds need both costs and out-of-fold probabilities.")
     else:
         res = yte.to_numpy(float) - np.asarray(pred, float)
         take = np.unique(np.linspace(0, len(res) - 1, min(400, len(res))).astype(int))
@@ -316,7 +385,7 @@ def automl(ctx, p: AutoMLParams):  # noqa: C901 - the AutoML flow is one sequenc
     meta = {"name": p.name, "task": task, "target": p.target, "features": used, "featureTypes": {c: types.get(c) for c in used},
             "classes": classes, "positiveClass": positive, "family": champ["family"], "label": champ["label"], "params": champ["params"],
             "scoring": scoring, "cvMean": champ["cvMean"], "testMetrics": test, "conformal": conformal,
-            "threshold": out.get("bestF1Threshold") if binary else None, "trainedOn": {"dataset": ctx.dataset_id, "fingerprint": ctx.dataset["fingerprint"],
+            "threshold": ((out.get("costThreshold") or {}).get("threshold") or out.get("bestF1Threshold")) if binary else None, "trainedOn": {"dataset": ctx.dataset_id, "fingerprint": ctx.dataset["fingerprint"],
             "rows": len(X), "refitOnAllRows": p.refit_full}, "seed": ctx.seed, "paramsFingerprint": fingerprint(p.model_dump()),
             "reference": _reference_profile(X, used, types), "predictionReference": _prediction_reference(task, pred, proba, classes, positive),
             "fairness": [{"feature": f["feature"], "summary": f["summary"]} for f in out.get("fairness", [])], "description": None}

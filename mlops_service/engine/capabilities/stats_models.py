@@ -346,7 +346,8 @@ def bootstrap(ctx, p: BootstrapParams):
         paired = False
         ctx.note(f"Difference = {labels[0]} − {labels[1]}.")
     res = stats.bootstrap(data, fn, n_resamples=p.resamples, confidence_level=p.confidence, method=p.method,
-                          random_state=ctx.seed, paired=paired, vectorized=p.statistic != "correlation")
+                          random_state=ctx.seed, paired=paired, vectorized=p.statistic != "correlation",
+                          batch=max(1, 20_000_000 // max(1, sum(len(a) for a in data))))  # bounded memory on big data
     dist = res.bootstrap_distribution
     return {"statistic": p.statistic, "estimate": estimate, "ci": [res.confidence_interval.low, res.confidence_interval.high],
             "confidence": p.confidence, "method": p.method, "resamples": p.resamples, "standardError": res.standard_error,

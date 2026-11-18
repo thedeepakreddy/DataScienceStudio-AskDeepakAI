@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -81,15 +81,26 @@ class ModelPatch(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=120, pattern=r"^[^@/]+$")
     description: str | None = Field(None, max_length=5000)
     tags: list[str] | None = Field(None, max_length=30)
+    approved_by: str | None = Field(None, max_length=200, description="Who approved a promotion to production.")
+    note: str | None = Field(None, max_length=2000, description="Why the change was made (kept in the history).")
 
 
 @router.patch("/models/{model_id}")
-def update_model(model_id: str, body: ModelPatch) -> dict[str, Any]:
+def update_model(model_id: str, body: ModelPatch, request: Request) -> dict[str, Any]:
     changes = body.model_dump(exclude_none=True)
+    approver = changes.pop("approved_by", None) or request.headers.get("x-engine-user")
+    note = changes.pop("note", None)
     if not changes:
         raise EngineError("Nothing to change.")
     if changes.get("stage") in ("staging", "production") and not (changes.get("name") or _state().models.meta(model_id).get("name")):
         raise EngineError("Give the model a registry name before promoting it.")
+    if changes.get("stage") == "production":
+        if os.environ.get("ENGINE_REQUIRE_APPROVAL") == "1" and not approver:
+            raise EngineError("Promotion to production needs an approver (approved_by).", 403, "approval_required")
+        if approver:
+            changes.update(approvedBy=approver, approvedAt=now_iso())
+    if note:
+        changes["note"] = note
     return _public(_state().models.update(model_id, **changes))
 
 
@@ -120,6 +131,7 @@ def model_card(meta: dict[str, Any]) -> str:
              meta.get("description") or "_No description yet._", "",
              "## Details", "",
              f"- **Model id:** `{meta['id']}` · **stage:** {meta.get('stage')} · **created:** {meta.get('createdAt')}",
+             *([f"- **Approved for production** by {meta['approvedBy']} on {meta.get('approvedAt')}"] if meta.get("approvedBy") else []),
              f"- **Task:** {meta['task']} of `{meta['target']}`" + (f" (positive class: {meta['positiveClass']})" if meta.get("positiveClass") else ""),
              f"- **Algorithm:** {meta.get('label')} (`{meta.get('family')}`), tuned hyperparameters: `{json.dumps(meta.get('params'), default=str)}`",
              f"- **Features ({len(meta['features'])}):** " + ", ".join(f"`{f}`" for f in meta["features"]),
@@ -169,6 +181,54 @@ def monitoring_history(ref: str, limit: int = 100) -> list[dict[str, Any]]:
 class PredictBody(BaseModel):
     rows: list[dict[str, Any]] = Field(..., min_length=1, max_length=10_000)
     log: bool = True
+    explain: bool = Field(False, description="Add the top reasons for each prediction (up to 200 rows).")
+    reasons: int = Field(3, ge=1, le=20)
+
+
+def _typical(ref: dict[str, Any]) -> Any:
+    if ref.get("kind") == "numeric":
+        return ref["quantiles"][5]
+    shares = ref.get("shares") or {}
+    return max(shares, key=shares.get) if shares else None
+
+
+def reason_codes(pipeline: Any, meta: dict[str, Any], X: pd.DataFrame, top: int) -> list[list[dict[str, Any]]]:
+    """Baseline-substitution reason codes: for each feature, how much the prediction moves when that
+    feature alone is set to its typical training value (median, or most common category)."""
+    ref = meta.get("reference") or {}
+    feats = [f for f in meta["features"] if f in ref and _typical(ref[f]) is not None]
+    task, classes = meta["task"], meta.get("classes")
+
+    def score_of(frame: pd.DataFrame, cls_idx: np.ndarray | None = None) -> np.ndarray:
+        if task == "regression":
+            return np.asarray(pipeline.predict(frame), float)
+        proba = pipeline.predict_proba(frame)
+        return proba[np.arange(len(frame)), cls_idx]
+
+    cls_idx = None
+    if task == "classification":
+        if len(classes) == 2:
+            pos = meta.get("positiveClass") if meta.get("positiveClass") in classes else classes[1]
+            cls_idx = np.full(len(X), classes.index(pos))
+        else:
+            cls_idx = pipeline.predict_proba(X).argmax(axis=1)
+    base = score_of(X, cls_idx)
+    blocks = []
+    for f in feats:
+        Xb = X.copy()
+        Xb[f] = _typical(ref[f])
+        blocks.append(Xb)
+    if not blocks:
+        return [[] for _ in range(len(X))]
+    big = pd.concat(blocks, ignore_index=True)
+    moved = score_of(big, None if cls_idx is None else np.tile(cls_idx, len(feats))).reshape(len(feats), len(X))
+    effect = base[None, :] - moved
+    out = []
+    for i in range(len(X)):
+        order = np.argsort(-np.abs(effect[:, i]))[:top]
+        out.append([{"feature": feats[k], "value": jsonable(X.iloc[i][feats[k]]), "typical": jsonable(_typical(ref[feats[k]])),
+                     "effect": float(effect[k, i])} for k in order if abs(effect[k, i]) > 1e-12])
+    return out
 
 
 def score(pipeline: Any, meta: dict[str, Any], frame: pd.DataFrame) -> pd.DataFrame:
@@ -206,6 +266,14 @@ def predict_online(ref: str, body: PredictBody) -> dict[str, Any]:
     started = time.perf_counter()
     frame = pd.DataFrame(body.rows)
     out = score(pipeline, meta, frame)
+    if body.explain:
+        if len(frame) > 200:
+            raise EngineError("Reasons are given for up to 200 rows per request.", 422, "too_many_rows")
+        X = frame[meta["features"]].copy()
+        for f, kind in (meta.get("featureTypes") or {}).items():
+            if kind in NUMERIC_TYPES:
+                X[f] = pd.to_numeric(X[f], errors="coerce")
+        out["reasons"] = reason_codes(pipeline, meta, X, body.reasons)
     if body.log and os.environ.get("ENGINE_PREDICTION_LOG", "1") != "0":
         logged = frame[meta["features"]].head(1000).copy()
         logged["prediction"] = out["prediction"].head(1000).to_numpy()
@@ -414,10 +482,51 @@ def delete_schedule(sid: str) -> dict[str, Any]:
 
 
 @router.post("/schedules/tick")
-def tick() -> dict[str, Any]:
+def tick(wait: bool = False) -> dict[str, Any]:
     """Runs whatever is due. Cloud Scheduler can call this every few minutes, since a
-    scaled-to-zero Cloud Run service has no background thread running between requests."""
-    return {"started": _state().schedules.tick()}
+    scaled-to-zero Cloud Run service has no background thread running between requests.
+    With wait=true the request stays open until the started runs finish, so Cloud Run keeps
+    the CPU allocated to them (it throttles CPU outside requests by default)."""
+    st = _state()
+    started = st.schedules.tick()
+    if wait and started:
+        deadline = time.monotonic() + float(os.environ.get("ENGINE_TICK_WAIT_S", "840"))
+        pending = {s["job"] for s in started}
+        while pending and time.monotonic() < deadline:
+            pending = {j for j in pending if st.jobs.get(j)["status"] not in ("done", "failed", "cancelled")}
+            if pending:
+                time.sleep(0.5)
+        for s in started:
+            s["status"] = st.jobs.get(s["job"])["status"]
+    return {"started": started}
+
+
+# ---------------------------------------------------------------- direct-to-storage uploads
+class UploadUrlBody(BaseModel):
+    filename: str = Field(..., max_length=300, pattern=r"^[^/\\]+\.(csv|tsv|txt|json|jsonl|parquet|xlsx|xls)$")
+    content_type: str = Field("application/octet-stream", max_length=100)
+
+
+@router.post("/datasets/upload-url")
+def upload_url(body: UploadUrlBody) -> dict[str, Any]:
+    """A signed URL the browser can PUT a large file to (Cloud Run caps request bodies at 32 MB);
+    afterwards, import it with connect.gcs and the returned gcsUri."""
+    from datetime import timedelta
+
+    st = _state()
+    if st.storage.kind != "gcs":
+        raise EngineError("Direct uploads need Cloud Storage (ENGINE_STORAGE=gs://…); upload to /v2/datasets/upload instead.", 400, "not_supported")
+    import google.auth  # pragma: no cover - needs Google Cloud credentials
+    from google.auth.transport.requests import Request as AuthRequest
+
+    creds, _ = google.auth.default()
+    creds.refresh(AuthRequest())
+    key = f"uploads/{stamp()}_{uuid.uuid4().hex[:8]}/{body.filename}"
+    blob = st.storage.bucket.blob(st.storage._k(key))
+    url = blob.generate_signed_url(version="v4", expiration=timedelta(minutes=30), method="PUT", content_type=body.content_type,
+                                   service_account_email=getattr(creds, "service_account_email", None), access_token=creds.token)
+    return {"url": url, "method": "PUT", "headers": {"Content-Type": body.content_type},
+            "gcsUri": f"gs://{st.storage.bucket.name}/{st.storage._k(key)}", "expiresInSeconds": 1800}
 
 
 def scheduler_loop(stop: threading.Event, every_s: float = 30) -> None:
@@ -434,3 +543,22 @@ def scheduler_loop(stop: threading.Event, every_s: float = 30) -> None:
 @router.get("/audit")
 def audit(limit: int = 200) -> list[dict[str, Any]]:
     return _state().audit.recent(max(1, min(limit, 5000)))
+
+
+# ---------------------------------------------------------------- reports
+@router.get("/runs/{run_id}/methods")
+def run_methods(run_id: str) -> dict[str, Any]:
+    from .reports import methods
+
+    detail = run_detail(run_id)
+    return methods(detail, detail.get("result"))
+
+
+@router.get("/runs/{run_id}/notebook")
+def run_notebook(run_id: str, engine_url: str = "http://localhost:8000") -> Response:
+    from .reports import notebook
+
+    detail = run_detail(run_id)
+    nb = notebook(detail, detail.get("result"), engine_url)
+    return Response(json.dumps(nb, indent=1, ensure_ascii=False), media_type="application/x-ipynb+json",
+                    headers={"Content-Disposition": f'attachment; filename="{run_id}.ipynb"'})

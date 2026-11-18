@@ -259,6 +259,32 @@ def cancel_job(job_id: str) -> dict[str, Any]:
     return state.jobs.cancel(job_id)
 
 
+class JsonLogFormatter(logging.Formatter):
+    """One JSON object per line, with the `severity` field Cloud Logging reads."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        import json
+
+        entry = {"severity": record.levelname, "message": record.getMessage(), "logger": record.name,
+                 "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S")}
+        if record.exc_info:
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry, default=str)
+
+
+def configure_logging() -> None:
+    """ENGINE_LOG_FORMAT=json gives structured logs (set on Cloud Run); otherwise plain text."""
+    engine_log = logging.getLogger("engine")
+    if engine_log.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonLogFormatter() if os.environ.get("ENGINE_LOG_FORMAT") == "json"
+                         else logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    engine_log.addHandler(handler)
+    engine_log.setLevel(os.environ.get("ENGINE_LOG_LEVEL", "INFO").upper())
+    engine_log.propagate = False
+
+
 _scheduler_stop = threading.Event()
 
 
@@ -267,7 +293,9 @@ def mount(app) -> None:
     from .mlops_api import router as mlops_router
     from .mlops_api import scheduler_loop
 
+    configure_logging()
     load_capabilities()
+    log.info("engine %s ready: %d capabilities, storage %s", ENGINE_VERSION, len(REGISTRY), state.storage.kind)
     app.add_middleware(TokenMiddleware)
     app.add_middleware(AuditMiddleware)  # outermost, so rejected requests are recorded too
     app.add_exception_handler(EngineError, engine_error_response)

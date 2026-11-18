@@ -79,3 +79,29 @@ def test_predict_rejects_missing_features(client, trained):
     other = upload_rows(client, [{"a": 1}, {"a": 2}], "other")
     r = client.post("/v2/run/ml.predict", json={"dataset_id": other, "params": {"model_id": trained["model"]["id"]}, "mode": "sync"})
     assert r.status_code == 400 and "missing feature" in r.json()["detail"]
+
+
+def test_automl_nested_cv_interactions_and_costs(client):
+    import random
+
+    random.seed(3)
+    rows = []
+    for _ in range(500):
+        a, b = random.uniform(-1, 1), random.uniform(-1, 1)
+        # The class depends on the interaction a*b, which a linear model only sees through the product feature.
+        rows.append({"a": round(a, 4), "b": round(b, 4), "noise": round(random.random(), 4), "y": "pos" if a * b + random.gauss(0, 0.05) > 0 else "neg"})
+    ds = upload_rows(client, rows, "interaction")
+    plain = run(client, "ml.automl", ds, target="y", models=["linear"], time_budget_s=10, max_trials_per_model=2, cv_folds=3, ensemble=False)
+    inter = run(client, "ml.automl", ds, target="y", models=["linear"], time_budget_s=10, max_trials_per_model=2, cv_folds=3, ensemble=False,
+                interactions=True, nested_cv=True, cost_false_positive=1, cost_false_negative=5, positive_class="pos")
+    assert plain["test"]["rocAuc"] < 0.7 < 0.9 < inter["test"]["rocAuc"]
+    nested = inter["nestedCv"]
+    assert len(nested["scores"]) == 3 and nested["familiesChosen"] == ["linear"] * 3
+    assert abs(nested["mean"] - inter["champion"]["cvMean"]) < 0.05
+    cost = inter["costThreshold"]
+    assert cost["threshold"] < inter["bestF1Threshold"]  # missed positives cost 5×, so flag more readily
+    # Chosen on out-of-fold training predictions, so it's optimal there (the test set is only for reporting).
+    assert cost["costPerRowTrain"] <= cost["costPerRowTrainAtHalf"]
+    assert cost["costPerRowTest"] < 0.5
+    meta = client.get(f"/v2/models/{inter['model']['id']}").json()
+    assert meta["threshold"] == cost["threshold"]

@@ -70,6 +70,7 @@ class Jobs:
             if cancel.is_set():
                 return
             job.update(status="running", startedAt=now_iso(), message="Running")
+            log.info("job %s started: %s", job_id, kind)
             self._save(self.public(job))
             try:
                 result = work(progress, cancel.is_set)
@@ -86,6 +87,7 @@ class Jobs:
                 job.update(status="failed", error={"message": f"Unexpected error: {err}", "code": "internal"}, message="Failed")
             job["finishedAt"] = now_iso()
             self._save(self.public(job))
+            log.info("job %s %s: %s", job_id, job["status"], kind)
 
         self.pool.submit(run)
         return self.public(job)

@@ -17,9 +17,11 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: "pip"
-          cache-dependency-path: mlops_service/requirements-dev.txt
+          cache-dependency-path: |
+            mlops_service/requirements.txt
+            mlops_service/requirements-dev.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
@@ -28,6 +30,8 @@ jobs:
         run: ruff check .
 
       - name: Pytest
+        env:
+          ENGINE_SCHEDULER: "0"
         run: pytest tests/ -v
 
   frontend:

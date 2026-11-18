@@ -11,7 +11,7 @@ const v = (id: string, parentId: string | null, label: string) => ({ id, parentI
 
 const hasPythonStack = (() => {
   try {
-    execFileSync('python3', ['-c', 'import pandas, sklearn, scipy, fastapi, httpx'], { stdio: 'ignore' });
+    execFileSync('python3', ['-c', 'import pandas, sklearn, scipy, fastapi, httpx, duckdb, pyarrow, statsmodels'], { stdio: 'ignore' });
     return true;
   } catch { return false; }
 })();

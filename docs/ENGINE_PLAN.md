@@ -13,7 +13,7 @@ of work. The front end is planned separately once the engine is done.
 2. **Reproducible.** Pinned libraries, an engine version, a seed and a data
    fingerprint on every result; the same inputs give the same outputs.
 3. **Large data.** Data is uploaded once and stored as Parquet; work runs on
-   DuckDB/Polars so it doesn't all have to fit in memory; huge data is
+   DuckDB so it doesn't all have to fit in memory; huge data is
    summarised in BigQuery.
 4. **Production grade.** Authenticated, validated, observable, versioned API,
    background jobs with progress, clear errors, tests against reference results.
@@ -31,7 +31,7 @@ preparation, governance), Databricks (lakehouse, MLflow, serving), SAS Viya
 
 | Capability | Market leaders | Engine today | Engine v2 |
 |---|---|---|---|
-| Data size | Lakehouse / distributed (Databricks), in-database (SAS) | Whole dataset in one JSON request, in memory | Parquet uploads, DuckDB/Polars streaming, BigQuery push-down |
+| Data size | Lakehouse / distributed (Databricks), in-database (SAS) | Whole dataset in one JSON request, in memory | Parquet uploads, DuckDB streaming, BigQuery push-down |
 | Data sources | Dozens of connectors (Dataiku, Databricks) | File upload only | Files (CSV, Excel, JSON, Parquet), PostgreSQL, MySQL, BigQuery, Google Cloud Storage, URLs |
 | Data preparation | 100+ visual recipes (Dataiku) | Cleaning in the browser | Server-side recipes at scale: join, union, pivot, unpivot, window, group, filter, dedupe, impute, encode, scale, bin, date parts, text cleaning, type casting, SQL |
 | Profiling and quality | Automated profiling, rules, drift (Dataiku, Databricks) | EDA summary | Full profiling at scale, validation rules (expectations), outliers (Isolation Forest), PII detection and masking |
@@ -114,7 +114,63 @@ Each phase is tested end to end before the next starts.
 | 7. Assurance and reports | Reference tests against statsmodels/scipy/lifelines published results, benchmarks, methods-section writer, notebook export, OpenAPI contract |
 
 Hosting set-up (Cloud Run, budget alert, secrets) is documented in
-`docs/DEPLOY_ENGINE.md` as part of Phase 0.
+`docs/DEPLOY_ENGINE.md`.
+
+## Status (November 2026): engine v2 built
+
+All seven phases are built and tested: 57 capabilities across 13 areas, behind
+`/v2`, with every v1 endpoint unchanged. The suite has 170+ tests, which run
+in the pinned Python 3.13 environment, and checks results three ways:
+
+- planted effects (a signal the test puts in the data that the engine must find);
+- library cross-checks (SciPy, statsmodels);
+- published references:
+  - R's Dobson Poisson GLM;
+  - Kaplan–Meier, log-rank and Cox on the Gehan leukaemia data;
+  - the JZS Bayes factor;
+  - O'Brien–Fleming boundaries;
+  - a textbook LP with shadow prices.
+
+**Big data benchmark** (4 vCPU container, 5,000,000 rows, a 265 MB CSV):
+
+| Step | Seconds |
+|---|---|
+| Ingest CSV → Parquet (26 MB) | 1.0 |
+| Profile all columns | 3.5 |
+| Recipe: filter + derive + group-by, saved | 0.1 |
+| Validate 3 rules | 0.2 |
+| SQL group-by with a 90th percentile | 0.1 |
+| Sample estimate vs exact mean | 0.2 |
+| Compare a column across two groups (auto test) | 3.3 |
+| Outliers (IQR, 2 columns) | 0.9 |
+
+Peak memory was about 1 GB. The benchmark exposed a bootstrap that tried to
+allocate 21 GB. Bootstraps now resample in memory-bounded chunks, and very
+large mean differences use the Welch normal interval.
+
+**Deliberate choices:**
+
+- **Imbalanced classes** are handled with class weights and with decision
+  thresholds tuned on out-of-fold predictions, optionally cost-sensitive.
+  Resampling (SMOTE, undersampling) is left out because it distorts predicted
+  probabilities.
+- **Polars** isn't used, since DuckDB covers the data layer.
+- **Reason codes** for each prediction use baseline substitution (each feature
+  set to its typical training value), which is fast enough to serve online.
+  Full SHAP explanations are in `ml.explain`.
+
+**Not yet verified:**
+
+- The PostgreSQL, MySQL, BigQuery and Cloud Storage connectors, and the
+  signed-upload URL, need real cloud credentials. Only their safety checks are
+  tested.
+- The container image builds and runs. The apt step that installs `libgomp1`
+  couldn't run in the build sandbox, because its network policy blocks the
+  Debian mirrors.
+
+**Next:** the studio front end. That means new panels for the v2 capabilities,
+and registering them for the agent team; the agent coverage test will then
+enforce that registration.
 
 ## After the engine
 

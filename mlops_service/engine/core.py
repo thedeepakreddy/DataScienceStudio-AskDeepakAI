@@ -20,7 +20,7 @@ from . import ENGINE_VERSION
 # Libraries whose versions decide the numbers; recorded on every result.
 KEY_LIBRARIES = [
     "numpy", "pandas", "scipy", "scikit-learn", "statsmodels", "xgboost", "lightgbm", "catboost",
-    "optuna", "shap", "duckdb", "pyarrow", "polars", "lifelines", "umap-learn",
+    "optuna", "shap", "duckdb", "pyarrow", "lifelines", "umap-learn",
 ]
 
 
@@ -43,10 +43,13 @@ class Cancelled(EngineError):
 def library_versions() -> dict[str, str]:
     out: dict[str, str] = {}
     for name in KEY_LIBRARIES:
-        try:
-            out[name] = metadata.version(name)
-        except metadata.PackageNotFoundError:
-            continue
+        # Some libraries ship under another distribution name (the CPU-only XGBoost is "xgboost-cpu").
+        for dist in (name, f"{name}-cpu"):
+            try:
+                out[name] = metadata.version(dist)
+                break
+            except metadata.PackageNotFoundError:
+                continue
     return out
 
 

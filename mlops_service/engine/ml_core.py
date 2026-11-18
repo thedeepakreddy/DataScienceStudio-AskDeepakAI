@@ -89,6 +89,26 @@ class DateParts(TransformerMixin, BaseEstimator):
         return np.array([f"{c}__{p}" for c in self.columns_ for p in ("year", "month", "weekday", "dayofyear", "hour", "month_sin", "month_cos", "weekday_sin", "weekday_cos")])
 
 
+class PairwiseProducts(TransformerMixin, BaseEstimator):
+    """Products of every pair of numeric columns (after median imputation), for interaction effects."""
+
+    def fit(self, X, y=None):
+        self.columns_ = list(X.columns)
+        self.medians_ = X.apply(pd.to_numeric, errors="coerce").median().fillna(0).to_dict()
+        self.pairs_ = [(a, b) for i, a in enumerate(self.columns_) for b in self.columns_[i + 1:]]
+        return self
+
+    def transform(self, X):
+        Z = X.apply(pd.to_numeric, errors="coerce").fillna(self.medians_)
+        return pd.DataFrame({f"{a}*{b}": Z[a] * Z[b] for a, b in self.pairs_}, index=X.index).astype(float)
+
+    def get_feature_names_out(self, input_features=None):
+        return np.array([f"{a}*{b}" for a, b in self.pairs_])
+
+
+MAX_INTERACTION_COLUMNS = 15
+
+
 class TextColumn(TransformerMixin, BaseEstimator):
     """A free-text column becomes TF-IDF compressed to a few dense dimensions."""
 
@@ -173,13 +193,18 @@ def column_roles(X: pd.DataFrame, types: dict[str, str]) -> dict[str, list[str]]
     return roles
 
 
-def preprocessor(roles: dict[str, list[str]], scale: bool, task: str, seed: int) -> ColumnTransformer:
+def preprocessor(roles: dict[str, list[str]], scale: bool, task: str, seed: int, interactions: bool = False) -> ColumnTransformer:
     parts = []
     if roles["numeric"]:
         steps = [("impute", SimpleImputer(strategy="median", add_indicator=True))]
         if scale:
             steps.append(("scale", StandardScaler()))
         parts.append(("num", Pipeline(steps), roles["numeric"]))
+    if interactions and 2 <= len(roles["numeric"]) <= MAX_INTERACTION_COLUMNS:
+        steps = [("products", PairwiseProducts())]
+        if scale:
+            steps.append(("scale", StandardScaler()))
+        parts.append(("inter", Pipeline(steps), roles["numeric"]))
     if roles["low_card"]:
         parts.append(("cat", Pipeline([("impute", SimpleImputer(strategy="constant", fill_value="(missing)")),
                                        ("onehot", OneHotEncoder(handle_unknown="ignore", min_frequency=5, sparse_output=False))]), roles["low_card"]))
@@ -312,8 +337,8 @@ def suggest(trial, family: str, task: str) -> dict[str, Any]:
     return {}
 
 
-def pipeline(roles, family, task, params, seed, balanced) -> Pipeline:
-    return Pipeline([("prep", preprocessor(roles, family in SCALED, task, seed)), ("model", make_model(family, task, params, seed, balanced))])
+def pipeline(roles, family, task, params, seed, balanced, interactions: bool = False) -> Pipeline:
+    return Pipeline([("prep", preprocessor(roles, family in SCALED, task, seed, interactions)), ("model", make_model(family, task, params, seed, balanced))])
 
 
 # ---------------------------------------------------------------- metrics

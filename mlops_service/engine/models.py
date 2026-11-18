@@ -102,7 +102,9 @@ class ModelStore:
                         self._write(other)
         if "name" in changes and changes["name"] and changes["name"] != record.get("name"):
             changes["version"] = 1 + max((m.get("version") or 0 for m in self.list() if m.get("name") == changes["name"]), default=0)
-        record.setdefault("history", []).append({"at": now_iso(), **{k: v for k, v in changes.items() if k in ("stage", "name", "version", "description")}})
+        record.setdefault("history", []).append({"at": now_iso(), **{k: v for k, v in changes.items()
+                                                                       if k in ("stage", "name", "version", "description", "approvedBy", "note")}})
+        changes.pop("note", None)
         record.update(changes)
         self._write(record)
         return record

@@ -159,3 +159,37 @@ def test_audit_log_records_requests(client, monkeypatch):
     assert any(e["path"] == "/v2/info" and e["actor"] == "tester" and e["status"] == 200 for e in events)
     assert any(e["path"] == "/v2/capabilities" and e["status"] == 401 for e in events)
     assert all("s3cret" not in str(e) for e in events)
+
+
+def test_reason_codes_explain_predictions(client, trained):
+    r = client.post("/v2/models/mlops-churn@production/predict", json={"explain": True, "log": False, "rows": [
+        {"tenure": 1, "charges": 70, "contract": "Month-to-month"}, {"tenure": 70, "charges": 70, "contract": "Two year"}]}).json()
+    new, loyal = r["reasons"] if "reasons" in r else [p["reasons"] for p in r["predictions"]]
+    assert new[0]["feature"] in ("tenure", "contract") and new[0]["effect"] > 0  # raises churn risk vs a typical customer
+    assert loyal[0]["feature"] in ("tenure", "contract") and loyal[0]["effect"] < 0
+    assert all({"feature", "value", "typical", "effect"} <= set(x) for x in new)
+
+
+def test_production_approval(client, trained, monkeypatch):
+    _, (v1, _) = trained
+    monkeypatch.setenv("ENGINE_REQUIRE_APPROVAL", "1")
+    denied = client.patch(f"/v2/models/{v1}", json={"stage": "production"})
+    assert denied.status_code == 403 and denied.json()["code"] == "approval_required"
+    ok = client.patch(f"/v2/models/{v1}", json={"stage": "production", "note": "rollback test"}, headers={"X-Engine-User": "lead@example.com"}).json()
+    assert ok["approvedBy"] == "lead@example.com" and ok["history"][-1]["note"] == "rollback test"
+    assert "Approved for production** by lead@example.com" in client.get(f"/v2/models/{v1}/card").json()["markdown"]
+
+
+def test_tick_wait_runs_to_completion(client):
+    ds = upload_rows(client, [{"x": i} for i in range(30)], "tick wait")
+    s = client.post("/v2/schedules", json={"every_minutes": 30, "start_at": time.time() - 1, "steps": [{"capability": "data.profile", "dataset_id": ds}]}).json()
+    r = client.post("/v2/schedules/tick", params={"wait": True}).json()
+    mine = [x for x in r["started"] if x["schedule"] == s["id"]]
+    assert mine and mine[0]["status"] == "done"
+    client.delete(f"/v2/schedules/{s['id']}")
+
+
+def test_upload_url_needs_cloud_storage(client):
+    r = client.post("/v2/datasets/upload-url", json={"filename": "big.csv"})
+    assert r.status_code == 400 and r.json()["code"] == "not_supported"
+    assert client.post("/v2/datasets/upload-url", json={"filename": "../x.csv"}).status_code == 422

@@ -38,12 +38,26 @@ def _normal(x: np.ndarray, rng) -> dict:
     return {"test": "Shapiro–Wilk", "statistic": w, "p": p, "normal": bool(normal), "n": len(x), "skew": stats.skew(x), "excessKurtosis": stats.kurtosis(x)}
 
 
+BOOTSTRAP_MAX_ROWS = 200_000  # above this the bootstrap of a mean difference is indistinguishable from the normal interval
+BOOTSTRAP_CHUNK = 20_000_000  # resampled values held in memory at once
+
+
 def _boot_diff(a, b, rng, fn=np.mean, n=2000, conf=0.95):
+    """Percentile bootstrap interval for fn(a) − fn(b), resampled in memory-bounded chunks.
+    For a mean difference on very large samples it returns the Welch normal interval instead."""
     if len(a) * len(b) == 0:
         return [None, None]
-    ia = rng.integers(0, len(a), (n, len(a)))
-    ib = rng.integers(0, len(b), (n, len(b)))
-    d = fn(a[ia], axis=1) - fn(b[ib], axis=1)
+    if fn is np.mean and len(a) + len(b) > BOOTSTRAP_MAX_ROWS:
+        se = np.sqrt(np.var(a, ddof=1) / len(a) + np.var(b, ddof=1) / len(b))
+        z = stats.norm.ppf(1 - (1 - conf) / 2)
+        d = float(np.mean(a) - np.mean(b))
+        return [d - z * se, d + z * se]
+    per = max(1, BOOTSTRAP_CHUNK // (len(a) + len(b)))
+    d = []
+    for start in range(0, n, per):
+        k = min(per, n - start)
+        d.append(fn(a[rng.integers(0, len(a), (k, len(a)))], axis=1) - fn(b[rng.integers(0, len(b), (k, len(b)))], axis=1))
+    d = np.concatenate(d)
     return [float(np.quantile(d, (1 - conf) / 2)), float(np.quantile(d, 1 - (1 - conf) / 2))]
 
 
@@ -123,6 +137,7 @@ def compare(ctx, p: CompareParams):  # noqa: C901 - one branch per kind of compa
             rbc = 1 - 2 * u.statistic / (len(a) * len(b))
             name = "Student t-test" if equal_var else "Welch t-test"
             out.update(kind="two_groups", groups=desc, meanDifference=a.mean() - b.mean(), ciBootstrap=_boot_diff(a, b, rng),
+                       ciMethod="percentile bootstrap" if len(a) + len(b) <= BOOTSTRAP_MAX_ROWS else "Welch normal interval (sample too large to need a bootstrap)",
                        effect={"cohen_d": d_, "hedges_g": g, "rank_biserial": rbc},
                        assumptions={"normality": norms, "levene": {"statistic": lev.statistic, "p": lev.pvalue, "equalVariances": bool(equal_var)}},
                        chosen={"test": name, "statistic": t.statistic, "p": t.pvalue} if use_param else {"test": "Mann–Whitney U", "statistic": u.statistic, "p": u.pvalue},
