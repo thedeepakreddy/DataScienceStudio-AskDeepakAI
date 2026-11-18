@@ -3,126 +3,90 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BrainCircuit, FileText, LayoutDashboard, Lightbulb, Shapes, ShieldCheck, Sigma, TrendingUp, Wand2, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, Eye, MessageSquareText, ShieldCheck, Users, X } from 'lucide-react';
 import { AGENTS, AgentRole } from '../swarm/agents';
 import { HumanMover, Point } from '../swarm/humanMotion';
 import { CursorGlyph } from './AgentCursor';
-import { Dust, dustPalette } from './dust';
 import Orb from './Orb';
-import { Box, scatterCards, seeded } from './welcomeLayout';
+import { demoResults } from './welcomeDemo';
 
-// The agent team's welcome, each time the studio opens (about fifteen seconds).
+// The agent team's welcome, each time the studio opens (about seventeen seconds).
+// It says what the agents can do, then five of them do real work on a small
+// sample, in order, while you watch: every number shown is computed from the
+// rows (welcomeDemo.ts), nothing is drawn for show.
 //
-// 1. The swarm streams in from every edge on curved, hand-like paths,
-//    leaving fading trails. The cursors are the studio's: solid workers and
-//    two-tone partners, each with its agent's colour dot.
-// 2. The Orchestrator types "Welcome to"; three partners dart to "Data",
-//    "Science" and "Studio", touch each word and explode into fine dust,
-//    and each word appears out of it.
-// 3. The Orchestrator node appears under the title. For each of nine cards a
-//    thin branch grows from it, a partner darts along, touches the card's
-//    centre and explodes; the card forms out of the dust with the moving AI
-//    glow, which then settles to the finished violet, as panels do in the
-//    studio. On larger screens the cards are scattered (a fresh arrangement
-//    each time, never overlapping the title, the closing words, the Ask AI
-//    button or each other); on phones, or when a screen is too tight to
-//    scatter, they sit in a loosely tilted grid.
-// 4. The tree fades, a line draws from the closing words to the floating
-//    Ask AI button and the swarm flies into it: that's where you give them work.
-//
-// The × (with a ring showing time left), Esc or a tap anywhere skips it.
-// With reduced motion it is a still composition. Nothing on the page is
-// touched.
+// 1. The Data Engineer fills two blank cells with each column's median.
+// 2. The Statistician drags across two columns and the correlation appears.
+// 3. The ML Engineer presses Train: a one-rule model is fitted on 14 rows and
+//    scored on the 6 it never saw.
+// 4. The Dashboard Designer drags a chart into the dashboard and widens it by
+//    its curved corner.
+// 5. The Verifier recomputes the results and ticks them off.
+// Then the team flies into the Ask AI button: that's where you give them work.
+// ×, Esc or a tap skips it; with reduced motion it is the finished picture.
 
-const CARDS: { text: string; short: string; role: AgentRole; Icon: typeof Wand2 }[] = [
-  { text: 'Clean & fix your data', short: 'Clean', role: 'data_engineer', Icon: Wand2 },
-  { text: 'Find what drives results', short: 'Drivers', role: 'statistician', Icon: Sigma },
-  { text: 'Train & tune models', short: 'Train', role: 'ml_engineer', Icon: BrainCircuit },
-  { text: 'Explain every model', short: 'Explain', role: 'explainability_analyst', Icon: Lightbulb },
-  { text: 'Discover segments', short: 'Segments', role: 'segmentation_analyst', Icon: Shapes },
-  { text: 'Forecast the future', short: 'Forecast', role: 'time_series_analyst', Icon: TrendingUp },
-  { text: 'Design your dashboard', short: 'Dashboard', role: 'dashboard_designer', Icon: LayoutDashboard },
-  { text: 'Write & publish the report', short: 'Report', role: 'research_analyst', Icon: FileText },
-  { text: 'Double-check & fix', short: 'Verify', role: 'verifier', Icon: ShieldCheck },
-];
-const WORDS = ['Data', 'Science', 'Studio'];
-// Who selects each word (they go on to make cards afterwards).
-const WORD_AGENTS = [0, 6, 1];
-const TYPIST = 9;
-// Every agent gets a cursor on big screens: the card makers, the Orchestrator, then the rest.
-const ROLE_ORDER: AgentRole[] = [
-  ...CARDS.map(c => c.role), 'orchestrator',
-  ...(Object.keys(AGENTS) as AgentRole[]).filter(r => r !== 'orchestrator' && !CARDS.some(c => c.role === r)),
-];
+const CAST: AgentRole[] = ['data_engineer', 'statistician', 'ml_engineer', 'dashboard_designer', 'verifier', 'orchestrator'];
 const TEAM_SIZE = Object.keys(AGENTS).length;
-const TOTAL_MS = 15000;
+const TOTAL_MS = 17000;
+const SHOWN_ROWS = 8;
 
-type Size = 'desktop' | 'tablet' | 'phone';
-const sizeOf = (w: number): Size => (w >= 1024 ? 'desktop' : w >= 640 ? 'tablet' : 'phone');
-const COUNT: Record<Size, number> = { desktop: ROLE_ORDER.length, tablet: 16, phone: 12 };
-
-const roleOf = (i: number): AgentRole => ROLE_ORDER[i % ROLE_ORDER.length];
+const POINTS = [
+  { Icon: MessageSquareText, text: 'Give them a goal in plain words: “find why customers leave and build a dashboard”.' },
+  { Icon: Users, text: 'They plan it, split it across specialists and do the work in your studio, step by step, in order.' },
+  { Icon: Eye, text: 'You watch every step, and can pause, stop or undo any of it.' },
+  { Icon: ShieldCheck, text: 'They check each other: a verifier recomputes the results, so nothing is made up.' },
+];
 
 const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const askButton = () => document.querySelector<HTMLElement>('[aria-label="Open the AI assistant"]');
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+const pct = (x: number) => `${Math.round(x * 100)}%`;
 
-/** A CSS colour variable's actual value, for drawing on the canvas. */
-function resolveColor(cssVar: string) {
-  const name = cssVar.match(/var\((--[^)]+)\)/)?.[1];
-  return (name && getComputedStyle(document.documentElement).getPropertyValue(name).trim()) || '#5b6b8c';
+interface Board {
+  cells: Record<string, string>;      // "row:col" → shown text
+  flash: string[];                    // cells just filled
+  selectedCols: string[];             // columns the Statistician is dragging over
+  r: string | null;
+  training: number | null;            // 0–1 while training
+  model: string | null;
+  chartIn: boolean;                   // the chart is in the dashboard
+  chartWide: number;                  // 0–1, how far it has been widened
+  dragChart: Point | null;            // the chart following the pointer
+  checks: number;                     // ticks shown
 }
 
 export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
-  const [view, setView] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
-  const size = sizeOf(view.w);
-  const count = COUNT[size];
   const still = reducedMotion();
+  const demo = useMemo(() => demoResults(), []);
+  const [view, setView] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
+  const phone = view.w < 640;
 
-  const [phase, setPhase] = useState<'intro' | 'sub' | 'ask'>(still ? 'ask' : 'intro');
+  const initialCells = useMemo(() => {
+    const c: Record<string, string> = {};
+    demo.raw.slice(0, SHOWN_ROWS).forEach((x, i) => {
+      c[`${i}:tenure`] = x.tenure == null ? '' : String(x.tenure);
+      c[`${i}:charges`] = x.charges == null ? '' : String(x.charges);
+    });
+    return c;
+  }, [demo]);
+  const finished: Board = useMemo(() => {
+    const cells = { ...initialCells };
+    demo.fills.forEach(f => { cells[`${f.row}:${f.col}`] = String(f.value); });
+    return { cells, flash: [], selectedCols: [], r: demo.r.toFixed(2), training: null, model: pct(demo.model.accuracy), chartIn: true, chartWide: 1, dragChart: null, checks: 3 };
+  }, [demo, initialCells]);
+  const [board, setBoard] = useState<Board>(() => (still ? finished : { cells: initialCells, flash: [], selectedCols: [], r: null, training: null, model: null, chartIn: false, chartWide: 0, dragChart: null, checks: 0 }));
+  const patch = (p: Partial<Board> | ((b: Board) => Partial<Board>)) => setBoard(b => ({ ...b, ...(typeof p === 'function' ? p(b) : p) }));
+
   const [leaving, setLeaving] = useState(false);
-  const [ask, setAsk] = useState<{ ring: DOMRect; path: string } | null>(null);
-  const [scale, setScale] = useState(1);
-  // A fresh arrangement each opening, stable while it plays.
-  const [seed] = useState(() => (Date.now() & 0x7fffffff) || 1);
-  const [mode, setMode] = useState<'grid' | 'scatter'>(() => (sizeOf(window.innerWidth) === 'phone' ? 'grid' : 'scatter'));
-  const [placements, setPlacements] = useState<{ x: number; y: number; rot: number }[] | null>(null);
-  // The serif loads on first use; measure only once it has (text wraps differently before).
-  const [fontsReady, setFontsReady] = useState(false);
-  useEffect(() => {
-    let live = true;
-    const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
-    const done = () => { if (live) setFontsReady(true); };
-    if (!fonts?.load) { done(); return; }
-    Promise.all([fonts.load('600 18px "Source Serif 4"'), fonts.load('italic 400 20px "Source Serif 4"'), fonts.load('600 60px "Source Serif 4"')])
-      .then(done, done);
-    // Never wait long: if the font is slow, measure with what's there.
-    const t = setTimeout(done, 1200);
-    return () => { live = false; clearTimeout(t); };
-  }, []);
-  // In the grid, each card is tilted and nudged a little so it still feels hand-placed.
-  const tilts = useMemo(() => { const r = seeded(seed + 7); return CARDS.map(() => ({ rot: (r() * 2 - 1) * 2.4, dy: (r() * 2 - 1) * 6 })); }, [seed]);
+  const [ask, setAsk] = useState<DOMRect | null>(null);
+  const [labels, setLabels] = useState<string[]>(() => CAST.map(() => ''));
+  const say = (i: number, text: string) => setLabels(l => l.map((x, k) => (k === i ? text : x)));
 
   const root = useRef<HTMLDivElement | null>(null);
-  const column = useRef<HTMLDivElement | null>(null);
-  const canvas = useRef<HTMLCanvasElement | null>(null);
-  const eyebrow = useRef<HTMLSpanElement | null>(null);
-  const words = useRef<(HTMLSpanElement | null)[]>([]);
-  const cards = useRef<(HTMLDivElement | null)[]>([]);
-  const cardGlows = useRef<(HTMLDivElement | null)[]>([]);
-  const dustCanvas = useRef<HTMLCanvasElement | null>(null);
-  const tree = useRef<SVGSVGElement | null>(null);
-  const rootChip = useRef<HTMLSpanElement | null>(null);
-  const tip = useRef<HTMLDivElement | null>(null);
-  const caret = useRef<HTMLSpanElement | null>(null);
-  const grid = useRef<HTMLDivElement | null>(null);
   const cursorEls = useRef<(HTMLDivElement | null)[]>([]);
-  const tagEls = useRef<(HTMLSpanElement | null)[]>([]);
   const movers = useRef<HumanMover[]>([]);
   const closed = useRef(false);
-  const phaseRef = useRef(phase);
-  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   const close = useCallback(() => {
     if (closed.current) return;
@@ -134,590 +98,349 @@ export default function WelcomeSwarm({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    const onResize = () => {
-      setView({ w: window.innerWidth, h: window.innerHeight });
-      // Re-arrange for the new size (scatter where it fits, otherwise the grid).
-      setPlacements(null);
-      setMode(sizeOf(window.innerWidth) === 'phone' ? 'grid' : 'scatter');
-    };
+    const onResize = () => setView({ w: window.innerWidth, h: window.innerHeight });
     window.addEventListener('keydown', onKey);
     window.addEventListener('resize', onResize);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
   }, [close]);
 
-  // Scatter the cards: measure the title, the closing words and each card, then
-  // find places that touch none of them, the Ask AI button or each other.
-  useLayoutEffect(() => {
-    if (mode !== 'scatter' || placements || !fontsReady) return;
-    const head = column.current?.getBoundingClientRect();
-    const t = tip.current?.getBoundingClientRect();
-    const sizes = cards.current.map(c => ({ w: c?.offsetWidth ?? 0, h: c?.offsetHeight ?? 0 }));
-    if (!head || !t || sizes.some(z => !z.w)) return;
-    const W = view.w, H = view.h, margin = 28;
-    const b = askButton()?.getBoundingClientRect();
-    const reserved: Box[] = [
-      { x: head.x - 16, y: head.y - 12, w: head.width + 32, h: head.height + 24 },
-      { x: t.x - 16, y: t.y - 12, w: t.width + 32, h: t.height + 24 },
-      // The Ask AI ring and its label at the end.
-      ...(b ? [{ x: b.x - 200, y: b.y - 60, w: b.width + 224, h: b.height + 84 }] : []),
-      { x: 0, y: 0, w: 72, h: 72 },
-    ];
-    const result = scatterCards(sizes, { x: margin, y: 64, w: W - 2 * margin, h: H - 64 - margin }, reserved, seeded(seed), W >= 1024 ? 22 : 18);
-    if (result) setPlacements(result);
-    else setMode('grid');
-  }, [view, mode, placements, seed, fontsReady]);
-
-  // Shrink the whole composition on short screens (e.g. a phone held sideways).
-  useLayoutEffect(() => {
-    if (mode === 'scatter') return; // the scattered layout uses the whole screen instead
-    const el = column.current;
-    if (!el) return;
-    const h = el.scrollHeight;
-    const room = view.h - 72;
-    setScale(h > room ? Math.max(0.6, room / h) : 1);
-  }, [view, size, mode]);
-
-  // The ring round Ask AI and the line drawn to it from the closing words.
-  const pointToAsk = useCallback(() => {
+  const ringAtAsk = useCallback(() => {
     const w = window.innerWidth, h = window.innerHeight;
     const r = askButton()?.getBoundingClientRect() ?? new DOMRect(w - 84, h - 200, 64, 64);
     const ring = new DOMRect(Math.min(w - r.width - 20, Math.max(4, r.left - 8)), Math.min(h - r.height - 20, Math.max(4, r.top - 8)), r.width + 16, r.height + 16);
-    const t = tip.current?.getBoundingClientRect();
-    let path = '';
-    if (t) {
-      const narrow = w < 640;
-      const sx = narrow ? t.left + t.width / 2 : t.right + 10;
-      const sy = narrow ? t.bottom + 8 : t.top + t.height / 2;
-      const ex = ring.left + ring.width / 2 - (ring.left > sx ? ring.width / 2 + 6 : -ring.width / 2 - 6);
-      const ey = ring.top + ring.height / 2;
-      path = `M ${sx} ${sy} C ${sx + (ex - sx) * 0.55} ${sy}, ${ex - (ex - sx) * 0.1} ${sy + (ey - sy) * 0.35}, ${ex} ${ey}`;
-    }
-    setAsk({ ring, path });
+    setAsk(ring);
     return ring;
   }, []);
 
   // The choreography.
   useEffect(() => {
     if (still) {
-      cards.current.forEach(c => { if (c) c.dataset.landed = '1'; });
-      words.current.forEach(wd => { if (wd) { wd.style.opacity = '1'; wd.style.clipPath = 'none'; } });
-      if (eyebrow.current) eyebrow.current.textContent = 'Welcome to';
-      requestAnimationFrame(() => pointToAsk());
+      requestAnimationFrame(() => ringAtAsk());
       const t = setTimeout(close, 13500);
       return () => clearTimeout(t);
     }
-
     const w = window.innerWidth, h = window.innerHeight;
-    const n = COUNT[sizeOf(w)];
-    // Every cursor starts just off-screen, spread round all four edges.
-    movers.current = Array.from({ length: n }, (_, i) => {
-      const a = (i / n) * Math.PI * 2 + 0.5;
-      const R = Math.hypot(w, h) * 0.62;
+    movers.current = CAST.map((_, i) => {
+      const a = (i / CAST.length) * Math.PI * 2 + 0.6;
+      const R = Math.hypot(w, h) * 0.6;
       return new HumanMover(cursorEls.current[i], { x: w / 2 + Math.cos(a) * R, y: h / 2 + Math.sin(a) * R });
     });
     const m = movers.current;
     let alive = true;
-
-    // Name tags sit to the left near the right edge.
-    const face = (i: number, x: number) => {
-      const tag = tagEls.current[i];
-      if (!tag) return;
-      const flip = x > window.innerWidth - 190;
-      tag.style.left = flip ? '' : '14px';
-      tag.style.right = flip ? 'calc(100% - 4px)' : '';
+    const q = (sel: string) => root.current?.querySelector<HTMLElement>(sel)?.getBoundingClientRect() ?? null;
+    // Brings the part being worked on into view (on phones the board is below the words).
+    const show = async (sel: string) => {
+      const el = root.current?.querySelector<HTMLElement>(sel);
+      const r = el?.getBoundingClientRect();
+      if (!el || !r || (r.top > 70 && r.bottom < window.innerHeight - 40)) return;
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      await wait(420);
     };
-    const go = (i: number, to: Point, opts: Parameters<HumanMover['moveTo']>[1] = {}) => {
-      if (!alive || !m[i]) return Promise.resolve();
-      face(i, to.x);
-      return m[i].moveTo(to, opts);
+    // Between steps each agent waits just outside the board, out of the way.
+    const park = (i: number) => {
+      const b = q('[data-demo="board"]');
+      if (!b) return Promise.resolve();
+      const spot = { x: b.left + 24 + (i * (b.width - 48)) / (CAST.length - 1), y: Math.min(window.innerHeight - 30, b.bottom + 22) };
+      say(i, '');
+      return go(i, spot, { maxDuration: 700, arc: 0.2 });
     };
-
-    // Fine dust, drawn above the cards.
-    const dcv = dustCanvas.current;
-    // Fewer specks on small screens (several cards burst at once).
-    const phoneScale = sizeOf(w) === 'phone' ? 0.45 : sizeOf(w) === 'tablet' ? 0.6 : 0.75;
-    const dust = dcv ? new Dust(dcv) : null;
-    dust?.resize(w, h);
-
-    // A partner darts to the centre of `rect`, touches it (rings) and explodes
-    // into dust across it; `onLit` follows the dust reaching the edges. It
-    // re-forms from the dust just beside the rect.
-    const touch = async (i: number, rect: DOMRect, onLit: (share: number) => void) => {
+    const at = (r: DOMRect | null, fx = 0.5, fy = 0.5): Point => (r ? { x: r.left + r.width * fx, y: r.top + r.height * fy } : { x: w / 2, y: h / 2 });
+    const go = (i: number, to: Point, opts: Parameters<HumanMover['moveTo']>[1] = {}) => (alive ? m[i].moveTo(to, opts) : Promise.resolve());
+    const press = async (i: number) => {
       const el = cursorEls.current[i];
-      const pick = dustPalette(AGENTS[roleOf(i)].color);
-      const c = { x: rect.left + rect.width / 2 - 3, y: rect.top + rect.height / 2 - 3 };
-      await go(i, c, { maxDuration: 420, arc: 0.2 });
-      if (!alive || !el) return;
-      el.classList.add('is-touching', 'is-pressing');
-      await wait(150);
-      el.classList.remove('is-pressing');
-      await wait(110);
-      el.style.transition = 'opacity 160ms ease';
-      el.style.opacity = '0';
-      const lit = dust ? dust.burst(rect, c.x + 2, c.y + 2, pick, onLit, phoneScale) : Promise.resolve(onLit(1));
-      await wait(520);
-      el.classList.remove('is-touching');
-      const spot = { x: Math.min(w - 30, rect.right + 6), y: Math.min(h - 30, rect.bottom + 4) };
-      m[i]?.jump(spot);
-      dust?.gather(spot, pick, 160);
-      setTimeout(() => { if (el) el.style.opacity = '1'; }, 280);
-      await lit;
-    };
-
-    // The tree: a branch from the Orchestrator node to each card.
-    const NS = 'http://www.w3.org/2000/svg';
-    const branches: { g: SVGGElement; core: SVGPathElement; glow: SVGPathElement; stops: SVGStopElement[] }[] = [];
-    const growBranch = (k: number, card: DOMRect) => {
-      const svg = tree.current, chip = rootChip.current?.getBoundingClientRect();
-      if (!svg || !chip) return;
-      const x0 = chip.left + chip.width / 2, below = card.top + card.height / 2 > chip.top + chip.height / 2;
-      const y0 = below ? chip.bottom : chip.top;
-      const x1 = card.left + card.width / 2, y1 = below ? card.top : card.bottom, dy = y1 - y0;
-      const d = `M${x0},${y0} C${x0},${y0 + dy * 0.6} ${x1},${y1 - dy * 0.6} ${x1},${y1}`;
-      const id = `wb-${k}`;
-      const g = document.createElementNS(NS, 'g');
-      g.innerHTML = `<defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}"><stop offset="0" style="stop-color:var(--ag-g1)"/><stop offset="0.5" style="stop-color:var(--ag-g2)"/><stop offset="1" style="stop-color:var(--ag-g3)"/></linearGradient></defs>`
-        + `<path class="b-glow" stroke="url(#${id})" d="${d}"/><path class="b-core" stroke="url(#${id})" d="${d}"/>`;
-      svg.appendChild(g);
-      const core = g.querySelector<SVGPathElement>('.b-core')!, glow = g.querySelector<SVGPathElement>('.b-glow')!;
-      const len = core.getTotalLength();
-      [core, glow].forEach(el => { el.style.strokeDasharray = `${len}`; el.style.strokeDashoffset = `${len}`; });
-      void core.getBoundingClientRect();
-      [core, glow].forEach(el => { el.style.transition = 'stroke-dashoffset 480ms cubic-bezier(.22,.61,.36,1)'; el.style.strokeDashoffset = '0'; });
-      branches[k] = { g, core, glow, stops: [...g.querySelectorAll('stop')] };
-    };
-    // A finished card: its glow and branch settle to the steady violet.
-    const settle = (k: number) => {
-      const glow = cardGlows.current[k];
-      if (glow) glow.dataset.state = 'done';
-      branches[k]?.stops.forEach(st => { st.style.stopColor = 'var(--ag-done)'; });
-    };
-
-    // Short comet trails behind every cursor, redrawn from the last ~0.35s each frame.
-    const cv = canvas.current;
-    const ctx = cv?.getContext('2d') ?? null;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (cv) { cv.width = w * dpr; cv.height = h * dpr; }
-    const colors = Array.from({ length: n }, (_, i) => resolveColor(AGENTS[roleOf(i)].color));
-    const trails: { x: number; y: number; t: number }[][] = m.map(() => []);
-    const LIFE = 360;
-    let raf = 0;
-    let lastFrame = 0;
-    const paint = (now: number) => {
-      if (ctx) {
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, w, h);
-        ctx.lineCap = 'round';
-        m.forEach((mv, i) => {
-          const tr = trails[i];
-          const last = tr[tr.length - 1];
-          // A cursor re-forming somewhere else starts a fresh trail.
-          if (last && Math.hypot(mv.x - last.x, mv.y - last.y) > 140) tr.length = 0;
-          if (!last || Math.hypot(mv.x - last.x, mv.y - last.y) > 0.6) tr.push({ x: mv.x, y: mv.y, t: now });
-          while (tr.length && now - tr[0].t > LIFE) tr.shift();
-          ctx.strokeStyle = colors[i];
-          for (let k = 1; k < tr.length; k++) {
-            const life = 1 - (now - tr[k].t) / LIFE;
-            ctx.globalAlpha = 0.5 * life * life;
-            ctx.lineWidth = 0.6 + 2.2 * life;
-            ctx.beginPath();
-            ctx.moveTo(tr[k - 1].x + 3, tr[k - 1].y + 3);
-            ctx.lineTo(tr[k].x + 3, tr[k].y + 3);
-            ctx.stroke();
-          }
-        });
-        ctx.globalAlpha = 1;
-      }
-      dust?.draw(Math.min(48, now - (lastFrame || now)));
-      lastFrame = now;
-      raf = requestAnimationFrame(paint);
-    };
-    raf = requestAnimationFrame(paint);
-
-    // Roaming cursors drift through the open space while the others work —
-    // never over the words or the cards.
-    const roam = async (i: number) => {
-      while (alive && phaseRef.current !== 'ask') {
-        const W = window.innerWidth, H = window.innerHeight;
-        const avoid = [column.current, tip.current, ...cards.current].map(el => el?.getBoundingClientRect()).filter((r): r is DOMRect => !!r && r.width > 0);
-        let to: Point | null = null;
-        for (let k = 0; k < 16 && !to; k++) {
-          const x = 16 + Math.random() * (W - 60), y = 70 + Math.random() * (H - 110);
-          if (!avoid.some(r => x > r.left - 16 && x < r.right + 16 && y > r.top - 16 && y < r.bottom + 16)) to = { x, y };
-        }
-        if (to) await go(i, to, { maxDuration: 1100 });
-        await wait(150 + Math.random() * 450);
-      }
+      el?.classList.add('is-pressing');
+      await wait(130);
+      el?.classList.remove('is-pressing');
     };
 
     const run = async () => {
-      await wait(30);
-      // 1. Stream in round the title.
-      const c = column.current?.getBoundingClientRect() ?? new DOMRect(w * 0.2, h * 0.2, w * 0.6, h * 0.6);
-      m.forEach((_, i) => {
-        const a = (i / n) * Math.PI * 2;
-        const r = 0.42 + ((i * 37) % 10) / 30;
-        go(i, { x: c.left + c.width / 2 + Math.cos(a) * c.width * r, y: c.top + c.height * 0.32 + Math.sin(a) * c.height * r * 0.7 }, { duration: 1300 + (i % 4) * 110, delay: i * 40, arc: 0.3 });
-      });
-      await wait(1600);
-
-      // 2. "Welcome to", typed by the Orchestrator…
-      const eb = eyebrow.current?.getBoundingClientRect();
-      const text = 'Welcome to';
-      if (eb) {
-        await go(TYPIST, { x: eb.left - 4, y: eb.bottom - 2 }, { maxDuration: 560 });
-        go(TYPIST, { x: eb.left + eb.width * 0.95, y: eb.bottom }, { duration: text.length * 85, arc: 0.02, overshoot: false, tremor: false });
-      }
-      (async () => {
-        for (let k = 1; k <= text.length && alive; k++) {
-          if (eyebrow.current) eyebrow.current.textContent = text.slice(0, k);
-          await wait(85);
-        }
-        await wait(900);
-        if (caret.current) caret.current.style.display = 'none';
-      })();
-
-      // …while three agents select the words, revealing each one.
-      WORDS.forEach((_, k) => {
-        const el = words.current[k];
-        const r = el?.getBoundingClientRect();
-        if (!el || !r) return;
-        setTimeout(() => {
-          if (!alive) return;
-          // The word appears out of the dust as it spreads.
-          touch(WORD_AGENTS[k], r, share => {
-            el.style.opacity = `${share}`;
-            el.style.filter = share < 1 ? `blur(${((1 - share) * 6).toFixed(1)}px)` : '';
-          });
-        }, 200 + k * 560);
-      });
-      await wait(3000);
-      if (!alive) return;
-      setPhase('sub');
-      for (let i = TYPIST + 1; i < n; i++) roam(i);
-
-      // 3. The tree: for each card a branch grows from the Orchestrator, a partner
-      //    darts along it, touches the card and explodes; the card forms out of the dust.
-      const builds = CARDS.map((_, k) => wait(k * 300).then(async () => {
-        const el = cards.current[k];
-        const r = el?.getBoundingClientRect();
-        if (!el || !r || !alive) return;
-        growBranch(k, r);
-        const glow = cardGlows.current[k];
-        await touch(k, r, share => {
-          if (share > 0.1) el.dataset.landed = '1';
-          if (glow) glow.style.opacity = `${share}`;
-        });
-        el.dataset.landed = '1';
-        setTimeout(() => settle(k), 1100);
-        // The partner drifts off into the open space, clear of the cards.
-        await wait(300);
-        roam(k);
-      }));
-      await Promise.all(builds);
-      // Let the finished set be seen before moving on.
-      await wait(2100);
-      if (!alive) return;
-
-      // 4. The tree fades; point to Ask AI, then fly into it. If the closing words
-      // would sit under the button (short screens), the composition slides up first.
-      phaseRef.current = 'ask';
-      if (tree.current) { tree.current.style.transition = 'opacity 600ms ease'; tree.current.style.opacity = '0'; }
-      cardGlows.current.forEach(g => { if (g) { g.style.transition = 'opacity 600ms ease'; g.style.opacity = '0'; } });
-      if (rootChip.current) rootChip.current.style.opacity = '0';
-      const btn = askButton()?.getBoundingClientRect();
-      const t = tip.current?.getBoundingClientRect();
-      const col = column.current;
-      const gr = grid.current;
-      if (btn && t && col && gr) {
-        const overlap = t.bottom + 22 - (btn.top - 10);
-        const sideBySide = btn.left > t.right + 12;
-        const headroom = Math.max(0, col.getBoundingClientRect().top - 44);
-        if (!sideBySide && overlap > 0) {
-          if (headroom >= overlap) {
-            col.style.transition = 'transform 520ms cubic-bezier(.22,.61,.36,1)';
-            col.style.transform = `${scale < 1 ? `scale(${scale}) ` : ''}translateY(${-overlap / (scale || 1)}px)`;
-            await wait(540);
-          } else {
-            // No room above: the cards bow out and the closing words take their place.
-            // Collapse smoothly so the title glides instead of jumping.
-            gr.style.overflow = 'hidden';
-            gr.style.maxHeight = `${gr.scrollHeight}px`;
-            void gr.offsetHeight;
-            gr.style.transition = 'opacity 300ms ease, filter 300ms ease, max-height 520ms cubic-bezier(.22,.61,.36,1), margin 520ms cubic-bezier(.22,.61,.36,1)';
-            gr.style.opacity = '0';
-            gr.style.filter = 'blur(4px)';
-            gr.style.maxHeight = '0px';
-            gr.style.marginTop = '0px';
-            await wait(540);
-          }
-        }
-      }
-      setPhase('ask');
       await wait(60);
-      const ring = pointToAsk();
+      // Everyone arrives just below the board, where the work happens.
+      await show('[data-demo="board"]');
+      CAST.forEach((_, i) => { setTimeout(() => park(i), i * 90); });
+      await wait(1250);
+
+      // 1. Data Engineer: fill each blank with the median, typed in.
+      for (const f of demo.fills) {
+        if (!alive) return;
+        const key = `${f.row}:${f.col}`;
+        await show(`[data-cell="${key}"]`);
+        say(0, `Filling a blank ${f.col} with the median`);
+        await go(0, at(q(`[data-cell="${key}"]`), 0.3, 0.6), { maxDuration: 520 });
+        await press(0);
+        const text = String(f.value);
+        for (let k = 1; k <= text.length; k++) { patch(bd => ({ cells: { ...bd.cells, [key]: text.slice(0, k) } })); await wait(110); }
+        patch(bd => ({ flash: [...bd.flash, key] }));
+        await wait(260);
+      }
+      say(0, 'No blanks left');
+      await wait(300);
+      park(0);
+
+      // 2. Statistician: drag across the two columns; the correlation is computed from all 20 rows.
+      if (!alive) return;
+      await show('[data-head="tenure"]');
+      say(1, 'Selecting tenure and charges');
+      await go(1, at(q('[data-head="tenure"]')), { maxDuration: 560 });
+      await press(1);
+      patch({ selectedCols: ['tenure'] });
+      await go(1, at(q('[data-head="charges"]')), { duration: 420, arc: 0.05, overshoot: false });
+      patch({ selectedCols: ['tenure', 'charges'] });
+      await wait(220);
+      patch({ r: demo.r.toFixed(2) });
+      say(1, `Correlation r = ${demo.r.toFixed(2)}`);
+      await go(1, at(q('[data-demo="r"]'), 0.15), { maxDuration: 480 });
+      await wait(380);
+      patch({ selectedCols: [] });
+      park(1);
+
+      // 3. ML Engineer: train a one-rule model on 14 rows, score it on the other 6.
+      if (!alive) return;
+      await show('[data-demo="train"]');
+      say(2, 'Training on 14 rows');
+      await go(2, at(q('[data-demo="train"]')), { maxDuration: 560 });
+      await press(2);
+      for (let s = 0; s <= 1.0001 && alive; s += 0.1) { patch({ training: s }); await wait(120); }
+      patch({ training: null, model: pct(demo.model.accuracy) });
+      say(2, `${pct(demo.model.accuracy)} right on 6 rows it never saw`);
+      await wait(700);
+      park(2);
+
+      // 4. Dashboard Designer: drag the chart into the dashboard, then widen it by its curved corner.
+      if (!alive) return;
+      await show('[data-demo="tray"]');
+      say(3, 'Adding a chart to the dashboard');
+      const tray = q('[data-demo="tray"]');
+      await go(3, at(tray), { maxDuration: 560 });
+      await press(3);
+      const slot = q('[data-demo="slot"]');
+      if (tray && slot) {
+        const from = at(tray), to = { x: slot.left + slot.width * 0.72, y: slot.top + slot.height / 2 };
+        const steps = 14;
+        for (let k = 1; k <= steps && alive; k++) {
+          const p = { x: from.x + ((to.x - from.x) * k) / steps, y: from.y + ((to.y - from.y) * k) / steps };
+          patch({ dragChart: p });
+          m[3].jump(p);
+          await wait(26);
+        }
+      }
+      patch({ dragChart: null, chartIn: true });
+      await wait(260);
+      say(3, 'Making it wider');
+      const corner = q('[data-demo="corner"]');
+      if (corner) {
+        await go(3, at(corner, 0.4, 0.6), { maxDuration: 420 });
+        await press(3);
+        const start = at(corner, 0.4, 0.6);
+        for (let k = 1; k <= 12 && alive; k++) {
+          patch({ chartWide: k / 12 });
+          m[3].jump({ x: start.x - (k / 12) * (slot ? slot.width * 0.38 : 120), y: start.y + k * 1.5 });
+          await wait(30);
+        }
+      }
+      await wait(300);
+      park(3);
+
+      // 5. Verifier: recomputes and ticks each result.
+      if (!alive) return;
+      for (let k = 0; k < 3 && alive; k++) {
+        await show(`[data-check="${k}"]`);
+        say(4, ['Checking the blanks', 'Recomputing r', 'Rescoring the model'][k]);
+        await go(4, at(q(`[data-check="${k}"]`), 0.08), { maxDuration: 460 });
+        await press(4);
+        patch({ checks: k + 1 });
+        await wait(260);
+      }
+      say(4, 'All checked');
+      await wait(700);
+
+      // The team heads for Ask AI.
+      if (!alive) return;
+      const ring = ringAtAsk();
       const cx = ring.left + ring.width / 2, cy = ring.top + ring.height / 2;
-      const facing = Math.atan2(h / 2 - cy, w / 2 - cx);
-      // Names fade so the arrows read as one flock heading for the button.
-      tagEls.current.forEach((t, i) => { if (t) { t.style.transition = `opacity 300ms ease ${i * 30}ms`; t.style.opacity = '0'; } });
-      m.forEach((_, i) => {
-        const a = facing + (i / Math.max(1, n - 1) - 0.5) * 2.2;
-        const rad = ring.width * 0.75 + 16 + (i % 3) * 18;
-        go(i, { x: Math.min(w - 24, Math.max(8, cx + Math.cos(a) * rad)), y: Math.min(h - 24, Math.max(8, cy + Math.sin(a) * rad)) }, { delay: 250 + i * 26, maxDuration: 1000, arc: 0.28 });
-      });
-      await wait(250 + n * 26 + 1000);
-      m.forEach((_, i) => {
-        const el = cursorEls.current[i];
-        go(i, { x: cx - 3, y: cy - 3 }, { duration: 480, delay: i * 16, overshoot: false });
-        if (el) { el.style.transition = `opacity 300ms ease ${i * 16 + 240}ms`; el.style.opacity = '0'; }
-      });
-      await wait(480 + n * 16 + 300);
+      CAST.forEach((_, i) => say(i, ''));
+      await Promise.all(CAST.map((_, i) => go(i, { x: cx - 3, y: cy - 3 }, { duration: 700, delay: i * 70, arc: 0.25, overshoot: false })));
+      cursorEls.current.forEach((el, i) => { if (el) { el.style.transition = `opacity 260ms ease ${i * 30}ms`; el.style.opacity = '0'; } });
+      await wait(900);
       if (alive) close();
     };
     run();
-
-    return () => { alive = false; cancelAnimationFrame(raf); m.forEach(mv => mv.stop()); dust?.clear(); };
+    return () => { alive = false; m.forEach(mv => mv.stop()); };
     // The choreography runs once per opening.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const phone = size === 'phone';
-  const gridWidth = size === 'desktop' ? Math.min(960, view.w - 96) : view.w - (phone ? 32 : 64);
+  const color = (role: AgentRole) => AGENTS[role].color;
+  const shown = demo.raw.slice(0, SHOWN_ROWS);
+  const maxRate = Math.max(...demo.byPlan.map(g => g.rate), 0.01);
 
   return (
-    <div
-      ref={root}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Welcome to Data Science Studio"
-      data-swarm-ui
-      onClick={close}
-      className="fixed inset-0 z-[10001] overflow-hidden select-none cursor-default"
-      style={{ opacity: leaving ? 0 : 1, transition: 'opacity 420ms ease' }}
-    >
-      {/* The stage: the studio blurred behind soft drifting light and a dot grid. */}
-      <div className="absolute inset-0" style={{ background: 'color-mix(in srgb, var(--canvas) 84%, transparent)', backdropFilter: 'blur(22px) saturate(1.15)', WebkitBackdropFilter: 'blur(22px) saturate(1.15)' }} />
-      {([
-        ['--agent-orchestrator', '-12vmax', '-14vmax', 0],
-        ['--agent-ml-engineer', '58vw', '-10vmax', -4],
-        ['--agent-statistician', '46vw', '56vh', -8],
-        ['--agent-data-engineer', '-10vmax', '48vh', -2],
-      ] as const).map(([c, left, top, delay]) => (
-        <div
-          key={c}
-          aria-hidden="true"
-          className="absolute rounded-full pointer-events-none"
-          style={{
-            left, top, width: '52vmax', height: '52vmax',
-            background: `radial-gradient(circle, color-mix(in srgb, var(${c}) 30%, transparent) 0%, transparent 62%)`,
-            filter: 'blur(30px)', opacity: 0.75,
-            animation: `welcome-drift 14s ease-in-out ${delay}s infinite alternate`,
-          }}
-        />
+    <div ref={root} role="dialog" aria-modal="true" aria-label="Meet your AI agents" data-swarm-ui onClick={close}
+      className="fixed inset-0 z-[10001] overflow-y-auto overflow-x-hidden select-none cursor-default"
+      style={{ opacity: leaving ? 0 : 1, transition: 'opacity 420ms ease' }}>
+      <div className="fixed inset-0" style={{ background: 'color-mix(in srgb, var(--canvas) 86%, transparent)', backdropFilter: 'blur(22px) saturate(1.15)', WebkitBackdropFilter: 'blur(22px) saturate(1.15)' }} />
+      {([['--agent-orchestrator', '-12vmax', '-14vmax', 0], ['--agent-ml-engineer', '58vw', '-10vmax', -4], ['--agent-statistician', '46vw', '56vh', -8]] as const).map(([c, left, top, delay]) => (
+        <div key={c} aria-hidden="true" className="fixed rounded-full pointer-events-none"
+          style={{ left, top, width: '52vmax', height: '52vmax', background: `radial-gradient(circle, color-mix(in srgb, var(${c}) 26%, transparent) 0%, transparent 62%)`, filter: 'blur(30px)', opacity: 0.7, animation: `welcome-drift 14s ease-in-out ${delay}s infinite alternate` }} />
       ))}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage: 'radial-gradient(circle, color-mix(in srgb, var(--label) 13%, transparent) 1px, transparent 1.5px)',
-          backgroundSize: '26px 26px',
-          maskImage: 'radial-gradient(ellipse 70% 65% at 50% 45%, black 20%, transparent 75%)',
-          WebkitMaskImage: 'radial-gradient(ellipse 70% 65% at 50% 45%, black 20%, transparent 75%)',
-        }}
-      />
-      <canvas ref={canvas} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />
-      {/* The tree from the Orchestrator to the cards, under the cards. */}
-      <svg ref={tree} aria-hidden="true" className="agent-tree" />
 
-      {/* Skip: small and dim, top-left, clear of the notch; the ring shows the time left. */}
-      <button
-        type="button"
-        onClick={e => { e.stopPropagation(); close(); }}
-        aria-label="Close welcome"
-        className="absolute z-20 w-10 h-10 rounded-full flex items-center justify-center text-label-2 opacity-50 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-        style={{ top: 'max(12px, env(safe-area-inset-top))', left: 'max(12px, env(safe-area-inset-left))' }}
-      >
+      {/* Skip, with a ring showing the time left. */}
+      <button type="button" onClick={e => { e.stopPropagation(); close(); }} aria-label="Close welcome"
+        className="fixed z-40 w-10 h-10 rounded-full flex items-center justify-center text-label-2 opacity-50 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+        style={{ top: 'max(12px, env(safe-area-inset-top))', left: 'max(12px, env(safe-area-inset-left))' }}>
         <svg width="36" height="36" viewBox="0 0 36 36" className="absolute inset-0.5 -rotate-90" aria-hidden="true">
           <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeOpacity="0.18" strokeWidth="1.5" />
-          {!still && (
-            <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="100.53" style={{ animation: `welcome-progress ${TOTAL_MS}ms linear forwards` }} />
-          )}
+          {!still && <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="100.53" style={{ animation: `welcome-progress ${TOTAL_MS}ms linear forwards` }} />}
         </svg>
         <X className="w-4 h-4" />
       </button>
 
-      {/* The composition. */}
-      {(() => {
-        const head = (
-          <>
-            <p className="h-5 font-semibold uppercase text-label-2" style={{ fontSize: phone ? 11 : 13, letterSpacing: '0.32em' }}>
-              <span ref={eyebrow} />
-              {!still && <span ref={caret} aria-hidden="true" className="inline-block w-[1.5px] h-[1em] align-[-2px] ml-1" style={{ background: AGENTS.orchestrator.color, animation: 'welcome-caret 0.9s steps(1) infinite' }} />}
-            </p>
-            <h1
-              className="font-editorial font-semibold text-label mt-3"
-              style={{ fontSize: phone ? 'clamp(38px, 11.5vw, 52px)' : 'clamp(52px, 7.6vw, 96px)', lineHeight: 0.98, letterSpacing: '-0.025em', maxWidth: gridWidth }}
-            >
-              {WORDS.map((wd, k) => (
-                <React.Fragment key={wd}>
-                  <span ref={el => { words.current[k] = el; }} className={`inline-block ${k === 2 ? 'italic font-normal' : ''}`} style={{ opacity: 0, paddingInline: '0.04em' }}>{wd}</span>
-                  {k < WORDS.length - 1 && ' '}
-                </React.Fragment>
-              ))}
+      <div className="relative min-h-full flex items-center justify-center px-4 sm:px-8 py-16">
+        <div className="w-full max-w-[1120px] grid grid-cols-1 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)] gap-8 lg:gap-12 items-center">
+          {/* What the agents do. */}
+          <div className="animate-fade-in">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.28em] text-label-2">Your AI team</p>
+            <h1 className="font-editorial font-semibold text-label mt-3 leading-[1.02] tracking-[-0.02em]" style={{ fontSize: phone ? 34 : 'clamp(38px, 4.2vw, 52px)' }}>
+              {TEAM_SIZE} specialists that work right on your page.
             </h1>
-            <p className="welcome-reveal font-editorial italic text-label-2 mt-4" data-on={phase !== 'intro' ? '1' : '0'} style={{ fontSize: phone ? 17 : 'clamp(18px, 1.9vw, 23px)' }}>
-              Your team of {TEAM_SIZE} AI agents
-            </p>
-            {!still && (
-              <span className="welcome-reveal mt-3" data-on={phase !== 'intro' ? '1' : '0'}>
-                <span ref={rootChip} className="agent-root" style={{ position: 'relative', opacity: 1, transition: 'opacity 500ms ease' }}><i />Orchestrator</span>
-              </span>
-            )}
-          </>
-        );
-        const tipEl = (
-          <div ref={tip} className="welcome-reveal" data-on={phase === 'ask' ? '1' : '0'}>
-            <p className="font-editorial font-semibold text-label" style={{ fontSize: phone ? 20 : 'clamp(21px, 2.3vw, 28px)', letterSpacing: '-0.01em' }}>
-              Just ask — we’ll do it right here on your page.
-            </p>
-            <p className="mt-1.5 text-label-2" style={{ fontSize: phone ? 14 : 16 }}>
-              To give the agents a task, tap <span className="font-semibold" style={{ color: AGENTS.orchestrator.color }}>Ask AI</span>{phone ? '.' : ', the floating button.'}
-            </p>
-          </div>
-        );
-        const card = (c: typeof CARDS[number], k: number) => {
-          const color = AGENTS[c.role].color;
-          return (
-            <>
-            {/* The card's glow, behind it: moving while it forms, then the finished violet. */}
-            {!still && (
-              <div
-                ref={el => { cardGlows.current[k] = el; }}
-                className="agent-glow"
-                data-state="live"
-                aria-hidden="true"
-                style={{ '--p': '44px', '--r': '16px', left: -44, top: -44, width: 'calc(100% + 88px)', height: 'calc(100% + 88px)', transition: 'opacity 200ms linear' } as React.CSSProperties}
-              >
-                <span className="bloom" /><span className="halo" /><span className="ring" />
-              </div>
-            )}
-            <div
-              ref={el => { cards.current[k] = el; }}
-              className={`welcome-card relative rounded-2xl border border-separator text-left ${phone ? 'flex flex-col items-center gap-1.5 px-1.5 py-3' : 'flex items-center gap-3 px-4 py-3.5'}`}
-              style={{ background: 'color-mix(in srgb, var(--raised) 94%, transparent)', boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 10px 30px -12px rgba(0,0,0,0.18)' }}
-            >
-              <span className={`welcome-icon shrink-0 rounded-xl flex items-center justify-center ${phone ? 'w-8 h-8' : 'w-10 h-10'}`} style={{ background: `color-mix(in srgb, ${color} 13%, transparent)`, color }}>
-                <c.Icon className={phone ? 'w-4 h-4' : 'w-[19px] h-[19px]'} strokeWidth={1.9} />
-              </span>
-              {phone ? (
-                <span className="font-editorial font-semibold text-label text-[14px] leading-tight text-center">{c.short}</span>
-              ) : (
-                <span className="min-w-0">
-                  <span className="block font-semibold uppercase text-[10px] tracking-[0.14em] whitespace-nowrap overflow-hidden text-ellipsis" style={{ color }}>{AGENTS[c.role].name}</span>
-                  <span className="block font-editorial font-semibold text-label leading-snug" style={{ fontSize: size === 'desktop' ? 18 : 16 }}>{c.text}</span>
-                </span>
-              )}
-            </div>
-            </>
-          );
-        };
-
-        if (mode === 'scatter') {
-          const cardW = size === 'desktop' ? 284 : 262;
-          return (
-            <>
-              <div className="absolute inset-x-0 flex justify-center px-4" style={{ top: 'max(56px, 7vh)' }}>
-                <div ref={column} className="flex flex-col items-center text-center">{head}</div>
-              </div>
-              <div className="absolute inset-x-0 flex justify-center px-4 text-center" style={{ bottom: 'max(40px, 7vh)' }}>{tipEl}</div>
-              {/* Scattered, each a little tilted; hidden until their places are found. */}
-              {CARDS.map((c, k) => (
-                <div
-                  key={c.text}
-                  className="absolute left-0 top-0"
-                  style={{
-                    width: cardW,
-                    visibility: placements ? 'visible' : 'hidden',
-                    transform: placements ? `translate(${placements[k].x}px, ${placements[k].y}px) rotate(${placements[k].rot}deg)` : undefined,
-                  }}
-                >
-                  {card(c, k)}
-                </div>
+            <ul className={phone ? 'mt-4 space-y-2.5' : 'mt-6 space-y-3.5'}>
+              {POINTS.map(({ Icon, text }) => (
+                <li key={text} className={`flex items-start gap-3 text-label leading-relaxed ${phone ? 'text-[13.5px]' : 'text-[15px]'}`}>
+                  <span className="mt-0.5 w-8 h-8 shrink-0 rounded-xl flex items-center justify-center" style={{ background: 'color-mix(in srgb, var(--agent-orchestrator) 13%, transparent)', color: 'var(--agent-orchestrator)' }}><Icon className="w-4 h-4" /></span>
+                  <span>{text}</span>
+                </li>
               ))}
-            </>
-          );
-        }
-        return (
-          <div className="absolute inset-0 flex items-center justify-center px-4" style={{ paddingTop: 'max(52px, env(safe-area-inset-top))', paddingBottom: phone ? 120 : 96 }}>
-            <div ref={column} className="flex flex-col items-center text-center" style={{ transform: scale < 1 && mode === 'grid' ? `scale(${scale})` : undefined }}>
-              {head}
-              {/* A loosely tilted grid: phones, and screens too tight to scatter on. */}
-              <div ref={grid} className="grid mt-7 sm:mt-10" style={{ width: gridWidth, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: phone ? 13 : 18 }}>
-                {CARDS.map((c, k) => (
-                  <div key={c.text} className="relative" style={{ transform: `rotate(${tilts[k].rot}deg) translateY(${tilts[k].dy}px)` }}>{card(c, k)}</div>
-                ))}
+            </ul>
+            <p className="mt-6 text-[15px] text-label-2">
+              To give them a task, tap <span className="font-semibold" style={{ color: color('orchestrator') }}>Ask AI</span>{phone ? '.' : ', the floating button.'}
+            </p>
+          </div>
+
+          {/* The live demo. */}
+          <div className="min-w-0">
+            <div data-demo="board" className="rounded-3xl border border-separator p-4 sm:p-5 space-y-4 animate-fade-in"
+              style={{ background: 'color-mix(in srgb, var(--raised) 94%, transparent)', boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 24px 60px -24px rgba(0,0,0,0.28)' }}>
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-sm font-semibold text-label">customers.csv <span className="font-normal text-label-3">· 20 rows</span></p>
+                <p className="text-[11px] text-label-3">Live · every number is computed</p>
               </div>
-              <div className="mt-8 sm:mt-10">{tipEl}</div>
+
+              <div className="overflow-hidden rounded-xl border border-separator">
+                <table className="w-full text-[12.5px] tabular-nums">
+                  <thead className="bg-fill">
+                    <tr>
+                      {(['id', 'plan', 'tenure', 'charges', 'churned'] as const).map(c => (
+                        <th key={c} data-head={c} className="px-2.5 py-1.5 text-left font-semibold text-label-2 transition-colors"
+                          style={board.selectedCols.includes(c) ? { background: `color-mix(in srgb, ${color('statistician')} 22%, transparent)`, color: 'var(--label)' } : undefined}>{c}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((x, i) => (
+                      <tr key={x.id} className="border-t border-separator">
+                        <td className="px-2.5 py-1 text-label-3">{x.id}</td>
+                        <td className="px-2.5 py-1 text-label">{x.plan}</td>
+                        {(['tenure', 'charges'] as const).map(c => {
+                          const key = `${i}:${c}`;
+                          const blank = board.cells[key] === '';
+                          const filled = board.flash.includes(key);
+                          return (
+                            <td key={c} data-cell={key} className="px-2.5 py-1 transition-colors duration-500"
+                              style={{ background: board.selectedCols.includes(c) ? `color-mix(in srgb, ${color('statistician')} 10%, transparent)` : filled ? 'color-mix(in srgb, var(--green) 16%, transparent)' : undefined }}>
+                              {blank ? <span className="inline-block w-10 rounded bg-orange/15 text-orange text-[11px] text-center">blank</span> : <span className={filled ? 'font-semibold text-label' : 'text-label'}>{board.cells[key]}</span>}
+                            </td>
+                          );
+                        })}
+                        <td className="px-2.5 py-1" style={{ color: x.churned === 'Yes' ? 'var(--orange)' : 'var(--label-2)' }}>{x.churned}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div data-demo="r" className="rounded-xl bg-well px-3 py-2.5">
+                  <p className="text-[11px] uppercase tracking-wide text-label-3">Tenure × charges</p>
+                  <p className="text-[15px] font-semibold text-label tabular-nums">{board.r ? `r = ${board.r}` : '—'}</p>
+                </div>
+                <div className="rounded-xl bg-well px-3 py-2.5 flex items-center gap-3">
+                  <button type="button" tabIndex={-1} data-demo="train" className="btn btn-sm btn-primary pointer-events-none">Train</button>
+                  <div className="min-w-0 flex-1">
+                    {board.training != null ? (
+                      <div className="h-1.5 rounded-full bg-fill overflow-hidden"><div className="h-full rounded-full" style={{ width: pct(board.training), background: color('ml_engineer'), transition: 'width 110ms linear' }} /></div>
+                    ) : board.model ? (
+                      <p className="text-[12.5px] text-label leading-snug"><b className="tabular-nums">{board.model}</b> right on {demo.model.testRows} new rows <span className="text-label-3">· rule: {demo.model.rule}</span></p>
+                    ) : <p className="text-[12.5px] text-label-3">A model of churn</p>}
+                  </div>
+                </div>
+              </div>
+
+              {/* A mini dashboard: the chart is dragged in, then widened by its curved corner. */}
+              <div className="grid grid-cols-[1fr_auto] gap-3 items-stretch">
+                <div data-demo="slot" className="rounded-xl border border-dashed border-separator-strong min-h-[92px] p-2 flex justify-end">
+                  {board.chartIn ? (
+                    <div className="relative rounded-lg bg-raised border border-separator p-2.5 transition-[width] duration-150" style={{ width: `${56 + board.chartWide * 44}%` }}>
+                      <p className="text-[11px] font-semibold text-label mb-1.5">Churn rate by plan</p>
+                      {demo.byPlan.map(g => (
+                        <div key={g.plan} className="flex items-center gap-2 text-[11px] text-label-2 mb-1">
+                          <span className="w-12 shrink-0">{g.plan}</span>
+                          <span className="h-2.5 rounded-sm" style={{ width: `${(g.rate / maxRate) * 70}%`, background: color('dashboard_designer') }} />
+                          <span className="tabular-nums">{pct(g.rate)}</span>
+                        </div>
+                      ))}
+                      <span data-demo="corner" className="absolute left-0 bottom-0 w-5 h-5" aria-hidden="true">
+                        <svg viewBox="0 0 20 20" className="w-full h-full"><path d="M3 3 C3 11 7 17 16 17" fill="none" stroke="var(--label-3)" strokeWidth="3" strokeLinecap="round" /></svg>
+                      </span>
+                    </div>
+                  ) : <p className="m-auto text-[11px] text-label-3">Dashboard</p>}
+                </div>
+                <div data-demo="tray" className="w-24 rounded-xl bg-well flex flex-col items-center justify-center gap-1 p-2" style={{ opacity: board.chartIn ? 0.35 : 1 }}>
+                  <span className="flex items-end gap-0.5 h-6">{[0.5, 0.9, 0.35].map((v, k) => <span key={k} className="w-2 rounded-sm" style={{ height: `${v * 100}%`, background: color('dashboard_designer') }} />)}</span>
+                  <span className="text-[10px] text-label-3">Chart</span>
+                </div>
+              </div>
+
+              <ul className="space-y-1.5">
+                {[`Blanks filled with medians (${demo.fills.map(f => f.value).join(', ')}): none left`, `Correlation recomputed from all 20 rows: ${demo.r.toFixed(2)}`, `Model rescored on the 6 held-out rows: ${pct(demo.model.accuracy)}`].map((t, k) => (
+                  <li key={k} data-check={k} className="flex items-center gap-2 text-[12.5px] transition-colors" style={{ color: board.checks > k ? 'var(--label)' : 'var(--label-3)' }}>
+                    <span className="w-4 h-4 rounded-full flex items-center justify-center shrink-0 transition-colors" style={{ background: board.checks > k ? color('verifier') : 'var(--fill)', color: '#fff' }}>{board.checks > k && <Check className="w-3 h-3" strokeWidth={3} />}</span>
+                    {t}
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
-        );
-      })()}
+        </div>
+      </div>
 
-      {/* The line to Ask AI, with a dot travelling along it. */}
-      {ask?.path && (
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
-          <defs>
-            <mask id="welcome-line-mask">
-              <path d={ask.path} fill="none" stroke="white" strokeWidth="6" pathLength={1} strokeDasharray="1" style={{ animation: 'welcome-draw 700ms cubic-bezier(.22,.61,.36,1) both' }} />
-            </mask>
-          </defs>
-          <path d={ask.path} fill="none" stroke={AGENTS.orchestrator.color} strokeOpacity="0.7" strokeWidth="1.6" strokeDasharray="3 6" strokeLinecap="round" mask="url(#welcome-line-mask)" />
-          <circle r="3.2" fill={AGENTS.orchestrator.color}>
-            <animateMotion dur="1.6s" repeatCount="indefinite" path={ask.path} begin="0.6s" />
-          </circle>
-        </svg>
+      {/* The chart being carried. */}
+      {board.dragChart && (
+        <div className="fixed z-30 pointer-events-none rounded-lg bg-raised border border-separator shadow-xl px-3 py-2 text-[11px] font-semibold text-label" style={{ left: board.dragChart.x - 30, top: board.dragChart.y - 16, transform: 'rotate(-2deg)' }}>
+          Churn rate by plan
+        </div>
       )}
 
-      {/* Ask AI: the button itself is under the welcome, so it is shown here. */}
+      {/* Ask AI: the real button is under the welcome, so it is shown here. */}
       {ask && (
-        <div
-          className="absolute z-10 rounded-full border-2 pointer-events-none flex items-center justify-center"
-          style={{
-            left: ask.ring.left, top: ask.ring.top, width: ask.ring.width, height: ask.ring.height,
-            borderColor: AGENTS.orchestrator.color, background: 'var(--raised)',
-            animation: 'agent-target 400ms ease-out both, welcome-pulse 1.4s ease-in-out 400ms infinite',
-          }}
-        >
+        <div className="fixed z-30 rounded-full border-2 pointer-events-none flex items-center justify-center"
+          style={{ left: ask.left, top: ask.top, width: ask.width, height: ask.height, borderColor: color('orchestrator'), background: 'var(--raised)', animation: 'agent-target 400ms ease-out both, welcome-pulse 1.4s ease-in-out 400ms infinite' }}>
           <Orb state="breathing" size={64} label="Ask AI" />
-          <span
-            className="absolute whitespace-nowrap px-2.5 py-1 text-[11px] font-semibold text-white shadow-lg"
-            style={{
-              background: AGENTS.orchestrator.color, borderRadius: 999,
-              ...(ask.ring.top > 60 ? { top: -32 } : { bottom: -32 }), ...(ask.ring.left > view.w / 2 ? { right: 0 } : { left: 0 }),
-            }}
-          >
+          <span className="absolute whitespace-nowrap px-2.5 py-1 text-[11px] font-semibold text-white shadow-lg"
+            style={{ background: color('orchestrator'), borderRadius: 999, ...(ask.top > 60 ? { top: -32 } : { bottom: -32 }), ...(ask.left > view.w / 2 ? { right: 0 } : { left: 0 }) }}>
             {phone ? 'Ask AI' : 'Ask AI · give the team a task'}
           </span>
         </div>
       )}
 
-      {/* Fine dust, above the cards. */}
-      <canvas ref={dustCanvas} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none z-20" />
-
-      {/* The swarm. */}
-      {!still && Array.from({ length: count }, (_, i) => {
-        const role = roleOf(i);
-        const color = AGENTS[role].color;
-        return (
-          <div key={i} ref={el => { cursorEls.current[i] = el; }} className="absolute left-0 top-0 z-30 pointer-events-none will-change-transform" aria-hidden="true" style={{ transform: 'translate3d(-100px,-100px,0)' }}>
-            {/* Partners (two-tone) touch and explode; workers (solid) type and roam. */}
-            <CursorGlyph color={color} variant={i < CARDS.length || (i > TYPIST && i % 2 === 0) ? 'soft' : 'solid'} size={phone ? 19 : 22} />
-            <span ref={el => { tagEls.current[i] = el; }} className={`agent-tag${phone ? ' small' : ''}`} style={{ left: 14, top: phone ? 15 : 17 }}>
-              <span className="font-semibold">{AGENTS[role].name}</span>
-            </span>
-          </div>
-        );
-      })}
+      {/* The agents at work. */}
+      {!still && CAST.map((role, i) => (
+        <div key={role} ref={el => { cursorEls.current[i] = el; }} className="fixed left-0 top-0 z-40 pointer-events-none will-change-transform" aria-hidden="true" style={{ transform: 'translate3d(-100px,-100px,0)' }}>
+          <CursorGlyph color={color(role)} variant="solid" size={phone ? 19 : 22} />
+          <span className={`agent-tag${phone ? ' small' : ''}`} style={{ left: 14, top: phone ? 15 : 17 }}>
+            <span className="font-semibold">{AGENTS[role].name}</span>{labels[i] && <span className="opacity-80"> · {labels[i]}</span>}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

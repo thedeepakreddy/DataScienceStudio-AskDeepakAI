@@ -34,11 +34,14 @@ export default function DashGrid({ items, storageKey, perRow }: { items: GridIte
   const [keep, setKeep] = useState<boolean>(() => { try { return localStorage.getItem('dash-keep-arranged') === '1'; } catch { return false; } });
   const [active, setActive] = useState<{ id: string; mode: 'resize' | 'move' } | null>(null);
   const undo = useRef<Cell[][]>([]);
+  const [undoCount, setUndoCount] = useState(0);
   const gridRef = useRef<HTMLDivElement>(null);
 
   // New or removed charts (a new design, an agent, the customise panel).
   const ids = items.map(i => i.id).join('|');
   useEffect(() => {
+    // The panels on the dashboard changed elsewhere: keep their places, add new ones below.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCells(prev => {
       const fromStore = load(storageKey);
       return sync(fromStore && prev.length === 0 ? fromStore : prev, items, perRow);
@@ -52,11 +55,13 @@ export default function DashGrid({ items, storageKey, perRow }: { items: GridIte
     if (perRow === firstPerRow.current) return;
     firstPerRow.current = perRow;
     setCells(prev => { undo.current = [...undo.current.slice(-19), prev]; return initial(items, perRow); });
+    setUndoCount(c => c + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [perRow]);
 
   const commit = (next: Cell[], before: Cell[]) => {
     undo.current = [...undo.current.slice(-19), before];
+    setUndoCount(undo.current.length);
     setCells(keep ? cleanUp(next, kindOf) : next);
   };
 
@@ -98,7 +103,7 @@ export default function DashGrid({ items, storageKey, perRow }: { items: GridIte
 
   const tidy = () => commit(cleanUp(cells, kindOf), cells);
   const reset = () => commit(initial(items, perRow), cells);
-  const back = () => { const prev = undo.current.pop(); if (prev) setCells(prev); };
+  const back = () => { const prev = undo.current.pop(); setUndoCount(undo.current.length); if (prev) setCells(prev); };
   const toggleKeep = () => {
     const v = !keep; setKeep(v);
     try { localStorage.setItem('dash-keep-arranged', v ? '1' : '0'); } catch { /* ignore */ }
@@ -116,7 +121,7 @@ export default function DashGrid({ items, storageKey, perRow }: { items: GridIte
           <label className="flex items-center gap-1.5 text-xs text-label-2 mr-1">
             <input type="checkbox" checked={keep} onChange={toggleKeep} data-agent="dash-keep-arranged" /> Keep arranged
           </label>
-          <button type="button" className="btn btn-sm btn-plain" onClick={back} disabled={!undo.current.length} aria-label="Undo the last layout change"><Undo2 className="w-3.5 h-3.5" /> Undo</button>
+          <button type="button" className="btn btn-sm btn-plain" onClick={back} disabled={!undoCount} aria-label="Undo the last layout change"><Undo2 className="w-3.5 h-3.5" /> Undo</button>
           <button type="button" className="btn btn-sm btn-plain" onClick={reset}><RotateCcw className="w-3.5 h-3.5" /> Reset</button>
           <button type="button" className="btn btn-sm btn-secondary" onClick={tidy} data-agent="dash-clean-up"><LayoutGrid className="w-3.5 h-3.5" /> Clean up</button>
         </div>
