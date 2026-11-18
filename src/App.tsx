@@ -33,7 +33,7 @@ import ReportsHub from './components/ReportsHub';
 import AssistiveTouchBot from './components/AssistiveTouchBot';
 import StageNavigation from './components/StageNavigation';
 import StageHeader from './components/StageHeader';
-import MLServiceWakeButton from './components/MLServiceWakeButton';
+import EngineStatus from './components/EngineStatus';
 import AppIcon from './components/AppIcon';
 import Orb from './components/Orb';
 import AiKeySheet from './components/AiKeySheet';
@@ -698,7 +698,7 @@ export default function App() {
               </button>
             </div>
 
-            <MLServiceWakeButton />
+            <EngineStatus />
 
             <JobsButton />
 
