@@ -5,7 +5,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AGENTS } from '../swarm/agents';
-import { InteractionEvent, SWARM_CLEARED_EVENT, findTarget, interactions } from '../swarm/interaction';
+import { InteractionEvent, SWARM_CLEARED_EVENT, SWARM_STATUS_EVENT, findTarget, interactions } from '../swarm/interaction';
 import { HumanPointer } from './AgentCursor';
 import { AgentStage } from './agentStage';
 
@@ -75,8 +75,10 @@ export default function AgentCursorLayer() {
     const s = new AgentStage(host.current);
     stage.current = s;
     const onClear = () => s.clear();
+    const onStatus = (e: Event) => s.setPaused((e as CustomEvent).detail === 'paused');
     window.addEventListener(SWARM_CLEARED_EVENT, onClear);
-    return () => { window.removeEventListener(SWARM_CLEARED_EVENT, onClear); s.destroy(); stage.current = null; };
+    window.addEventListener(SWARM_STATUS_EVENT, onStatus);
+    return () => { window.removeEventListener(SWARM_CLEARED_EVENT, onClear); window.removeEventListener(SWARM_STATUS_EVENT, onStatus); s.destroy(); stage.current = null; };
   }, []);
 
   /** Sends the working cursor to `target`. */

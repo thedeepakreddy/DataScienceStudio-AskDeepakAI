@@ -855,6 +855,16 @@
   background: var(--raised); border: 1px solid var(--separator); color: var(--label);
   box-shadow: 0 2px 10px rgba(0,0,0,0.08); opacity: 0; transition: opacity 400ms ease;
 }
+.agent-root { padding: 2px 2px 2px 0; gap: 2px; }
+.agent-root-stop { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 8px; border-radius: 999px; font: inherit; color: inherit; cursor: pointer; position: relative; }
+.agent-root-stop b { display: none; font-weight: 700; color: var(--red); }
+.agent-root-stop:hover, .agent-root-stop:focus-visible { background: color-mix(in srgb, var(--red) 12%, transparent); }
+.agent-root-stop:hover span, .agent-root-stop:focus-visible span { display: none; }
+.agent-root-stop:hover b, .agent-root-stop:focus-visible b { display: inline; }
+.agent-root-pause { width: 20px; height: 20px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: var(--label-2); background: var(--fill); cursor: pointer; }
+.agent-root-pause:hover, .agent-root-pause:focus-visible { background: var(--fill-strong); color: var(--label); }
+.agent-root[data-paused="1"] .agent-root-pause { background: var(--blue); color: #fff; }
+.agent-root[data-paused="1"] i { animation: none; opacity: .5; }
 .agent-root i { width: 7px; height: 7px; border-radius: 50%; background: conic-gradient(var(--ag-g1), var(--ag-g2), var(--ag-g3), var(--ag-g1)); box-shadow: 0 0 8px var(--ag-g2); }
 @media (prefers-reduced-motion: reduce) {
   .agent-glow[data-state="live"] { animation: none; }
