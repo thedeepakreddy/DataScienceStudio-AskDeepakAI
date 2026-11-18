@@ -16,7 +16,7 @@ import type { SwarmRun } from '../swarm/runtime';
 // every analysis run is recorded against the version it ran on.
 
 const DB_NAME = 'askdeepak-studio';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 /** Versions kept per dataset; the oldest unpinned ones are pruned past this. */
 export const MAX_VERSIONS_PER_DATASET = 25;
 
@@ -117,6 +117,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('dashboards')) {
         const s = db.createObjectStore('dashboards', { keyPath: 'id' });
+        s.createIndex('datasetId', 'datasetId');
+      }
+      if (!db.objectStoreNames.contains('pins')) {
+        const s = db.createObjectStore('pins', { keyPath: 'id' });
         s.createIndex('datasetId', 'datasetId');
       }
     };
@@ -316,6 +320,85 @@ export async function deleteDashboard(id: string): Promise<void> {
   await done(tx);
 }
 
+// --- Pinned results ------------------------------------------------------------
+// Engine results pinned to a dataset's dashboard. Each keeps what is needed to
+// show it again and to recompute it on newer data: the capability, its
+// parameters and how to draw it.
+
+export type PinView =
+  | { kind: 'method'; methodId: string; values: Record<string, unknown> }
+  | { kind: 'automl' | 'explain' | 'monitor' | 'scenarios' | 'predict' };
+
+export interface PinRecord {
+  id: string;
+  datasetId: string;
+  title: string;
+  /** The result's one-sentence headline when it was computed. */
+  headline: string;
+  view: PinView;
+  capability: string;
+  params: Record<string, unknown>;
+  result: unknown;
+  /** The data version it was computed on, and when. */
+  versionId: string | null;
+  computedAt: number;
+  /** Position on the dashboard (smaller first). */
+  order: number;
+}
+
+export const PINS_CHANGED_EVENT = 'studio:pins-changed';
+const pinsChanged = (datasetId: string) => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(PINS_CHANGED_EVENT, { detail: { datasetId } }));
+};
+
+export async function listPins(datasetId: string): Promise<PinRecord[]> {
+  const db = await openDb();
+  const all = await promisify(db.transaction('pins').objectStore('pins').index('datasetId').getAll(datasetId)) as PinRecord[];
+  return all.sort((a, b) => a.order - b.order || a.computedAt - b.computedAt);
+}
+
+/** Pins a result at the end of the dashboard. */
+export async function addPin(pin: Omit<PinRecord, 'id' | 'order' | 'computedAt'> & { computedAt?: number }): Promise<PinRecord> {
+  const existing = await listPins(pin.datasetId);
+  const record: PinRecord = { ...pin, id: newId(), computedAt: pin.computedAt ?? Date.now(), order: (existing.at(-1)?.order ?? 0) + 1 };
+  const db = await openDb();
+  const tx = db.transaction('pins', 'readwrite');
+  tx.objectStore('pins').put(record);
+  await done(tx);
+  pinsChanged(pin.datasetId);
+  return record;
+}
+
+export async function updatePin(pin: PinRecord): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('pins', 'readwrite');
+  tx.objectStore('pins').put(pin);
+  await done(tx);
+  pinsChanged(pin.datasetId);
+}
+
+export async function deletePin(pin: Pick<PinRecord, 'id' | 'datasetId'>): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction('pins', 'readwrite');
+  tx.objectStore('pins').delete(pin.id);
+  await done(tx);
+  pinsChanged(pin.datasetId);
+}
+
+/** Moves a pin one place up (-1) or down (+1). */
+export async function movePin(pin: PinRecord, by: -1 | 1): Promise<void> {
+  const list = await listPins(pin.datasetId);
+  const i = list.findIndex(p => p.id === pin.id);
+  const j = i + by;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  const db = await openDb();
+  const tx = db.transaction('pins', 'readwrite');
+  list.forEach((p, k) => tx.objectStore('pins').put({ ...p, order: k + 1 }));
+  await done(tx);
+  pinsChanged(pin.datasetId);
+}
+
 // --- Agent swarm runs and plan cache ---------------------------------------------
 
 export async function saveSwarmRun(run: SwarmRun): Promise<void> {
@@ -424,7 +507,8 @@ export async function loadSession(): Promise<WorkspaceSession | undefined> {
 /** Deletes every saved version, run, model file and the session. */
 export async function clearWorkspace(): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards', 'registry', 'workflows', 'swarmRuns', 'swarmCache'], 'readwrite');
+  const tx = db.transaction(['versions', 'runs', 'session', 'models', 'rules', 'dashboards', 'registry', 'workflows', 'swarmRuns', 'swarmCache', 'pins'], 'readwrite');
+  tx.objectStore('pins').clear();
   tx.objectStore('swarmRuns').clear();
   tx.objectStore('swarmCache').clear();
   tx.objectStore('workflows').clear();
@@ -457,6 +541,7 @@ interface WorkspaceFile {
   dashboards?: SavedDashboard[];
   registry?: RegisteredModel[];
   workflows?: SavedWorkflow[];
+  pins?: PinRecord[];
 }
 
 const toBase64 = (buf: ArrayBuffer) => {
@@ -474,8 +559,8 @@ const fromBase64 = (b64: string) => {
 
 export async function exportWorkspace(): Promise<string> {
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows']);
-  const [versions, runs, models, session, ruleKeys, ruleValues, dashboards, registry, workflows] = await Promise.all([
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows', 'pins']);
+  const [versions, runs, models, session, ruleKeys, ruleValues, dashboards, registry, workflows, pins] = await Promise.all([
     promisify(tx.objectStore('versions').getAll()),
     promisify(tx.objectStore('runs').getAll()),
     promisify(tx.objectStore('models').getAll()),
@@ -485,6 +570,7 @@ export async function exportWorkspace(): Promise<string> {
     promisify(tx.objectStore('dashboards').getAll()),
     promisify(tx.objectStore('registry').getAll()),
     promisify(tx.objectStore('workflows').getAll()),
+    promisify(tx.objectStore('pins').getAll()),
   ]);
   const file: WorkspaceFile = {
     format: WORKSPACE_FORMAT,
@@ -498,6 +584,7 @@ export async function exportWorkspace(): Promise<string> {
     dashboards: dashboards as SavedDashboard[],
     registry: registry as RegisteredModel[],
     workflows: workflows as SavedWorkflow[],
+    pins: pins as PinRecord[],
   };
   return JSON.stringify(file);
 }
@@ -522,8 +609,9 @@ export async function importWorkspace(text: string): Promise<{ versions: number;
   if (!file.versions.every(validVersion)) throw new Error('The workspace file has a damaged dataset version.');
 
   const db = await openDb();
-  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows'], 'readwrite');
-  ['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows'].forEach(n => tx.objectStore(n).clear());
+  const tx = db.transaction(['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows', 'pins'], 'readwrite');
+  ['versions', 'runs', 'models', 'session', 'rules', 'dashboards', 'registry', 'workflows', 'pins'].forEach(n => tx.objectStore(n).clear());
+  (file.pins ?? []).forEach(p => { if (p && typeof p.id === 'string' && typeof p.datasetId === 'string') tx.objectStore('pins').put(p); });
   (file.workflows ?? []).forEach(w => { if (w && typeof w.id === 'string') tx.objectStore('workflows').put(w); });
   (file.registry ?? []).forEach(m => { if (m && typeof m.id === 'string') tx.objectStore('registry').put(m); });
   (file.dashboards ?? []).forEach(d => { if (d && typeof d.id === 'string') tx.objectStore('dashboards').put(d); });

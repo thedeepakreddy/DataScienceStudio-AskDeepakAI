@@ -15,6 +15,8 @@ import { detectDuplicateRecords, findExtremeOutliers } from '../utils/edaEngine'
 import { computeReportFindings } from '../utils/reportFindings';
 import { runReadOnlySql } from '../utils/safeSql';
 import type { AgentRole } from './agents';
+import type { RunInput } from '../contexts/WorkspaceContext';
+import { ENGINE_AGENT_CAPABILITIES } from './engineCapabilities';
 import { abTest } from '../utils/abTest';
 import { UI_SCRIPTS, type UiScript } from './uiScripts';
 import { reviewDataChange, reviewModel, reviewTest } from './review';
@@ -49,6 +51,10 @@ export interface StudioPort {
   runCode: (code: string, ds: Dataset) => Promise<Dataset>;
   /** Runs the Explore AI advisory (an AI call unless AI is unavailable). */
   runAdvisory: () => Promise<{ source?: string; recommendedTarget?: string } | null>;
+  /** Records an analysis in the studio's history, as the studio's own buttons do. */
+  logRun?: (run: RunInput) => void;
+  /** Which dataset and version results are pinned to on the dashboard. */
+  getPinTarget?: () => { datasetId: string | null; versionId: string | null };
 }
 
 export interface CapabilityResult {
@@ -602,7 +608,7 @@ const OTHER: Capability[] = [
 ];
 
 export const CAPABILITIES: Record<string, Capability> = Object.fromEntries(
-  [...(Object.keys(DATA_OPS) as OperationId[]).filter(op => op in OPERATIONS).map(dataCapability), ...OTHER]
+  [...(Object.keys(DATA_OPS) as OperationId[]).filter(op => op in OPERATIONS).map(dataCapability), ...OTHER, ...ENGINE_AGENT_CAPABILITIES]
     .map(c => [c.id, UI_SCRIPTS[c.id] ? { ...c, ui: UI_SCRIPTS[c.id] } : c]),
 );
 

@@ -43,6 +43,8 @@ describe('methods', () => {
     expect(ENGINE_METHODS.glm.headline({ coefficients: [
       { term: 'Intercept', estimate: 2, p: 0, statistic: 20 }, { term: 'x', estimate: 0.8, ci: [0.7, 0.9], p: 1e-9, statistic: 12 }, { term: 'g', estimate: 0.1, p: 0.4, statistic: 0.8 }] }, { outcome: 'y' }))
       .toBe('x has the clearest effect on y: +0.8 per unit (95% CI 0.7 to 0.9, p < 0.001).');
+    expect(ENGINE_METHODS.glm.headline({ coefficients: [{ term: 'region = South', estimate: -123, ci: [-161, -85.9], p: 1e-9, statistic: -6 }] }, { outcome: 'revenue' }))
+      .toBe('region = South has the clearest effect on revenue: -123 compared with the reference group (95% CI -161 to -85.9, p < 0.001).');
     expect(ENGINE_METHODS.ab.headline({ control: 'A', sampleRatio: { mismatch: false }, variants: [{ variant: 'A' }, { variant: 'B', p: 0.2, relativeLift: 0.05, significant: false }] }, {}))
       .toBe('No variant clearly beats A: best is B at +5% (p 0.200).');
     expect(ENGINE_METHODS.ab.headline({ control: 'A', sampleRatio: { mismatch: true, p: 0.001 }, variants: [] }, {})).toMatch(/^Don’t trust this test yet/);

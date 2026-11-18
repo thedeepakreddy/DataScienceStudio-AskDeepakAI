@@ -53,6 +53,8 @@ export function useSwarm(port: RuntimePort, ids: { datasetId: string | null; act
     resetOriginal: () => portRef.current.resetOriginal(),
     runCode: (...a) => portRef.current.runCode(...a),
     runAdvisory: () => portRef.current.runAdvisory(),
+    logRun: run => portRef.current.logRun?.(run),
+    getPinTarget: () => portRef.current.getPinTarget?.() ?? { datasetId: null, versionId: null },
     settle: () => portRef.current.settle(),
     findAppliedVersion: (...a) => portRef.current.findAppliedVersion(...a),
   }));

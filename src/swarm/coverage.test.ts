@@ -22,14 +22,16 @@ const pageSources = [...componentFiles, 'App.tsx'].map(f => [f, read(f)] as cons
 const staticTags = new Set<string>();
 const prefixes = new Set<string>();
 for (const [, src] of pageSources) {
-  for (const m of src.matchAll(/data-agent="([^"]+)"/g)) staticTags.add(m[1]);
-  for (const m of src.matchAll(/data-agent=\{`([^`$]*)\$\{/g)) prefixes.add(m[1]);
+  // Shared controls (RunBar, PinButton) take their tag as an `agent` prop.
+  for (const m of src.matchAll(/(?:data-agent|\bagent)="([^"]+)"/g)) staticTags.add(m[1]);
+  for (const m of src.matchAll(/(?:data-agent|\bagent)=\{`([^`$]*)\$\{/g)) prefixes.add(m[1]);
   if (/data-agent=\{id\}/.test(src)) for (const m of src.matchAll(/columnSelect\('([^']+)'/g)) staticTags.add(m[1]);
   for (const m of src.matchAll(/htmlFor="([^"]+)"[^>]*>[^<]*<\/label>\s*\{columnSelect/g)) staticTags.add(m[1]);
 }
 const onPage = (target: string) => staticTags.has(target) || [...prefixes].some(p => p && target.startsWith(p));
 
-const scripts = read('swarm/uiScripts.ts');
+// Page scripts: the hand-written ones, and those for the engine's analyses.
+const scripts = read('swarm/uiScripts.ts') + read('swarm/engineCapabilities.ts');
 
 describe('agents can operate every feature', () => {
   it('every control a UI script uses is on the page', () => {

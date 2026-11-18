@@ -48,6 +48,8 @@ import HistorySheet from './components/HistorySheet';
 import JobsButton from './components/JobsButton';
 import ExperimentsPanel from './components/ExperimentsPanel';
 import ModelStage from './components/model/ModelStage';
+import PinnedResults from './components/pins/PinnedResults';
+import { PinTargetContext } from './components/pins/PinButton';
 import DeployPanel from './components/DeployPanel';
 import SwarmPanel from './components/SwarmPanel';
 import MoreMenu from './components/MoreMenu';
@@ -593,6 +595,7 @@ export default function App() {
   };
 
   const workspaceValue = React.useMemo(() => ({ logRun }), [logRun]);
+  const pinTarget = React.useMemo(() => ({ datasetId, versionId: activeVersionId }), [datasetId, activeVersionId]);
 
   // ---- Agent swarm --------------------------------------------------------
   // The studio lends the agents the same functions its own buttons use.
@@ -621,6 +624,8 @@ export default function App() {
       return datasetFromRecords(cols, out.rows.map((r: Record<string, unknown>) => ({ ...r })), ds.filename);
     },
     runAdvisory: async () => { await triggerAIScan(); return aiAnalysisRef.current; },
+    logRun,
+    getPinTarget: () => ({ datasetId, versionId: activeVersionRef.current }),
     settle: async () => { await saveQueue.current; return activeVersionRef.current; },
     findAppliedVersion: async (parentId, capability, params) => {
       if (!capability.startsWith('data.') || !datasetId) return null;
@@ -650,6 +655,7 @@ export default function App() {
 
   return (
     <WorkspaceContext.Provider value={workspaceValue}>
+    <PinTargetContext.Provider value={pinTarget}>
     <div className="min-h-screen flex flex-col bg-canvas text-label" id="workstation_app">
       <AnimatePresence>
         {showLoading && <LoadingScreen onComplete={handleLoadingComplete} />}
@@ -1018,6 +1024,10 @@ export default function App() {
             )}
 
             {activeTab === 'dashboard' && activeDataset && (
+              <PinnedResults dataset={activeDataset} datasetId={datasetId} versionId={activeVersionId} />
+            )}
+
+            {activeTab === 'dashboard' && activeDataset && (
               <StakeholderDashboard
                 dataset={activeDataset}
                 strategicSlicer={aiAnalysis?.strategicSlicer}
@@ -1205,6 +1215,7 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </PinTargetContext.Provider>
     </WorkspaceContext.Provider>
   );
 }

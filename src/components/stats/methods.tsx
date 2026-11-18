@@ -29,7 +29,9 @@ const glm: Method = {
     const top = strongest(r.coefficients);
     if (!top) return `None of the factors has a clear effect on ${v.outcome} (all p ≥ 0.05).`;
     if (r.expMeaning && top.expEstimate) return `${top.term} has the clearest effect: it multiplies the ${r.expMeaning === 'odds ratio' ? 'odds' : 'rate'} of ${v.outcome} by ${num(top.expEstimate)} (${ciText(top.expCi)}).`;
-    return `${top.term} has the clearest effect on ${v.outcome}: ${signed(top.estimate)} per unit (${ciText(top.ci)}, p ${pValue(top.p)}).`;
+    // A category's term ("region = South") is a difference from the reference group, not a slope.
+    const per = / = /.test(top.term) ? 'compared with the reference group' : 'per unit';
+    return `${top.term} has the clearest effect on ${v.outcome}: ${signed(top.estimate)} ${per} (${ciText(top.ci)}, p ${pValue(top.p)}).`;
   },
   tone: r => strongest(r.coefficients) ? 'good' : 'plain',
   render: r => {

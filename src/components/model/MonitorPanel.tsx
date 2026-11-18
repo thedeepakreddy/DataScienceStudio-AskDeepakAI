@@ -11,6 +11,7 @@ import { useCapability } from '../../engine/useCapability';
 import { useLogRun } from '../../contexts/WorkspaceContext';
 import RunBar from '../engine/RunBar';
 import Provenance from '../engine/Provenance';
+import { ResultFooter } from '../pins/PinButton';
 import { DataTable, Section, num, pct } from '../stats/methodKit';
 import { ModelPicker, metricLabel, modelName, useSelectedModel } from './models';
 
@@ -26,6 +27,14 @@ export const StatusPill = ({ status }: { status: string }) => {
   return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${s.cls}`}><s.Icon className="w-3.5 h-3.5" /> {s.label}</span>;
 };
 
+/** One sentence on a monitoring report. */
+export function monitorHeadline(r: any): string {
+  if (r?.summary?.status === 'insufficient_data') return `Only ${r.summary.rows} rows — too few to judge drift reliably.`;
+  const perf = r?.performance?.relativeDrop != null
+    ? `; ${metricLabel(r.performance.primaryMetric)} is ${r.performance.relativeDrop > 0.005 ? `${pct(r.performance.relativeDrop)} worse than` : 'as good as'} at training` : '';
+  return `${r?.summary?.featuresDrifted ?? 0} of ${r?.summary?.featuresChecked ?? 0} columns have drifted${perf}.`;
+}
+
 const PSI_HELP = 'PSI (population stability index): below 0.1 is stable, 0.1–0.25 a moderate shift, above 0.25 a large shift.';
 
 export default function MonitorPanel({ dataset }: { dataset: Dataset }) {
@@ -36,6 +45,7 @@ export default function MonitorPanel({ dataset }: { dataset: Dataset }) {
   const hasTarget = !!model && dataset.columns.some(c => c.name === model.target);
   const [useTarget, setUseTarget] = useState(true);
   const r = run.result as any;
+  const [ranParams, setRanParams] = useState<Record<string, unknown>>({});
 
   const loadHistory = useCallback(() => {
     if (!model) { setHistory([]); return; }
@@ -46,7 +56,7 @@ export default function MonitorPanel({ dataset }: { dataset: Dataset }) {
   useEffect(() => {
     if (!r) return;
     loadHistory();
-    logRun({ kind: 'engine', title: `Monitor ${model ? modelName(model) : 'model'}`, summary: `${STATUS[r.summary?.status as keyof typeof STATUS]?.label ?? r.summary?.status}: ${r.summary?.featuresDrifted ?? 0} of ${r.summary?.featuresChecked ?? 0} columns drifted${r.alerts?.length ? `; ${r.alerts.map((a: any) => a.message).join(' ')}` : '.'}`, status: 'succeeded', params: { capability: 'mlops.monitor', params: { model: model?.id }, runId: r.runId }, result: r });
+    logRun({ kind: 'engine', title: `Monitor ${model ? modelName(model) : 'model'}`, summary: `${STATUS[r.summary?.status as keyof typeof STATUS]?.label ?? r.summary?.status}: ${r.summary?.featuresDrifted ?? 0} of ${r.summary?.featuresChecked ?? 0} columns drifted${r.alerts?.length ? `; ${r.alerts.map((a: any) => a.message).join(' ')}` : '.'}`, status: 'succeeded', params: { capability: 'mlops.monitor', params: ranParams, runId: r.runId, view: { kind: 'monitor' } }, result: r });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r]);
 
@@ -62,7 +72,7 @@ export default function MonitorPanel({ dataset }: { dataset: Dataset }) {
           {hasTarget && <label className="flex items-center gap-2 text-sm text-label self-end pb-2"><input type="checkbox" checked={useTarget} onChange={e => setUseTarget(e.target.checked)} /> This data has the real {model!.target} — check accuracy too</label>}
         </div>
         <RunBar run={run} label={`Check against ${dataset.filename}`} agent="monitor-run" disabled={!model}
-          onRun={() => run.run({ model: model!.id, source: 'dataset', ...(hasTarget && useTarget ? { target: model!.target } : {}) }, { withDataset: true })} />
+          onRun={() => { const p = { model: model!.id, source: 'dataset', ...(hasTarget && useTarget ? { target: model!.target } : {}) }; setRanParams(p); run.run(p, { withDataset: true }); }} />
         {!model && <p className="text-xs text-label-3">Train or choose a saved model first.</p>}
       </div>
 
@@ -70,10 +80,7 @@ export default function MonitorPanel({ dataset }: { dataset: Dataset }) {
         <div className="card p-4 sm:p-5 space-y-5 animate-fade-in" role="region" aria-label="Monitoring report">
           <div className="flex flex-wrap items-center gap-3">
             <StatusPill status={r.summary?.status} />
-            <p className="text-[17px] font-semibold text-label">
-              {r.summary?.status === 'insufficient_data' ? `Only ${r.summary.rows} rows — too few to judge drift reliably.`
-                : `${r.summary?.featuresDrifted ?? 0} of ${r.summary?.featuresChecked ?? 0} columns have drifted${r.performance?.relativeDrop != null ? `; ${metricLabel(r.performance.primaryMetric)} is ${r.performance.relativeDrop > 0.005 ? `${pct(r.performance.relativeDrop)} worse than` : 'as good as'} at training` : ''}.`}
-            </p>
+            <p className="text-[17px] font-semibold text-label">{monitorHeadline(r)}</p>
           </div>
           {r.alerts?.length > 0 && (
             <ul className="space-y-1.5">
@@ -102,7 +109,8 @@ export default function MonitorPanel({ dataset }: { dataset: Dataset }) {
           {r.predictionDrift && (
             <p className="text-sm text-label-2">Predictions: PSI {num(r.predictionDrift.psi, 2)}{r.predictionDrift.shares ? ` — ${r.predictionDrift.shares.filter((s: any) => s.value !== '(other)').map((s: any) => `${s.value} ${pct(s.reference)} → ${pct(s.current)}`).join(', ')}` : ''}.</p>
           )}
-          <div className="border-t border-separator pt-3"><Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} /></div>
+          <ResultFooter agent="pin-monitor" provenance={<Provenance manifest={r.manifest} runId={r.runId} notes={r.notes} />}
+            pin={{ title: `Health of ${model ? modelName(model) : 'the model'}`, headline: monitorHeadline(r), view: { kind: 'monitor' }, capability: 'mlops.monitor', params: ranParams, result: r }} />
         </div>
       )}
 
