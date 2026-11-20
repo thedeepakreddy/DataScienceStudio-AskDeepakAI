@@ -15,6 +15,7 @@ import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from '@google/genai';
 import { FALLBACK_GEMINI_MODELS, findFreeModels, rankGeminiModels, withFallback, type ListedModel, type ProbeOutcome } from './geminiModels';
+import { arcConfigFromEnv, arcGenerateContent, describeArcFailure } from './arcClient';
 
 const app = express();
 // Render (and most hosts) put the app behind one proxy; trust it so req.ip is the visitor's address.
@@ -55,9 +56,16 @@ function ownerGeminiKey(): string | null {
 function visitorGeminiKey(): string | null {
   return aiKeyContext.getStore()?.userKey ?? null;
 }
-/** True when this request can reach Gemini with either key. */
+// --- ARC (optional) ---
+// With ARC_BASE_URL and ARC_API_KEY set, every AI call goes to ARC first: ARC holds the owner's
+// provider keys (several per provider) and picks a healthy free model and key, with its own
+// fallback. GEMINI_API_KEY and visitors' own keys stay as fallbacks if ARC can't answer.
+const ARC = arcConfigFromEnv();
+if (ARC) console.log(`[AskDeepakAI AI] Using ARC (${ARC.model}) first; Gemini keys are the fallback.`);
+
+/** True when this request can reach an AI model: through ARC or with either Gemini key. */
 function aiKeyAvailable(): boolean {
-  return !!ownerGeminiKey() || !!visitorGeminiKey();
+  return !!ARC || !!ownerGeminiKey() || !!visitorGeminiKey();
 }
 
 // --- LONG-RUNNING REQUESTS AS BACKGROUND JOBS ---
@@ -176,7 +184,7 @@ function getGeminiClient(): GoogleGenAI {
 // is recorded here and exposed at /api/ai/status so the UI can say why.
 const geminiHealth: {
   lastOk: { at: number; model: string } | null;
-  lastFailure: { at: number; kind: GeminiFailureKind; models: string[]; detail: string } | null;
+  lastFailure: { at: number; kind: GeminiFailureKind; models: string[]; detail: string; via?: 'arc' } | null;
 } = { lastOk: null, lastFailure: null };
 
 // Which models to ask, best first. It starts as the built-in list and is
@@ -336,6 +344,19 @@ async function generateContentWithRetry(_client: GoogleGenAI, params: {
 }) {
   const owner = ownerGeminiKey();
   const visitor = visitorGeminiKey();
+
+  if (ARC) {
+    try {
+      const response = await arcGenerateContent({ ...ARC, timeoutMs: GEMINI_CALL_BUDGET_MS }, params);
+      geminiHealth.lastOk = { at: Date.now(), model: `ARC: ${response.model ?? ARC.model}` };
+      return response;
+    } catch (err: any) {
+      const kind = classifyGeminiError(err);
+      geminiHealth.lastFailure = { at: Date.now(), kind, models: [`ARC (${ARC.model})`], detail: summarizeGeminiError(err), via: 'arc' };
+      if (!owner && !visitor) throw err;
+      console.log(`[AskDeepakAI AI] ARC could not answer (${kind}) - trying the Gemini key directly.`);
+    }
+  }
 
   if (!owner && !visitor) {
     geminiHealth.lastFailure = { at: Date.now(), kind: 'no_key', models: [], detail: 'GEMINI_API_KEY is not set.' };
@@ -673,7 +694,7 @@ let lastAiProbeAt = 0;
 
 function currentAiStatus() {
   const { lastOk, lastFailure } = geminiHealth;
-  const configured = !!ownerGeminiKey();
+  const configured = !!ARC || !!ownerGeminiKey();
   if (!configured) {
     return { state: 'unavailable' as const, reason: 'no_key' as const, message: describeGeminiFailure('no_key', []), detail: null, model: null };
   }
@@ -681,12 +702,12 @@ function currentAiStatus() {
     return {
       state: 'unavailable' as const,
       reason: lastFailure.kind,
-      message: describeGeminiFailure(lastFailure.kind, lastFailure.models),
+      message: lastFailure.via === 'arc' ? describeArcFailure(lastFailure.kind) : describeGeminiFailure(lastFailure.kind, lastFailure.models),
       detail: lastFailure.detail,
       model: null,
     };
   }
-  if (lastOk) return { state: 'ok' as const, reason: null, message: 'Gemini is responding.', detail: null, model: lastOk.model };
+  if (lastOk) return { state: 'ok' as const, reason: null, message: lastOk.model.startsWith('ARC') ? 'AI is responding through ARC.' : 'Gemini is responding.', detail: null, model: lastOk.model };
   return { state: 'unknown' as const, reason: null, message: 'No AI request has been made yet.', detail: null, model: null };
 }
 
