@@ -205,7 +205,8 @@ The agents work in both.
 
 ## AI: Gemini, your own key, and working without AI
 
-- **Server key:** the server uses `GEMINI_API_KEY` when it's set.
+- **Through ARC (optional, recommended):** with `ARC_BASE_URL` and `ARC_API_KEY` set, every AI call goes to [ARC](https://github.com/thedeepakreddy/ARC-AI_Runtime_and_connectivity) first (`arcClient.ts`). ARC holds the owner's provider keys — several per provider, across providers — and picks a healthy free model and key for each call, with its own fallback. The studio's requests (JSON schemas, the ML agent's tool calls) are translated to ARC's OpenAI-compatible API and back, so every feature works unchanged. `ARC_MODEL` picks the model (default `auto`). If ARC can't answer, the studio falls back to `GEMINI_API_KEY`, then a visitor's own key, then its built-in versions; the AI notice says when ARC is the problem and why. Check a deployment with `ARC_BASE_URL=… ARC_API_KEY=… npx tsx scripts/arc-smoke.ts`.
+- **Server key:** the server uses `GEMINI_API_KEY` when it's set (after ARC, when ARC is configured).
 - **Your own key:** visitors can add their own free key from [Google AI Studio](https://aistudio.google.com/) (toolbar → key icon). It is kept only in your browser, sent only with your own requests and never stored on the server.
 - **The model keeps itself current.** Google retires models regularly, so the server asks Google which models exist (ListModels) instead of relying on a fixed list:
   - **Free tier (the default):** it tests the newest models with one tiny request each and keeps the newest ones that answer on the key **without billing**.
@@ -360,7 +361,8 @@ Details: [`docs/DEPLOY_ENGINE.md`](docs/DEPLOY_ENGINE.md). Both can also run on 
 - Start: `npm start`
 - Environment:
   - `ML_SERVICE_URL` = the ML service's URL
-  - `GEMINI_API_KEY` = your key (optional)
+  - `ARC_BASE_URL` = `https://<your ARC>/v1` and `ARC_API_KEY` = the studio's own ARC key (optional, recommended)
+  - `GEMINI_API_KEY` = your key (optional; a fallback when ARC is set)
   - `NODE_ENV=production`
 
 Free services sleep when idle. The studio wakes the ML service for you ("Wake ML Engine" in the toolbar, and automatically when an agent needs it). The first request after a sleep can take about a minute.
