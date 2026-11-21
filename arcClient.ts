@@ -43,6 +43,35 @@ export class ArcCallError extends Error {
   }
 }
 
+/** ARC API key shape: ARC_DEE_<key id>_PAK_<secret>. */
+export const ARC_KEY_SHAPE = /^ARC_DEE_[0-9A-Za-z]{17}_PAK_[0-9A-Za-z]{43}$/;
+export const isArcKey = (key: string | null | undefined): key is string => !!key && ARC_KEY_SHAPE.test(key);
+
+/**
+ * Where a visitor's own ARC key is used (their own ARC workspace and provider keys):
+ * ARC_USER_URL, else the app's ARC_BASE_URL, else the public ARC.
+ */
+export function arcUserUrl(env: Record<string, string | undefined> = process.env): string {
+  return (env.ARC_USER_URL?.trim() || env.ARC_BASE_URL?.trim() || 'https://arc-ai.run.place/v1');
+}
+
+/** What went wrong with a visitor's own ARC key, in words they can act on. */
+export function describeVisitorArcFailure(kind: string): string {
+  switch (kind) {
+    case 'bad_key':
+      return 'ARC rejected this key. Check it was copied in full from your app’s page in ARC, or issue a new one.';
+    case 'quota':
+    case 'busy':
+      return 'ARC has no free capacity on your keys right now. Add more provider keys in your ARC dashboard, or try again later.';
+    case 'model_unavailable':
+      return 'Your ARC has no model this studio can use yet. Add a provider key and turn on a model in your ARC dashboard.';
+    case 'network':
+      return 'The server could not reach ARC just now. Try again in a minute.';
+    default:
+      return 'ARC returned an unexpected error with this key.';
+  }
+}
+
 /** ARC is used when both are set (ARC_BASE_URL, ARC_API_KEY). */
 export function arcConfigFromEnv(env: Record<string, string | undefined> = process.env): ArcConfig | null {
   const baseUrl = env.ARC_BASE_URL?.trim();

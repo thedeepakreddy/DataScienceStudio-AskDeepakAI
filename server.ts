@@ -15,7 +15,7 @@ import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { GoogleGenAI, Type, FunctionCallingConfigMode } from '@google/genai';
 import { FALLBACK_GEMINI_MODELS, findFreeModels, rankGeminiModels, withFallback, type ListedModel, type ProbeOutcome } from './geminiModels';
-import { arcConfigFromEnv, arcGenerateContent, describeArcFailure } from './arcClient';
+import { arcConfigFromEnv, arcGenerateContent, arcUserUrl, describeArcFailure, describeVisitorArcFailure, isArcKey } from './arcClient';
 
 const app = express();
 // Render (and most hosts) put the app behind one proxy; trust it so req.ip is the visitor's address.
@@ -34,7 +34,7 @@ app.use(express.json({ limit: '50mb' }));
 type AiKeyContext = {
   userKey: string | null;
   /** What happened when this request fell back to the visitor's key, if it did. */
-  visitorKeyResult?: { ok: true } | { ok: false; kind: GeminiFailureKind; detail: string };
+  visitorKeyResult?: { ok: true } | { ok: false; kind: GeminiFailureKind; detail: string; arc?: boolean };
 };
 const aiKeyContext = new AsyncLocalStorage<AiKeyContext>();
 // Classic keys (AIza…) and newer AI Studio keys, which can contain dots (AQ.…).
@@ -52,10 +52,17 @@ function ownerGeminiKey(): string | null {
   const key = process.env.GEMINI_API_KEY;
   return key && !PLACEHOLDER_KEYS.has(key) ? key : null;
 }
-/** The visitor's own key for the current request, if they supplied one. */
+/** The visitor's own key for the current request (Gemini or ARC), if they supplied one. */
 function visitorGeminiKey(): string | null {
   return aiKeyContext.getStore()?.userKey ?? null;
 }
+/** The visitor's key only when it is a Google key (an ARC key can't list Gemini models). */
+function visitorGoogleKey(): string | null {
+  const key = visitorGeminiKey();
+  return key && !isArcKey(key) ? key : null;
+}
+/** A visitor's own ARC key goes to their own ARC workspace (ARC picks the model and falls back). */
+const visitorArc = (apiKey: string) => ({ baseUrl: arcUserUrl(), apiKey, model: 'auto' });
 // --- ARC (optional) ---
 // With ARC_BASE_URL and ARC_API_KEY set, every AI call goes to ARC first: ARC holds the owner's
 // provider keys (several per provider) and picks a healthy free model and key, with its own
@@ -219,7 +226,7 @@ async function listGeminiModels(apiKey: string): Promise<ListedModel[]> {
 }
 
 /** Asks Google for the newest usable models; true when the list changed. `force` skips the 10-minute limit. */
-function refreshGeminiModels(force = false, key = ownerGeminiKey() || visitorGeminiKey(), tier: GeminiTier = geminiTier): Promise<boolean> {
+function refreshGeminiModels(force = false, key = ownerGeminiKey() || visitorGoogleKey(), tier: GeminiTier = geminiTier): Promise<boolean> {
   if (!key) return Promise.resolve(false);
   if (modelRefresh) return modelRefresh;
   if (!force && geminiModelInfo.updatedAt && Date.now() - geminiModelInfo.updatedAt < MODEL_REFRESH_MIN_MS) return Promise.resolve(false);
@@ -397,6 +404,16 @@ async function generateContentWithRetry(_client: GoogleGenAI, params: {
   }
 
   const store = aiKeyContext.getStore();
+  if (isArcKey(visitor)) {
+    try {
+      const response = await arcGenerateContent({ ...visitorArc(visitor), timeoutMs: GEMINI_CALL_BUDGET_MS }, params);
+      if (store) store.visitorKeyResult = { ok: true };
+      return response;
+    } catch (err) {
+      if (store) store.visitorKeyResult = { ok: false, kind: classifyGeminiError(err), detail: summarizeGeminiError(err), arc: true };
+      throw err;
+    }
+  }
   try {
     const { response } = await runAcrossModels(new GoogleGenAI({ apiKey: visitor! }), params);
     if (store) store.visitorKeyResult = { ok: true };
@@ -729,7 +746,8 @@ app.get('/api/ai/status', async (req, res) => {
     // it - whether it worked. The key itself is never echoed back.
     visitorKey: !!visitorGeminiKey(),
     visitorKeyOk: visitorKeyResult ? visitorKeyResult.ok : null,
-    visitorKeyMessage: visitorKeyResult && visitorKeyResult.ok === false ? describeVisitorKeyFailure(visitorKeyResult.kind) : null,
+    visitorKeyMessage: visitorKeyResult && visitorKeyResult.ok === false ? (visitorKeyResult.arc ? describeVisitorArcFailure(visitorKeyResult.kind) : describeVisitorKeyFailure(visitorKeyResult.kind)) : null,
+    visitorKeyKind: visitorGeminiKey() ? (isArcKey(visitorGeminiKey()) ? 'arc' : 'gemini') : null,
   });
 });
 
@@ -786,7 +804,7 @@ const keyTestLastAt = new Map<string, number>();
 app.post('/api/ai/test-key', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const key = visitorGeminiKey();
-  if (!key) return res.status(400).json({ ok: false, message: 'That does not look like a Gemini API key.' });
+  if (!key) return res.status(400).json({ ok: false, message: 'That does not look like a Gemini or ARC API key.' });
 
   const who = req.ip || 'unknown';
   const last = keyTestLastAt.get(who) ?? 0;
@@ -796,6 +814,15 @@ app.post('/api/ai/test-key', async (req, res) => {
   keyTestLastAt.set(who, Date.now());
   if (keyTestLastAt.size > 5000) keyTestLastAt.clear();
 
+  if (isArcKey(key)) {
+    try {
+      await arcGenerateContent({ ...visitorArc(key), timeoutMs: 20_000 }, { contents: 'Reply with the single word: OK' });
+      return res.json({ ok: true, kind: 'arc', message: 'Your ARC key works.' });
+    } catch (err) {
+      const kind = classifyGeminiError(err);
+      return res.json({ ok: false, kind: 'arc', reason: kind, message: describeVisitorArcFailure(kind) });
+    }
+  }
   try {
     const client = new GoogleGenAI({ apiKey: key });
     try {

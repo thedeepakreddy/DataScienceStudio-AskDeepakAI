@@ -8,12 +8,12 @@ import { motion } from 'motion/react';
 import { CheckCircle2, AlertTriangle, ExternalLink, Eye, EyeOff, KeyRound, Lock } from 'lucide-react';
 import Orb from './Orb';
 import AiModelUpdate, { type AiModelInfo } from './AiModelUpdate';
-import { AI_KEY_HEADER, cleanGeminiKey, getUserGeminiKey, looksLikeGeminiKey, maskKey, setUserGeminiKey } from '../utils/aiKey';
+import { AI_KEY_HEADER, ARC_DASHBOARD_URL, cleanGeminiKey, getUserGeminiKey, keyKind, looksLikeGeminiKey, maskKey, setUserGeminiKey } from '../utils/aiKey';
 
 type TestResult = { ok: boolean; message: string; reason?: string } | null;
 
 /**
- * Lets a visitor add their own Gemini API key, used only when the app's own
+ * Lets a visitor add their own Gemini or ARC API key, used only when the app's own
  * key can't answer (for example when its free quota runs out).
  */
 export default function AiKeySheet({ onClose, onChanged, models }: { onClose: () => void; onChanged: () => void; models?: AiModelInfo }) {
@@ -103,21 +103,22 @@ export default function AiKeySheet({ onClose, onChanged, models }: { onClose: ()
             <span className="w-10 h-10 rounded-xl bg-blue/12 text-blue flex items-center justify-center shrink-0">
               <KeyRound className="w-5 h-5" />
             </span>
-            <h2 id="ai-key-title" className="text-xl font-semibold tracking-tight text-label">Your Gemini API key</h2>
+            <h2 id="ai-key-title" className="text-xl font-semibold tracking-tight text-label">Your own API key</h2>
           </div>
           <button type="button" onClick={onClose} className="btn btn-plain font-semibold -mr-2 -mt-1">Done</button>
         </div>
 
         <p className="mt-4 text-sm text-label-2 leading-relaxed">
-          Optional. The studio uses its own Gemini key first. If that runs out, AI features switch to your key so
-          they keep working. Your key is only used when the studio’s key can’t answer.
+          Optional. The studio uses its own key first. If that runs out, AI features switch to your key so they keep
+          working. Use a free Gemini key, or an ARC key: ARC picks a working model and falls back across the
+          provider keys you add there (Gemini, Groq, OpenRouter…).
         </p>
 
         {saved ? (
           <div className="mt-5 rounded-2xl bg-well p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs text-label-2">Saved key</p>
+                <p className="text-xs text-label-2">Saved {keyKind(saved) === 'arc' ? 'ARC' : 'Gemini'} key</p>
                 <p className="mt-0.5 font-code text-sm text-label truncate">{maskKey(saved)}</p>
               </div>
               <div className="flex gap-2 shrink-0">
@@ -132,7 +133,7 @@ export default function AiKeySheet({ onClose, onChanged, models }: { onClose: ()
           </div>
         ) : (
           <form onSubmit={saveAndTest} className="mt-5">
-            <label htmlFor="ai-key-input" className="field-label">API key</label>
+            <label htmlFor="ai-key-input" className="field-label">Gemini or ARC key</label>
             <div className="relative">
               <input
                 id="ai-key-input"
@@ -154,7 +155,11 @@ export default function AiKeySheet({ onClose, onChanged, models }: { onClose: ()
               </button>
             </div>
             {draft && !draftValid && (
-              <p className="mt-1.5 text-xs text-red">That doesn’t look like a Gemini API key. Copy it again from Google AI Studio (it usually starts with “AIza” or “AQ.”).</p>
+              <p className="mt-1.5 text-xs text-red">
+                {/^ARC_/.test(cleanGeminiKey(draft))
+                  ? 'That ARC key looks cut short. Copy it again from your app’s page in ARC (it starts with “ARC_DEE_”).'
+                  : 'That doesn’t look like a Gemini or ARC key. Copy it again (Gemini keys usually start with “AIza” or “AQ.”, ARC keys with “ARC_DEE_”).'}
+              </p>
             )}
             <button
               type="submit"
@@ -185,19 +190,30 @@ export default function AiKeySheet({ onClose, onChanged, models }: { onClose: ()
           <AiModelUpdate models={models} onUpdated={onChanged} />
         </div>
 
-        <a
-          href="https://aistudio.google.com/app/apikey"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-5 inline-flex items-center gap-1.5 text-sm text-blue hover:underline"
-        >
-          Get a free key in Google AI Studio <ExternalLink className="w-3.5 h-3.5" />
-        </a>
+        <div className="mt-5 flex flex-col items-start gap-2">
+          <a
+            href="https://aistudio.google.com/app/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-blue hover:underline"
+          >
+            Get a free key in Google AI Studio <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+          <a
+            href={ARC_DASHBOARD_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-blue hover:underline"
+          >
+            Get an ARC key: sign up, add your provider keys, create an app <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
 
         <p className="mt-4 pt-4 border-t border-separator flex items-start gap-2 text-xs text-label-3 leading-relaxed">
           <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          Saved only in this browser. It’s sent with your AI requests and passed straight to Google — never stored
-          or logged on the server. Anyone using this browser can use it, so remove it on shared computers.
+          Saved only in this browser. It’s sent with your AI requests and passed straight to Google (or to ARC, for
+          an ARC key) — never stored or logged on the server. Anyone using this browser can use it, so remove it on
+          shared computers.
         </p>
       </motion.div>
     </div>
