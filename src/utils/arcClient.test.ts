@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Type, FunctionCallingConfigMode } from '@google/genai';
-import { ArcCallError, arcConfigFromEnv, arcGenerateContent, arcUserUrl, describeArcFailure, describeVisitorArcFailure, fromOpenAIChat, isArcKey, toJsonSchema, toOpenAIChat } from '../../arcClient';
+import { extractJson, ArcCallError, arcConfigFromEnv, arcGenerateContent, arcUserUrl, describeArcFailure, describeVisitorArcFailure, fromOpenAIChat, isArcKey, toJsonSchema, toOpenAIChat } from '../../arcClient';
 import { classifyGeminiError } from '../../geminiHealth';
 
 const ok = (body: unknown, headers: Record<string, string> = {}) =>
@@ -146,5 +146,23 @@ describe("visitors' own ARC keys", () => {
     const r = await arcGenerateContent({ baseUrl: arcUserUrl({}), apiKey: key, model: 'auto', fetchImpl }, { contents: 'Hi' });
     expect(r.text).toBe('OK');
     expect(seen[0]).toEqual({ url: 'https://arc-ai.run.place/v1/chat/completions', auth: `Bearer ${key}` });
+  });
+});
+
+describe('JSON answers from free models', () => {
+  it('finds the JSON around reasoning, sentences and fences', () => {
+    expect(extractJson('{"a":1}')).toBe('{"a":1}');
+    expect(extractJson('<think>let me see</think>\n{"a":1}')).toBe('{"a":1}');
+    expect(extractJson('Here is the JSON:\n```json\n{"a":[1,2]}\n```\nHope it helps!')).toBe('{"a":[1,2]}');
+    expect(extractJson('Sure! {"a": {"b": 2}} done')).toBe('{"a": {"b": 2}}');
+    expect(extractJson('[{"x":1}] trailing')).toBe('[{"x":1}]');
+    expect(extractJson('no json here')).toBe('no json here');
+  });
+  it('is applied only when the studio asked for JSON', async () => {
+    const fetchImpl = (async () => ok(completion({ content: 'Sure!\n```json\n{"ok":true}\n```' }))) as unknown as typeof fetch;
+    const asked = await arcGenerateContent({ baseUrl: 'https://arc.test/v1', apiKey: 'k', fetchImpl }, { contents: 'x', config: { responseMimeType: 'application/json' } });
+    expect(JSON.parse(asked.text)).toEqual({ ok: true });
+    const plain = await arcGenerateContent({ baseUrl: 'https://arc.test/v1', apiKey: 'k', fetchImpl }, { contents: 'x' });
+    expect(plain.text).toContain('Sure!');
   });
 });
