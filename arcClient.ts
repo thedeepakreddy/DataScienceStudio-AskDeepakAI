@@ -189,7 +189,31 @@ export function toOpenAIChat(params: { contents: any; config?: any }): Record<st
 }
 
 /** An OpenAI chat completion as the parts of a @google/genai response the studio reads. */
-export function fromOpenAIChat(data: any, route: { model?: string | null; provider?: string | null } = {}): ArcResponse {
+/**
+ * The JSON in a model's answer, when the studio asked for JSON. Free models often add a
+ * sentence, a Markdown fence or their reasoning (<think>…</think>) around it, and the studio
+ * JSON.parse()s .text. Returns the text unchanged when no JSON can be found in it.
+ */
+export function extractJson(raw: string): string {
+  const text = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  const valid = (t: string) => { try { JSON.parse(t); return true; } catch { return false; } };
+  if (valid(text)) return text;
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  if (fence && valid(fence[1].trim())) return fence[1].trim();
+  // The widest {...} or [...] that parses.
+  // Whichever opens first: an array of objects starts with '[', not its first '{'.
+  const pairs = ([['{', '}'], ['[', ']']] as const)
+    .filter(([open]) => text.includes(open))
+    .sort((a, b) => text.indexOf(a[0]) - text.indexOf(b[0]));
+  for (const [open, close] of pairs) {
+    const start = text.indexOf(open);
+    const end = text.lastIndexOf(close);
+    if (start >= 0 && end > start && valid(text.slice(start, end + 1))) return text.slice(start, end + 1);
+  }
+  return raw;
+}
+
+export function fromOpenAIChat(data: any, route: { model?: string | null; provider?: string | null; json?: boolean } = {}): ArcResponse {
   const message = data?.choices?.[0]?.message ?? {};
   const calls: ArcFunctionCall[] = (message.tool_calls ?? []).map((c: any) => {
     let args: Record<string, unknown>;
@@ -200,6 +224,7 @@ export function fromOpenAIChat(data: any, route: { model?: string | null; provid
   // Some providers wrap JSON-mode answers in a Markdown fence; the studio JSON.parse()s .text.
   const fenced = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/i.exec(text);
   if (fenced) text = fenced[1];
+  if (route.json && text) text = extractJson(text);
   return { text, functionCalls: calls.length ? calls : undefined, model: route.model ?? null, provider: route.provider ?? null };
 }
 
@@ -226,7 +251,8 @@ export async function arcGenerateContent(cfg: ArcConfig, params: { contents: any
   }
   const data: any = await res.json().catch(() => ({}));
   if (!res.ok) throw new ArcCallError(res.status, String(data?.error?.code ?? ''), String(data?.error?.message ?? 'ARC request failed'));
-  return fromOpenAIChat(data, { model: res.headers.get('x-arc-route-model'), provider: res.headers.get('x-arc-route-provider') });
+  const json = String(params.config?.responseMimeType ?? '').toLowerCase() === 'application/json';
+  return fromOpenAIChat(data, { model: res.headers.get('x-arc-route-model'), provider: res.headers.get('x-arc-route-provider'), json });
 }
 
 /** Why ARC isn't answering, in words the owner can act on (kinds from classifyGeminiError). */
