@@ -765,8 +765,8 @@ export default function App() {
               type="button"
               onClick={() => setAiKeySheetOpen(true)}
               className="btn btn-icon relative hidden sm:inline-flex"
-              aria-label={hasOwnKey ? 'Your Gemini API key (added)' : 'Use your own Gemini API key'}
-              title={hasOwnKey ? 'Your Gemini API key is added' : 'Use your own Gemini API key'}
+              aria-label={hasOwnKey ? 'Your API key (added)' : 'Use your own API key (Gemini or ARC)'}
+              title={hasOwnKey ? 'Your API key is added' : 'Use your own API key (Gemini or ARC)'}
             >
               <KeyRound className="w-[18px] h-[18px]" />
               {hasOwnKey && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green ring-2 ring-canvas" aria-hidden="true" />}
@@ -797,7 +797,7 @@ export default function App() {
               items={[
                 { label: expertMode ? 'Switch to Beginner' : 'Switch to Expert', icon: <Users className="w-4 h-4" />, onSelect: () => setExpertMode(!expertMode), className: 'min-[380px]:hidden' },
                 { label: 'History', icon: <History className="w-4 h-4" />, onSelect: () => setHistoryOpen(true) },
-                { label: hasOwnKey ? 'Your Gemini key (added)' : 'Use your own Gemini key', icon: <KeyRound className="w-4 h-4" />, onSelect: () => setAiKeySheetOpen(true) },
+                { label: hasOwnKey ? 'Your API key (added)' : 'Use your own API key', icon: <KeyRound className="w-4 h-4" />, onSelect: () => setAiKeySheetOpen(true) },
                 { label: theme === 'dark' ? 'Light appearance' : 'Dark appearance', icon: theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />, onSelect: toggleTheme },
                 { label: 'About the creator', icon: <CircleUser className="w-4 h-4" />, onSelect: () => setIsAboutModalOpen(true) },
               ]}
@@ -910,8 +910,8 @@ export default function App() {
               <p className="text-label">
                 <span className="font-semibold">AI answers are unavailable right now.</span>{' '}
                 {ownKeyFailed
-                  ? 'Your own Gemini key didn’t work either, so AI features are using built-in answers.'
-                  : 'AI features are using built-in answers. You can add your own free Gemini key to keep them working.'}
+                  ? 'Your own key didn’t work either, so AI features are using built-in answers.'
+                  : 'AI features are using built-in answers. You can add your own free Gemini key, or an ARC key, to keep them working.'}
               </p>
               <details className="mt-1 text-xs text-label-2">
                 <summary className="cursor-pointer w-max">Why?</summary>

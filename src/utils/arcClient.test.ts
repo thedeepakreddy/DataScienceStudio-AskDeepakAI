@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Type, FunctionCallingConfigMode } from '@google/genai';
-import { ArcCallError, arcConfigFromEnv, arcGenerateContent, describeArcFailure, fromOpenAIChat, toJsonSchema, toOpenAIChat } from '../../arcClient';
+import { ArcCallError, arcConfigFromEnv, arcGenerateContent, arcUserUrl, describeArcFailure, describeVisitorArcFailure, fromOpenAIChat, isArcKey, toJsonSchema, toOpenAIChat } from '../../arcClient';
 import { classifyGeminiError } from '../../geminiHealth';
 
 const ok = (body: unknown, headers: Record<string, string> = {}) =>
@@ -116,5 +116,35 @@ describe('calling ARC', () => {
   it('an unreachable ARC is a network failure', async () => {
     const err = await arcGenerateContent({ baseUrl: 'https://arc.example', apiKey: 'k', fetchImpl: (async () => { throw new TypeError('fetch failed'); }) as any }, { contents: 'x' }).catch((e) => e);
     expect(classifyGeminiError(err)).toBe('network');
+  });
+});
+
+describe("visitors' own ARC keys", () => {
+  const key = `ARC_DEE_${'a'.repeat(17)}_PAK_${'B'.repeat(43)}`;
+  it('recognises only whole ARC keys', () => {
+    expect(isArcKey(key)).toBe(true);
+    expect(isArcKey(key.slice(0, 50))).toBe(false);
+    expect(isArcKey('AIzaSyA1234567890abcdefghijklmnopqrstuv')).toBe(false);
+    expect(isArcKey(null)).toBe(false);
+  });
+  it('sends them to ARC_USER_URL, else the app\'s ARC, else the public ARC', () => {
+    expect(arcUserUrl({ ARC_USER_URL: 'https://mine.example/v1', ARC_BASE_URL: 'https://app.example/v1' })).toBe('https://mine.example/v1');
+    expect(arcUserUrl({ ARC_BASE_URL: 'https://app.example/v1' })).toBe('https://app.example/v1');
+    expect(arcUserUrl({})).toBe('https://arc-ai.run.place/v1');
+  });
+  it('explains failures in terms of the visitor\'s own ARC, not the app\'s settings', () => {
+    expect(describeVisitorArcFailure('bad_key')).toMatch(/ARC rejected this key/);
+    expect(describeVisitorArcFailure('busy')).toMatch(/your ARC dashboard/);
+    expect(describeVisitorArcFailure(classifyGeminiError(new ArcCallError(401, 'invalid_api_key', 'Invalid ARC API key')))).toMatch(/ARC rejected/);
+  });
+  it('a visitor key is used as the bearer token against that ARC', async () => {
+    const seen: { url: string; auth: string | null }[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      seen.push({ url, auth: new Headers(init.headers).get('authorization') });
+      return ok(completion({ content: 'OK' }), { 'x-arc-route-model': 'groq/llama' });
+    }) as unknown as typeof fetch;
+    const r = await arcGenerateContent({ baseUrl: arcUserUrl({}), apiKey: key, model: 'auto', fetchImpl }, { contents: 'Hi' });
+    expect(r.text).toBe('OK');
+    expect(seen[0]).toEqual({ url: 'https://arc-ai.run.place/v1/chat/completions', auth: `Bearer ${key}` });
   });
 });

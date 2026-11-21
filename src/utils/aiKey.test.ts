@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanGeminiKey, looksLikeGeminiKey } from './aiKey';
+import { cleanGeminiKey, isArcKey, keyKind, looksLikeGeminiKey } from './aiKey';
 
 describe('Gemini key check', () => {
   it('accepts classic and newer AI Studio keys', () => {
@@ -16,5 +16,19 @@ describe('Gemini key check', () => {
   it('rejects text that is not a key', () => {
     expect(looksLikeGeminiKey('hello')).toBe(false);
     expect(looksLikeGeminiKey('my key is <secret>')).toBe(false);
+  });
+});
+
+describe('ARC key check', () => {
+  const arc = `ARC_DEE_${'a'.repeat(17)}_PAK_${'B'.repeat(43)}`;
+  it('accepts a whole ARC key and tells it apart from a Gemini key', () => {
+    expect(looksLikeGeminiKey(arc)).toBe(true);
+    expect(isArcKey(arc)).toBe(true);
+    expect(keyKind(arc)).toBe('arc');
+    expect(keyKind('AIzaSyA1234567890abcdefghijklmnopqrstuv')).toBe('gemini');
+    expect(cleanGeminiKey(`ARC_API_KEY=${arc}`)).toBe(arc);
+  });
+  it('rejects an ARC key that was cut short', () => {
+    expect(looksLikeGeminiKey(arc.slice(0, 40))).toBe(false);
   });
 });
